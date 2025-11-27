@@ -57,7 +57,7 @@ curl https://your-tenant.fly.dev/api/things \
   -H "Authorization: Bearer ts_your_api_key"
 ```
 
-**Scopes:** `things:read`, `things:write`, `things:delete`, `kinds:*`, `tags:*`, `keys:manage`
+**Scopes:** `things:read`, `things:write`, `things:delete`, `kinds:*`, `keys:manage`
 
 ## Try It
 
@@ -83,12 +83,13 @@ Want to try before deploying? Use the public sandbox:
 
 Visit `localhost:3069` during development.
 
-**Production** is a single binary:
-- Frontend is built and embedded into the Go binary
-- One process serves both API and static files on one port
+**Production** serves frontend from a CDN/static host:
+- Frontend is built separately and hosted on S3/Tigris/CDN
+- Backend fetches and serves static files on demand
+- Set `PRODUCTION=true` and optionally `TIGRIS_STATIC_URL` to override the CDN URL
 - Deploy anywhere: Fly.io, Docker, any VPS
 
-This means zero config for deployment — just `fly deploy` and you're done.
+This architecture allows instant frontend deployments without rebuilding the backend.
 
 ## Development
 

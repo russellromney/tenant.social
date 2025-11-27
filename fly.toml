@@ -1,11 +1,10 @@
-app = "tenant-social"
+app = "tenant-social-sandbox"
 primary_region = "ewr"
 
 [build]
 
 [env]
   PORT = "8080"
-  PRODUCTION = "true"
   DB_BACKEND = "turso"
 
 [http_service]

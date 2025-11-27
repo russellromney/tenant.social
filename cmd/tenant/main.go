@@ -34,9 +34,6 @@ func main() {
 		port = "8069"
 	}
 
-	// Check if running in production mode
-	production := os.Getenv("PRODUCTION") == "true"
-
 	// Check if running in sandbox mode
 	sandboxMode := os.Getenv("SANDBOX_MODE") == "true"
 
@@ -47,13 +44,10 @@ func main() {
 	}
 	defer s.Close()
 
-	// If sandbox mode, auto-create sandbox user if no users exist
+	// If sandbox mode, ensure sandbox user exists
 	if sandboxMode {
-		userCount, err := s.CountUsers()
+		_, err := s.GetUserByUsername("sandbox")
 		if err != nil {
-			log.Fatalf("Failed to count users: %v", err)
-		}
-		if userCount == 0 {
 			log.Println("Sandbox mode: creating sandbox user")
 			passwordHash, _ := bcrypt.GenerateFromPassword([]byte("sandbox"), bcrypt.DefaultCost)
 			sandboxUser := &models.User{
@@ -68,6 +62,8 @@ func main() {
 				log.Fatalf("Failed to create sandbox user: %v", err)
 			}
 			log.Println("Sandbox user created (username: sandbox, password: sandbox)")
+		} else {
+			log.Println("Sandbox mode: sandbox user already exists")
 		}
 	}
 
@@ -115,40 +111,30 @@ func main() {
 	// API routes
 	r.Mount("/api", a.Routes())
 
-	// Serve frontend
-	if production {
-		// Production: serve embedded files
-		log.Println("Running in production mode with embedded frontend")
+	// Serve frontend from embedded files
+	distFS, err := fs.Sub(embeddedFiles, "dist")
+	if err != nil {
+		log.Fatalf("Failed to create sub filesystem: %v", err)
+	}
+	fileServer := http.FileServer(http.FS(distFS))
 
-		// Get the dist subdirectory from embedded files
-		distFS, err := fs.Sub(embeddedFiles, "dist")
-		if err != nil {
-			log.Fatalf("Failed to get embedded dist: %v", err)
+	r.Get("/*", func(w http.ResponseWriter, req *http.Request) {
+		path := req.URL.Path
+		if !strings.HasPrefix(path, "/") {
+			path = "/" + path
 		}
 
-		// Serve static files, fallback to index.html for SPA routing
-		fileServer := http.FileServer(http.FS(distFS))
-		r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
-			// Try to serve the file directly
-			path := strings.TrimPrefix(r.URL.Path, "/")
-			if path == "" {
-				path = "index.html"
-			}
+		// Check if file exists in embedded FS
+		if f, err := distFS.Open(strings.TrimPrefix(path, "/")); err == nil {
+			f.Close()
+			fileServer.ServeHTTP(w, req)
+			return
+		}
 
-			// Check if file exists
-			if _, err := fs.Stat(distFS, path); err == nil {
-				fileServer.ServeHTTP(w, r)
-				return
-			}
-
-			// Fallback to index.html for SPA routing
-			r.URL.Path = "/"
-			fileServer.ServeHTTP(w, r)
-		})
-	} else {
-		// Dev: API only, frontend runs via Vite
-		log.Println("Running in dev mode. Frontend: cd web && npm run dev")
-	}
+		// SPA fallback: serve index.html for non-file routes
+		req.URL.Path = "/"
+		fileServer.ServeHTTP(w, req)
+	})
 
 	log.Printf("Tenant starting on http://localhost:%s", port)
 	if err := http.ListenAndServe(":"+port, r); err != nil {

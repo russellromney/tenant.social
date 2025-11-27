@@ -1,7 +1,18 @@
-# Build stage
-FROM golang:1.24-alpine AS builder
+# Build frontend
+FROM node:20-alpine AS frontend-builder
 
-RUN apk add --no-cache nodejs npm
+WORKDIR /app/web
+
+# Copy package files
+COPY web/package*.json ./
+RUN npm ci
+
+# Copy source and build
+COPY web/ ./
+RUN npm run build
+
+# Build Go binary
+FROM golang:1.24-alpine AS go-builder
 
 WORKDIR /app
 
@@ -9,11 +20,11 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Copy everything
+# Copy source code
 COPY . .
 
-# Build frontend (vite outputs to ../cmd/tenant/dist)
-RUN cd web && npm ci && npm run build
+# Copy built frontend to cmd/tenant/dist for embedding
+COPY --from=frontend-builder /app/cmd/tenant/dist ./cmd/tenant/dist
 
 # Build Go binary (pure Go, no CGO needed thanks to modernc.org/sqlite)
 RUN CGO_ENABLED=0 go build -o tenant ./cmd/tenant
@@ -25,7 +36,7 @@ RUN apk add --no-cache ca-certificates
 
 WORKDIR /app
 
-COPY --from=builder /app/tenant .
+COPY --from=go-builder /app/tenant .
 
 # Create data directory for local SQLite
 RUN mkdir -p /data
@@ -46,12 +57,10 @@ EXPOSE 8080
 #   TURSO_AUTH_TOKEN - auth token
 #
 # Other:
-#   TENANT_PASSWORD - password for authentication (defaults to "dev")
 #   PORT - server port (defaults to 8080)
 
 ENV DB_BACKEND=sqlite
 ENV SQLITE_PATH=/data/tenant.db
 ENV PORT=8080
-ENV PRODUCTION=true
 
 CMD ["/app/tenant"]
