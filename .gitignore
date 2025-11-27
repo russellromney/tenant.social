@@ -1,0 +1,18 @@
+# Binary
+eighty
+
+# Database
+*.db
+
+# Build artifacts
+cmd/eighty/dist/
+
+# Node
+web/node_modules/
+
+# OS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/

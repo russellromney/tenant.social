@@ -1,0 +1,21 @@
+app = "tenant-social"
+primary_region = "ewr"
+
+[build]
+
+[env]
+  PORT = "8080"
+  PRODUCTION = "true"
+  # DB_BACKEND auto-detects from TURSO_DATABASE_URL in secrets
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[vm]]
+  memory = "256mb"
+  cpu_kind = "shared"
+  cpus = 1
