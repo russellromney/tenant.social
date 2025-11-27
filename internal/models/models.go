@@ -77,9 +77,6 @@ var APIKeyScopes = []string{
 	"kinds:read",    // List and get kinds
 	"kinds:write",   // Create and update kinds
 	"kinds:delete",  // Delete kinds
-	"tags:read",     // List and get tags
-	"tags:write",    // Create and update tags
-	"tags:delete",   // Delete tags
 	"keys:manage",   // Create, update, delete API keys
 }
 

@@ -769,3 +769,146 @@ func TestDeleteSession(t *testing.T) {
 		t.Error("Expected error for deleted session")
 	}
 }
+
+// API Key tests
+
+func TestCreateAPIKey(t *testing.T) {
+	store, cleanup := setupLocalTestStore(t)
+	defer cleanup()
+
+	key := &models.APIKey{
+		UserID: testUserID,
+		Name:   "Test Key",
+		Scopes: []string{"things:read", "kinds:read"},
+	}
+	rawKey := "ts_test123456789"
+	keyHash := "hashed_key_value"
+
+	err := store.CreateAPIKey(key, rawKey, keyHash)
+	if err != nil {
+		t.Fatalf("Failed to create API key: %v", err)
+	}
+
+	if key.ID == "" {
+		t.Error("Expected ID to be set")
+	}
+	if key.KeyPrefix == "" {
+		t.Error("Expected KeyPrefix to be set")
+	}
+}
+
+func TestGetAPIKey(t *testing.T) {
+	store, cleanup := setupLocalTestStore(t)
+	defer cleanup()
+
+	key := &models.APIKey{
+		UserID: testUserID,
+		Name:   "Test Key",
+		Scopes: []string{"things:read"},
+	}
+	store.CreateAPIKey(key, "ts_test123456789", "hashed_key")
+
+	retrieved, err := store.GetAPIKey(key.ID)
+	if err != nil {
+		t.Fatalf("Failed to get API key: %v", err)
+	}
+
+	if retrieved.Name != key.Name {
+		t.Errorf("Expected name %s, got %s", key.Name, retrieved.Name)
+	}
+}
+
+func TestGetAPIKeyByPrefix(t *testing.T) {
+	store, cleanup := setupLocalTestStore(t)
+	defer cleanup()
+
+	key := &models.APIKey{
+		UserID: testUserID,
+		Name:   "Prefix Test Key",
+		Scopes: []string{"things:read", "things:write"},
+	}
+	store.CreateAPIKey(key, "ts_prefixtest123", "hashed_key")
+
+	retrieved, err := store.GetAPIKeyByPrefix(key.KeyPrefix)
+	if err != nil {
+		t.Fatalf("Failed to get API key by prefix: %v", err)
+	}
+
+	if retrieved.Name != key.Name {
+		t.Errorf("Expected name %s, got %s", key.Name, retrieved.Name)
+	}
+}
+
+func TestListAPIKeys(t *testing.T) {
+	store, cleanup := setupLocalTestStore(t)
+	defer cleanup()
+
+	// Keys need at least 8 chars after prefix for the prefix extraction
+	store.CreateAPIKey(&models.APIKey{UserID: testUserID, Name: "Key 1", Scopes: []string{"things:read"}}, "ts_key1abcdef123", "hash1")
+	store.CreateAPIKey(&models.APIKey{UserID: testUserID, Name: "Key 2", Scopes: []string{"kinds:read"}}, "ts_key2abcdef456", "hash2")
+	store.CreateAPIKey(&models.APIKey{UserID: testUserID, Name: "Key 3", Scopes: []string{}}, "ts_key3abcdef789", "hash3")
+
+	keys, err := store.ListAPIKeys(testUserID)
+	if err != nil {
+		t.Fatalf("Failed to list API keys: %v", err)
+	}
+
+	if len(keys) != 3 {
+		t.Errorf("Expected 3 API keys, got %d", len(keys))
+	}
+}
+
+func TestDeleteAPIKey(t *testing.T) {
+	store, cleanup := setupLocalTestStore(t)
+	defer cleanup()
+
+	key := &models.APIKey{
+		UserID: testUserID,
+		Name:   "To Delete",
+		Scopes: []string{"things:read"},
+	}
+	store.CreateAPIKey(key, "ts_todelete123", "hashed_key")
+
+	err := store.DeleteAPIKey(key.ID, testUserID)
+	if err != nil {
+		t.Fatalf("Failed to delete API key: %v", err)
+	}
+
+	_, err = store.GetAPIKey(key.ID)
+	if err == nil {
+		t.Error("Expected error for deleted API key")
+	}
+}
+
+func TestAPIKeyScopes(t *testing.T) {
+	store, cleanup := setupLocalTestStore(t)
+	defer cleanup()
+
+	t.Run("admin key has no scopes", func(t *testing.T) {
+		key := &models.APIKey{
+			UserID: testUserID,
+			Name:   "Admin Key",
+			Scopes: []string{}, // Empty = admin with all permissions
+		}
+		store.CreateAPIKey(key, "ts_admin123", "hash")
+
+		retrieved, _ := store.GetAPIKey(key.ID)
+		if len(retrieved.Scopes) != 0 {
+			t.Error("Admin key should have empty scopes")
+		}
+	})
+
+	t.Run("scoped key has specific scopes", func(t *testing.T) {
+		key := &models.APIKey{
+			UserID: testUserID,
+			Name:   "Scoped Key",
+			Scopes: []string{"things:read", "kinds:read"},
+		}
+		store.CreateAPIKey(key, "ts_scoped123", "hash")
+
+		retrieved, _ := store.GetAPIKey(key.ID)
+		if len(retrieved.Scopes) != 2 {
+			t.Errorf("Expected 2 scopes, got %d", len(retrieved.Scopes))
+		}
+	})
+}

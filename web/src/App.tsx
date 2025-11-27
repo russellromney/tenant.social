@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'preact/hooks'
 import { EMOJI_CATEGORIES, ALL_EMOJIS } from './emojis'
+import { useTheme, Theme } from './theme.tsx'
+import { Markdown } from './Markdown.tsx'
 
 // Types
 interface Attribute {
@@ -82,44 +84,45 @@ interface AuthStatus {
 }
 
 // Shared Footer Component
-function Footer() {
+function Footer({ theme }: { theme: Theme }) {
   return (
     <footer style={{
       marginTop: 48,
       paddingTop: 24,
-      borderTop: '1px solid #eee',
+      borderTop: `1px solid ${theme.border}`,
       textAlign: 'center',
-      color: '#999',
+      color: theme.textSubtle,
       fontSize: 14,
     }}>
-      <div style={{ marginBottom: 8, color: '#888', fontSize: 13 }}>
+      <div style={{ marginBottom: 8, color: theme.textMuted, fontSize: 13 }}>
         Your personal social data platform
       </div>
       <div style={{ marginBottom: 12 }}>
-        <a href="#/about" style={{ color: '#666', textDecoration: 'none', margin: '0 12px' }}>About</a>
-        <a href="#/docs" style={{ color: '#666', textDecoration: 'none', margin: '0 12px' }}>Docs</a>
-        <a href="#/guides" style={{ color: '#666', textDecoration: 'none', margin: '0 12px' }}>Guides</a>
-        <a href="https://github.com/russellromney/tenant.social" target="_blank" rel="noopener noreferrer" style={{ color: '#666', textDecoration: 'none', margin: '0 12px' }}>GitHub</a>
+        <a href="#/about" style={{ color: theme.textMuted, textDecoration: 'none', margin: '0 12px' }}>About</a>
+        <a href="#/docs" style={{ color: theme.textMuted, textDecoration: 'none', margin: '0 12px' }}>Docs</a>
+        <a href="#/guides" style={{ color: theme.textMuted, textDecoration: 'none', margin: '0 12px' }}>Guides</a>
+        <a href="https://github.com/russellromney/tenant.social" target="_blank" rel="noopener noreferrer" style={{ color: theme.textMuted, textDecoration: 'none', margin: '0 12px' }}>GitHub</a>
       </div>
-      Made with ❤️ in NYC by <a href="https://russellromney.com" target="_blank" rel="noopener noreferrer" style={{ color: '#0ea5e9', textDecoration: 'none' }}>me</a>
+      Made with ❤️ in NYC by <a href="https://russellromney.com" target="_blank" rel="noopener noreferrer" style={{ color: theme.link, textDecoration: 'none' }}>me</a>
     </footer>
   )
 }
 
 // Page wrapper for static pages
 function PageWrapper({ children, title }: { children: preact.ComponentChildren, title: string }) {
+  const { theme } = useTheme()
   return (
-    <div style={{ maxWidth: 700, margin: '0 auto', padding: 20, fontFamily: 'system-ui, sans-serif' }}>
+    <div style={{ maxWidth: 700, margin: '0 auto', padding: 20, fontFamily: 'system-ui, sans-serif', background: theme.bg, minHeight: '100vh', color: theme.text }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <a href="#/" style={{ textDecoration: 'none', color: 'inherit' }}>
+        <a href="#/" style={{ textDecoration: 'none', color: theme.text }}>
           <h1 style={{ fontSize: 28, fontWeight: 700, margin: 0 }}>tenant</h1>
         </a>
         <a
           href="#/"
           style={{
             padding: '8px 16px',
-            background: '#f5f5f5',
-            color: '#333',
+            background: theme.bgHover,
+            color: theme.textSecondary,
             borderRadius: 6,
             fontSize: 14,
             textDecoration: 'none',
@@ -130,21 +133,22 @@ function PageWrapper({ children, title }: { children: preact.ComponentChildren, 
       </div>
       <h2 style={{ fontSize: 24, fontWeight: 600, marginBottom: 24 }}>{title}</h2>
       {children}
-      <Footer />
+      <Footer theme={theme} />
     </div>
   )
 }
 
 // About Page
 function AboutPage() {
+  const { theme } = useTheme()
   return (
     <PageWrapper title="About Tenant">
-      <div style={{ lineHeight: 1.7, color: '#333' }}>
+      <div style={{ lineHeight: 1.7, color: theme.textSecondary }}>
         <p style={{ fontSize: 18, marginBottom: 24 }}>
           <strong>Tenant</strong> is your personal social data platform. Own your data, your way.
         </p>
 
-        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12 }}>What is Tenant?</h3>
+        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>What is Tenant?</h3>
         <p>
           Tenant combines the best parts of Twitter and Notion—without the creepy parts.
           It's open source, highly extensible, and puts you in control.
@@ -159,7 +163,7 @@ function AboutPage() {
           <li><strong>Cheap to run</strong> — Single binary, SQLite or Turso, minimal resources</li>
         </ul>
 
-        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12 }}>Philosophy</h3>
+        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>Philosophy</h3>
         <p>
           Social platforms have become creepy data extractors. Notion-like tools are great but don't feel social.
           Tenant is different:
@@ -171,10 +175,10 @@ function AboutPage() {
           <li><strong>Not creepy</strong> — No ads, no tracking, no selling your data</li>
         </ul>
 
-        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12 }}>Links</h3>
+        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>Links</h3>
         <ul style={{ paddingLeft: 24 }}>
-          <li><a href="https://github.com/russellromney/tenant.social" style={{ color: '#0ea5e9' }}>GitHub Repository</a></li>
-          <li><a href="https://tenant.social" style={{ color: '#0ea5e9' }}>Sandbox (try it out)</a></li>
+          <li><a href="https://github.com/russellromney/tenant.social" style={{ color: theme.link }}>GitHub Repository</a></li>
+          <li><a href="https://tenant.social" style={{ color: theme.link }}>Sandbox (try it out)</a></li>
         </ul>
       </div>
     </PageWrapper>
@@ -183,35 +187,36 @@ function AboutPage() {
 
 // Docs Page
 function DocsPage() {
+  const { theme } = useTheme()
   return (
     <PageWrapper title="API Documentation">
-      <div style={{ lineHeight: 1.7, color: '#333' }}>
+      <div style={{ lineHeight: 1.7, color: theme.textSecondary }}>
         <p style={{ marginBottom: 24 }}>
           Tenant has a full REST API for building integrations. Create an API key in the settings to get started.
         </p>
 
-        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12 }}>Authentication</h3>
+        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>Authentication</h3>
         <p>Use your API key in the Authorization header:</p>
-        <pre style={{ background: '#f5f5f5', padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13 }}>
+        <pre style={{ background: theme.bgMuted, padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13, color: theme.text }}>
 {`curl https://your-tenant.fly.dev/api/things \\
   -H "Authorization: Bearer ts_your_api_key"`}
         </pre>
 
-        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12 }}>API Scopes</h3>
+        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>API Scopes</h3>
         <ul style={{ paddingLeft: 24 }}>
-          <li><code style={{ background: '#f0f0f0', padding: '2px 6px', borderRadius: 4 }}>things:read</code> — Read things</li>
-          <li><code style={{ background: '#f0f0f0', padding: '2px 6px', borderRadius: 4 }}>things:write</code> — Create and update things</li>
-          <li><code style={{ background: '#f0f0f0', padding: '2px 6px', borderRadius: 4 }}>things:delete</code> — Delete things</li>
-          <li><code style={{ background: '#f0f0f0', padding: '2px 6px', borderRadius: 4 }}>kinds:read</code> — Read kinds</li>
-          <li><code style={{ background: '#f0f0f0', padding: '2px 6px', borderRadius: 4 }}>kinds:write</code> — Create and update kinds</li>
-          <li><code style={{ background: '#f0f0f0', padding: '2px 6px', borderRadius: 4 }}>kinds:delete</code> — Delete kinds</li>
-          <li><code style={{ background: '#f0f0f0', padding: '2px 6px', borderRadius: 4 }}>keys:manage</code> — Manage API keys</li>
+          <li><code style={{ background: theme.bgMuted, padding: '2px 6px', borderRadius: 4 }}>things:read</code> — Read things</li>
+          <li><code style={{ background: theme.bgMuted, padding: '2px 6px', borderRadius: 4 }}>things:write</code> — Create and update things</li>
+          <li><code style={{ background: theme.bgMuted, padding: '2px 6px', borderRadius: 4 }}>things:delete</code> — Delete things</li>
+          <li><code style={{ background: theme.bgMuted, padding: '2px 6px', borderRadius: 4 }}>kinds:read</code> — Read kinds</li>
+          <li><code style={{ background: theme.bgMuted, padding: '2px 6px', borderRadius: 4 }}>kinds:write</code> — Create and update kinds</li>
+          <li><code style={{ background: theme.bgMuted, padding: '2px 6px', borderRadius: 4 }}>kinds:delete</code> — Delete kinds</li>
+          <li><code style={{ background: theme.bgMuted, padding: '2px 6px', borderRadius: 4 }}>keys:manage</code> — Manage API keys</li>
         </ul>
 
-        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12 }}>Endpoints</h3>
+        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>Endpoints</h3>
 
-        <h4 style={{ fontSize: 16, marginTop: 24, marginBottom: 8 }}>Things</h4>
-        <pre style={{ background: '#f5f5f5', padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13 }}>
+        <h4 style={{ fontSize: 16, marginTop: 24, marginBottom: 8, color: theme.text }}>Things</h4>
+        <pre style={{ background: theme.bgMuted, padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13, color: theme.text }}>
 {`GET    /api/things          # List all things
 GET    /api/things/:id       # Get a thing
 POST   /api/things           # Create a thing
@@ -220,8 +225,8 @@ DELETE /api/things/:id       # Delete a thing
 GET    /api/things/search?q= # Search things`}
         </pre>
 
-        <h4 style={{ fontSize: 16, marginTop: 24, marginBottom: 8 }}>Kinds</h4>
-        <pre style={{ background: '#f5f5f5', padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13 }}>
+        <h4 style={{ fontSize: 16, marginTop: 24, marginBottom: 8, color: theme.text }}>Kinds</h4>
+        <pre style={{ background: theme.bgMuted, padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13, color: theme.text }}>
 {`GET    /api/kinds           # List all kinds
 GET    /api/kinds/:id        # Get a kind
 POST   /api/kinds            # Create a kind
@@ -229,8 +234,8 @@ PUT    /api/kinds/:id        # Update a kind
 DELETE /api/kinds/:id        # Delete a kind`}
         </pre>
 
-        <h4 style={{ fontSize: 16, marginTop: 24, marginBottom: 8 }}>Example: Create a Thing</h4>
-        <pre style={{ background: '#f5f5f5', padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13 }}>
+        <h4 style={{ fontSize: 16, marginTop: 24, marginBottom: 8, color: theme.text }}>Example: Create a Thing</h4>
+        <pre style={{ background: theme.bgMuted, padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13, color: theme.text }}>
 {`curl -X POST https://your-tenant.fly.dev/api/things \\
   -H "Authorization: Bearer ts_your_api_key" \\
   -H "Content-Type: application/json" \\
@@ -247,16 +252,17 @@ DELETE /api/kinds/:id        # Delete a kind`}
 
 // Guides Page
 function GuidesPage() {
+  const { theme } = useTheme()
   return (
     <PageWrapper title="Deployment Guides">
-      <div style={{ lineHeight: 1.7, color: '#333' }}>
+      <div style={{ lineHeight: 1.7, color: theme.textSecondary }}>
         <p style={{ marginBottom: 24 }}>
           Deploy your own Tenant instance in minutes. Choose your preferred platform:
         </p>
 
-        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12 }}>🚀 Fly.io (Recommended)</h3>
+        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>Fly.io (Recommended)</h3>
         <p>Easiest deployment with automatic HTTPS and global edge network.</p>
-        <pre style={{ background: '#f5f5f5', padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13 }}>
+        <pre style={{ background: theme.bgMuted, padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13, color: theme.text }}>
 {`# Install Fly CLI
 curl -L https://fly.io/install.sh | sh
 
@@ -274,9 +280,9 @@ fly deploy
 # Visit https://my-tenant.fly.dev`}
         </pre>
 
-        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12 }}>🐳 Docker</h3>
+        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>Docker</h3>
         <p>Run anywhere Docker runs.</p>
-        <pre style={{ background: '#f5f5f5', padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13 }}>
+        <pre style={{ background: theme.bgMuted, padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13, color: theme.text }}>
 {`# Build
 docker build -t tenant .
 
@@ -290,9 +296,9 @@ docker run -d \\
   tenant`}
         </pre>
 
-        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12 }}>💻 Run Locally</h3>
+        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>Run Locally</h3>
         <p>For development or personal use on your machine.</p>
-        <pre style={{ background: '#f5f5f5', padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13 }}>
+        <pre style={{ background: theme.bgMuted, padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13, color: theme.text }}>
 {`# Clone
 git clone https://github.com/russellromney/tenant.social.git
 cd tenant.social
@@ -306,9 +312,9 @@ make dev
 # Visit http://localhost:3069`}
         </pre>
 
-        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12 }}>☁️ Turso (Cloud Database)</h3>
+        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>Turso (Cloud Database)</h3>
         <p>Use Turso for edge-replicated SQLite in the cloud.</p>
-        <pre style={{ background: '#f5f5f5', padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13 }}>
+        <pre style={{ background: theme.bgMuted, padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13, color: theme.text }}>
 {`# Create Turso database
 turso db create tenant
 
@@ -322,32 +328,32 @@ TURSO_DATABASE_URL=libsql://tenant-xxx.turso.io
 TURSO_AUTH_TOKEN=your-token`}
         </pre>
 
-        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12 }}>Environment Variables</h3>
+        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>Environment Variables</h3>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
           <thead>
-            <tr style={{ borderBottom: '2px solid #ddd' }}>
+            <tr style={{ borderBottom: `2px solid ${theme.borderInput}` }}>
               <th style={{ textAlign: 'left', padding: '8px 0' }}>Variable</th>
               <th style={{ textAlign: 'left', padding: '8px 0' }}>Description</th>
             </tr>
           </thead>
           <tbody>
-            <tr style={{ borderBottom: '1px solid #eee' }}>
+            <tr style={{ borderBottom: `1px solid ${theme.border}` }}>
               <td style={{ padding: '8px 0' }}><code>PORT</code></td>
               <td style={{ padding: '8px 0' }}>Server port (default: 8069)</td>
             </tr>
-            <tr style={{ borderBottom: '1px solid #eee' }}>
+            <tr style={{ borderBottom: `1px solid ${theme.border}` }}>
               <td style={{ padding: '8px 0' }}><code>PRODUCTION</code></td>
               <td style={{ padding: '8px 0' }}>Set to "true" for production mode</td>
             </tr>
-            <tr style={{ borderBottom: '1px solid #eee' }}>
+            <tr style={{ borderBottom: `1px solid ${theme.border}` }}>
               <td style={{ padding: '8px 0' }}><code>DB_BACKEND</code></td>
               <td style={{ padding: '8px 0' }}>"sqlite" or "turso"</td>
             </tr>
-            <tr style={{ borderBottom: '1px solid #eee' }}>
+            <tr style={{ borderBottom: `1px solid ${theme.border}` }}>
               <td style={{ padding: '8px 0' }}><code>SQLITE_PATH</code></td>
               <td style={{ padding: '8px 0' }}>Path to SQLite database file</td>
             </tr>
-            <tr style={{ borderBottom: '1px solid #eee' }}>
+            <tr style={{ borderBottom: `1px solid ${theme.border}` }}>
               <td style={{ padding: '8px 0' }}><code>TURSO_DATABASE_URL</code></td>
               <td style={{ padding: '8px 0' }}>Turso database URL</td>
             </tr>
@@ -364,6 +370,7 @@ TURSO_AUTH_TOKEN=your-token`}
 
 // Auth Screen Component - handles both login and registration
 function AuthScreen({ onAuth, authStatus }: { onAuth: () => void, authStatus: AuthStatus | null }) {
+  const { theme } = useTheme()
   const [mode, setMode] = useState<'login' | 'register'>('login')
   const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
@@ -380,25 +387,25 @@ function AuthScreen({ onAuth, authStatus }: { onAuth: () => void, authStatus: Au
         justifyContent: 'center',
         minHeight: '100vh',
         fontFamily: 'system-ui, sans-serif',
-        background: '#fafafa',
+        background: theme.bg,
         flexDirection: 'column',
       }}>
         <div style={{
-          background: 'white',
+          background: theme.bgCard,
           padding: 32,
           borderRadius: 12,
-          boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+          boxShadow: `0 4px 12px ${theme.shadow}`,
           width: '100%',
           maxWidth: 380,
           textAlign: 'center',
         }}>
-          <h1 style={{ fontSize: 36, fontWeight: 700, margin: '0 0 8px' }}>tenant.social</h1>
-          <p style={{ color: '#666', fontSize: 14, margin: '0 0 20px' }}>
+          <h1 style={{ fontSize: 36, fontWeight: 700, margin: '0 0 8px', color: theme.text }}>tenant.social</h1>
+          <p style={{ color: theme.textMuted, fontSize: 14, margin: '0 0 20px' }}>
             Your personal social data platform
           </p>
           <p style={{
-            background: '#fef3c7',
-            color: '#92400e',
+            background: theme.warning,
+            color: theme.warningText,
             padding: '8px 12px',
             borderRadius: 6,
             fontSize: 13,
@@ -411,8 +418,8 @@ function AuthScreen({ onAuth, authStatus }: { onAuth: () => void, authStatus: Au
             style={{
               width: '100%',
               padding: '12px 20px',
-              background: '#1a1a1a',
-              color: 'white',
+              background: theme.accent,
+              color: theme.accentText,
               border: 'none',
               borderRadius: 6,
               fontSize: 16,
@@ -423,7 +430,7 @@ function AuthScreen({ onAuth, authStatus }: { onAuth: () => void, authStatus: Au
             Enter Sandbox
           </button>
         </div>
-        <Footer />
+        <Footer theme={theme} />
       </div>
     )
   }
@@ -486,22 +493,22 @@ function AuthScreen({ onAuth, authStatus }: { onAuth: () => void, authStatus: Au
       justifyContent: 'center',
       minHeight: '100vh',
       fontFamily: 'system-ui, sans-serif',
-      background: '#fafafa',
+      background: theme.bg,
       flexDirection: 'column',
     }}>
       <div style={{
-        background: 'white',
+        background: theme.bgCard,
         padding: 32,
         borderRadius: 12,
-        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+        boxShadow: `0 4px 12px ${theme.shadow}`,
         width: '100%',
         maxWidth: 380,
       }}>
-        <h1 style={{ fontSize: 36, fontWeight: 700, margin: '0 0 8px', textAlign: 'center' }}>tenant.social</h1>
-        <p style={{ color: '#666', fontSize: 14, margin: '0 0 20px', textAlign: 'center' }}>
+        <h1 style={{ fontSize: 36, fontWeight: 700, margin: '0 0 8px', textAlign: 'center', color: theme.text }}>tenant.social</h1>
+        <p style={{ color: theme.textMuted, fontSize: 14, margin: '0 0 20px', textAlign: 'center' }}>
           Your personal social data platform
         </p>
-        <p style={{ color: '#333', fontSize: 14, margin: '0 0 16px', textAlign: 'center', fontWeight: 500 }}>
+        <p style={{ color: theme.textSecondary, fontSize: 14, margin: '0 0 16px', textAlign: 'center', fontWeight: 500 }}>
           {isFreshInstance
             ? 'Claim this instance'
             : (mode === 'register' ? 'Create your account' : 'Sign in to continue')}
@@ -516,11 +523,13 @@ function AuthScreen({ onAuth, authStatus }: { onAuth: () => void, authStatus: Au
             style={{
               width: '100%',
               padding: '12px 14px',
-              border: '1px solid #ddd',
+              border: `1px solid ${theme.borderInput}`,
               borderRadius: 6,
               fontSize: 16,
               boxSizing: 'border-box',
               marginBottom: 12,
+              background: theme.bgInput,
+              color: theme.text,
             }}
           />
           {mode === 'register' && (
@@ -532,11 +541,13 @@ function AuthScreen({ onAuth, authStatus }: { onAuth: () => void, authStatus: Au
               style={{
                 width: '100%',
                 padding: '12px 14px',
-                border: '1px solid #ddd',
+                border: `1px solid ${theme.borderInput}`,
                 borderRadius: 6,
                 fontSize: 16,
                 boxSizing: 'border-box',
                 marginBottom: 12,
+                background: theme.bgInput,
+                color: theme.text,
               }}
             />
           )}
@@ -548,15 +559,17 @@ function AuthScreen({ onAuth, authStatus }: { onAuth: () => void, authStatus: Au
             style={{
               width: '100%',
               padding: '12px 14px',
-              border: error ? '1px solid #e44' : '1px solid #ddd',
+              border: error ? `1px solid ${theme.error}` : `1px solid ${theme.borderInput}`,
               borderRadius: 6,
               fontSize: 16,
               boxSizing: 'border-box',
               marginBottom: 12,
+              background: theme.bgInput,
+              color: theme.text,
             }}
           />
           {error && (
-            <p style={{ color: '#e44', fontSize: 13, margin: '0 0 12px' }}>{error}</p>
+            <p style={{ color: theme.error, fontSize: 13, margin: '0 0 12px' }}>{error}</p>
           )}
           <button
             type="submit"
@@ -564,8 +577,8 @@ function AuthScreen({ onAuth, authStatus }: { onAuth: () => void, authStatus: Au
             style={{
               width: '100%',
               padding: '12px 20px',
-              background: isValid && !loading ? '#1a1a1a' : '#ccc',
-              color: 'white',
+              background: isValid && !loading ? theme.accent : theme.textDisabled,
+              color: isValid && !loading ? theme.accentText : theme.textSubtle,
               border: 'none',
               borderRadius: 6,
               fontSize: 16,
@@ -581,22 +594,22 @@ function AuthScreen({ onAuth, authStatus }: { onAuth: () => void, authStatus: Au
         </form>
         {/* Only show toggle if registration is enabled and there's already an owner */}
         {showRegisterOption && !isFreshInstance && (
-          <p style={{ textAlign: 'center', fontSize: 14, color: '#666', margin: 0 }}>
+          <p style={{ textAlign: 'center', fontSize: 14, color: theme.textMuted, margin: 0 }}>
             {mode === 'register' ? (
-              <>Already have an account? <button onClick={() => { setMode('login'); setError('') }} style={{ background: 'none', border: 'none', color: '#0ea5e9', cursor: 'pointer', fontSize: 14, padding: 0 }}>Sign in</button></>
+              <>Already have an account? <button onClick={() => { setMode('login'); setError('') }} style={{ background: 'none', border: 'none', color: theme.link, cursor: 'pointer', fontSize: 14, padding: 0 }}>Sign in</button></>
             ) : (
-              <>Don't have an account? <button onClick={() => { setMode('register'); setError('') }} style={{ background: 'none', border: 'none', color: '#0ea5e9', cursor: 'pointer', fontSize: 14, padding: 0 }}>Register</button></>
+              <>Don't have an account? <button onClick={() => { setMode('register'); setError('') }} style={{ background: 'none', border: 'none', color: theme.link, cursor: 'pointer', fontSize: 14, padding: 0 }}>Register</button></>
             )}
           </p>
         )}
         {/* For single-tenant instances with an owner, no registration option */}
         {!showRegisterOption && authStatus?.hasOwner && mode === 'login' && (
-          <p style={{ textAlign: 'center', fontSize: 12, color: '#999', margin: 0 }}>
+          <p style={{ textAlign: 'center', fontSize: 12, color: theme.textSubtle, margin: 0 }}>
             This is a private instance
           </p>
         )}
       </div>
-      <Footer />
+      <Footer theme={theme} />
     </div>
   )
 }
@@ -604,6 +617,7 @@ function AuthScreen({ onAuth, authStatus }: { onAuth: () => void, authStatus: Au
 function App() {
   const route = useRoute()
   const isMobile = useIsMobile()
+  const { theme, isDark, toggleTheme } = useTheme()
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null)
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null)
   const [things, setThings] = useState<Thing[]>([])
@@ -619,6 +633,8 @@ function App() {
   const [uploading, setUploading] = useState(false)
 
   const isKindsPage = route === '#/kinds'
+  const isSettingsPage = route === '#/settings' || route === '#/data' || route === '#/keys' // aliases
+  const isSubPage = isKindsPage || isSettingsPage
 
   // Check authentication on mount
   useEffect(() => {
@@ -904,41 +920,91 @@ function App() {
   }
 
   return (
-    <div style={{ maxWidth: 700, margin: '0 auto', padding: 20, fontFamily: 'system-ui, sans-serif' }}>
+    <div style={{ maxWidth: 700, margin: '0 auto', padding: isMobile ? 12 : 20, fontFamily: 'system-ui, sans-serif', background: theme.bg, minHeight: '100vh', color: theme.text }}>
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <a href="#/" style={{ textDecoration: 'none', color: 'inherit' }}>
-          <h1 style={{ fontSize: 28, fontWeight: 700, margin: 0 }}>tenant</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: isMobile ? 16 : 24, gap: 8 }}>
+        <a href="#/" style={{ textDecoration: 'none', color: theme.text }}>
+          <h1 style={{ fontSize: isMobile ? 22 : 28, fontWeight: 700, margin: 0 }}>tenant</h1>
         </a>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <a
-            href={isKindsPage ? '#/' : '#/kinds'}
+        <div style={{ display: 'flex', gap: isMobile ? 4 : 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <button
+            onClick={toggleTheme}
             style={{
-              padding: '8px 16px',
-              background: isKindsPage ? '#1a1a1a' : '#f5f5f5',
-              color: isKindsPage ? 'white' : '#333',
+              padding: isMobile ? '6px 10px' : '8px 12px',
+              background: theme.bgHover,
+              color: theme.textMuted,
               border: 'none',
               borderRadius: 6,
-              fontSize: 14,
+              fontSize: 16,
               cursor: 'pointer',
-              textDecoration: 'none',
             }}
+            title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
           >
-            {isKindsPage ? '← Back' : 'Manage Kinds'}
-          </a>
+            {isDark ? '☀️' : '🌙'}
+          </button>
+          {isSubPage ? (
+            <a
+              href="#/"
+              style={{
+                padding: isMobile ? '6px 12px' : '8px 16px',
+                background: theme.accent,
+                color: theme.accentText,
+                border: 'none',
+                borderRadius: 6,
+                fontSize: isMobile ? 13 : 14,
+                cursor: 'pointer',
+                textDecoration: 'none',
+              }}
+            >
+              ←{isMobile ? '' : ' Back'}
+            </a>
+          ) : (
+            <>
+              <a
+                href="#/kinds"
+                style={{
+                  padding: isMobile ? '6px 10px' : '8px 16px',
+                  background: theme.bgHover,
+                  color: theme.textSecondary,
+                  border: 'none',
+                  borderRadius: 6,
+                  fontSize: isMobile ? 13 : 14,
+                  cursor: 'pointer',
+                  textDecoration: 'none',
+                }}
+              >
+                {isMobile ? '📋' : 'Kinds'}
+              </a>
+              <a
+                href="#/settings"
+                style={{
+                  padding: isMobile ? '6px 10px' : '8px 16px',
+                  background: theme.bgHover,
+                  color: theme.textSecondary,
+                  border: 'none',
+                  borderRadius: 6,
+                  fontSize: isMobile ? 13 : 14,
+                  cursor: 'pointer',
+                  textDecoration: 'none',
+                }}
+              >
+                ⚙️
+              </a>
+            </>
+          )}
           <button
             onClick={handleLogout}
             style={{
-              padding: '8px 16px',
-              background: '#f5f5f5',
-              color: '#666',
+              padding: isMobile ? '6px 10px' : '8px 16px',
+              background: theme.bgHover,
+              color: theme.textMuted,
               border: 'none',
               borderRadius: 6,
-              fontSize: 14,
+              fontSize: isMobile ? 13 : 14,
               cursor: 'pointer',
             }}
           >
-            Logout
+            {isMobile ? '🚪' : 'Logout'}
           </button>
         </div>
       </div>
@@ -950,11 +1016,20 @@ function App() {
           onDeleteKind={deleteKind}
           setEditingKind={setEditingKind}
           usedEmojis={getUsedEmojis()}
+          theme={theme}
+        />
+      ) : isSettingsPage ? (
+        <DataPanel
+          theme={theme}
+          onImportComplete={() => {
+            initializeKinds()
+            fetchThings()
+          }}
         />
       ) : (
         <>
           {/* Search & Filter */}
-          <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexDirection: isMobile ? 'column' : 'row' }}>
             <input
               type="text"
               value={searchQuery}
@@ -962,21 +1037,25 @@ function App() {
               placeholder="Search things..."
               style={{
                 flex: 1,
-                padding: '10px 14px',
-                border: '1px solid #ddd',
+                padding: isMobile ? '8px 12px' : '10px 14px',
+                border: `1px solid ${theme.borderInput}`,
                 borderRadius: 6,
                 fontSize: 14,
+                background: theme.bgInput,
+                color: theme.text,
               }}
             />
             <select
               value={filterKind}
               onChange={e => setFilterKind((e.target as HTMLSelectElement).value)}
               style={{
-                padding: '10px 14px',
-                border: '1px solid #ddd',
+                padding: isMobile ? '8px 12px' : '10px 14px',
+                border: `1px solid ${theme.borderInput}`,
                 borderRadius: 6,
                 fontSize: 14,
-                background: 'white',
+                background: theme.bgInput,
+                color: theme.text,
+                width: isMobile ? '100%' : 'auto',
               }}
             >
               <option value="">All Kinds</option>
@@ -990,8 +1069,8 @@ function App() {
           <form onSubmit={createThing} style={{ marginBottom: 32 }}>
             <div
               style={{
-                background: 'white',
-                border: '2px solid #e5e5e5',
+                background: theme.bgCard,
+                border: `2px solid ${theme.borderStrong}`,
                 borderRadius: 16,
                 overflow: 'hidden',
                 transition: 'border-color 0.15s',
@@ -1004,7 +1083,7 @@ function App() {
                   justifyContent: 'space-between',
                   alignItems: 'center',
                   padding: '10px 12px',
-                  borderBottom: '1px solid #f0f0f0',
+                  borderBottom: `1px solid ${theme.bgMuted}`,
                 }}
               >
                 <KindSelector
@@ -1012,6 +1091,7 @@ function App() {
                   selectedType={newType}
                   onSelectType={setNewType}
                   visibleCount={isMobile ? 2 : 4}
+                  theme={theme}
                 />
               </div>
 
@@ -1032,18 +1112,20 @@ function App() {
                     background: 'transparent',
                     boxSizing: 'border-box',
                     fontFamily: 'inherit',
+                    color: theme.text,
                   }}
                 />
 
                 {/* Kind-specific attributes */}
                 {currentKind?.attributes && currentKind.attributes.length > 0 && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12, paddingTop: 12, borderTop: '1px solid #f0f0f0' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12, paddingTop: 12, borderTop: `1px solid ${theme.bgMuted}` }}>
                     {currentKind.attributes.map(attr => (
                       <AttributeInput
                         key={attr.name}
                         attribute={attr}
                         value={newMetadata[attr.name]}
                         onChange={val => setNewMetadata({ ...newMetadata, [attr.name]: val })}
+                        theme={theme}
                       />
                     ))}
                   </div>
@@ -1057,8 +1139,8 @@ function App() {
                   justifyContent: 'space-between',
                   alignItems: 'center',
                   padding: '10px 12px',
-                  background: '#fafafa',
-                  borderTop: '1px solid #f0f0f0',
+                  background: theme.bgToolbar,
+                  borderTop: `1px solid ${theme.bgMuted}`,
                 }}
               >
                 <label
@@ -1072,7 +1154,7 @@ function App() {
                     borderRadius: 6,
                     fontSize: 14,
                     cursor: uploading ? 'wait' : 'pointer',
-                    color: '#666',
+                    color: theme.textMuted,
                   }}
                 >
                   <input
@@ -1091,8 +1173,8 @@ function App() {
                   disabled={!newContent.trim()}
                   style={{
                     padding: '8px 20px',
-                    background: newContent.trim() ? '#1a1a1a' : '#ccc',
-                    color: 'white',
+                    background: newContent.trim() ? theme.accent : theme.textDisabled,
+                    color: newContent.trim() ? theme.accentText : theme.textSubtle,
                     border: 'none',
                     borderRadius: 20,
                     fontSize: 14,
@@ -1109,7 +1191,7 @@ function App() {
 
           {/* Feed */}
           {loading ? null : things.length === 0 ? (
-            <p style={{ color: '#666' }}>
+            <p style={{ color: theme.textMuted }}>
               {searchQuery || filterKind ? 'No matching things found.' : 'No things yet. Add your first one!'}
             </p>
           ) : (
@@ -1122,6 +1204,7 @@ function App() {
                   onEdit={() => setEditingThing(thing)}
                   onDelete={() => deleteThing(thing.id)}
                   onUpdateThing={updateThing}
+                  theme={theme}
                 />
               ))}
             </div>
@@ -1136,6 +1219,7 @@ function App() {
           kinds={kinds}
           onSave={updateThing}
           onClose={() => setEditingThing(null)}
+          theme={theme}
         />
       )}
 
@@ -1146,10 +1230,11 @@ function App() {
           onSave={updateKind}
           onClose={() => setEditingKind(null)}
           usedEmojis={getUsedEmojis().filter(e => e !== editingKind.icon)}
+          theme={theme}
         />
       )}
 
-      <Footer />
+      <Footer theme={theme} />
     </div>
   )
 }
@@ -1160,11 +1245,13 @@ function KindSelector({
   selectedType,
   onSelectType,
   visibleCount,
+  theme,
 }: {
   kinds: Kind[]
   selectedType: string
   onSelectType: (type: string) => void
   visibleCount: number
+  theme: Theme
 }) {
   const visibleKinds = kinds.slice(0, visibleCount)
   const hiddenKinds = kinds.slice(visibleCount)
@@ -1190,8 +1277,8 @@ function KindSelector({
               border: 'none',
               borderRadius: 4,
               cursor: 'pointer',
-              background: isSelected ? '#1a1a1a' : '#f0f0f0',
-              color: isSelected ? 'white' : '#333',
+              background: isSelected ? theme.accent : theme.bgMuted,
+              color: isSelected ? theme.accentText : theme.textSecondary,
               fontWeight: 500,
               transition: 'all 0.15s',
             }}
@@ -1217,8 +1304,8 @@ function KindSelector({
             border: 'none',
             borderRadius: 4,
             cursor: 'pointer',
-            background: selectedInHidden ? '#1a1a1a' : '#f0f0f0',
-            color: selectedInHidden ? 'white' : '#666',
+            background: selectedInHidden ? theme.accent : theme.bgMuted,
+            color: selectedInHidden ? theme.accentText : theme.textMuted,
             fontWeight: 500,
           }}
         >
@@ -1243,12 +1330,14 @@ function ThingCard({
   onEdit,
   onDelete,
   onUpdateThing,
+  theme,
 }: {
   thing: Thing
   kind: Kind | undefined
   onEdit: () => void
   onDelete: () => void
   onUpdateThing: (thing: Thing) => void
+  theme: Theme
 }) {
   const template = kind?.template || 'default'
   const icon = kind?.icon || '•'
@@ -1263,14 +1352,14 @@ function ThingCard({
       style={{
         background: 'none',
         border: 'none',
-        color: '#ccc',
+        color: theme.textDisabled,
         cursor: 'pointer',
         fontSize: 18,
         padding: '4px 8px',
         flexShrink: 0,
       }}
-      onMouseEnter={e => (e.currentTarget.style.color = '#f44')}
-      onMouseLeave={e => (e.currentTarget.style.color = '#ccc')}
+      onMouseEnter={e => (e.currentTarget.style.color = theme.error)}
+      onMouseLeave={e => (e.currentTarget.style.color = theme.textDisabled)}
     >
       ×
     </button>
@@ -1290,9 +1379,9 @@ function ThingCard({
               style={{
                 fontSize: compact ? 11 : 12,
                 padding: compact ? '1px 6px' : '2px 8px',
-                background: '#f0f0f0',
+                background: theme.bgMuted,
                 borderRadius: 4,
-                color: '#666',
+                color: theme.textMuted,
               }}
             >
               {attr.type === 'checkbox' ? (val ? '✓ ' : '○ ') : ''}
@@ -1301,7 +1390,7 @@ function ThingCard({
                   href={String(val)}
                   target="_blank"
                   onClick={e => e.stopPropagation()}
-                  style={{ color: '#0ea5e9', textDecoration: 'none' }}
+                  style={{ color: theme.link, textDecoration: 'none' }}
                 >
                   {attr.name}
                 </a>
@@ -1325,20 +1414,20 @@ function ThingCard({
           alignItems: 'center',
           gap: 10,
           padding: '10px 14px',
-          background: 'white',
+          background: theme.bgCard,
           borderRadius: 6,
-          border: '1px solid #eee',
+          border: `1px solid ${theme.border}`,
           cursor: 'pointer',
           transition: 'background 0.15s',
         }}
-        onMouseEnter={e => (e.currentTarget.style.background = '#fafafa')}
-        onMouseLeave={e => (e.currentTarget.style.background = 'white')}
+        onMouseEnter={e => (e.currentTarget.style.background = theme.bgHover)}
+        onMouseLeave={e => (e.currentTarget.style.background = theme.bgCard)}
       >
         <span style={{ fontSize: 16 }}>{icon}</span>
-        <span style={{ flex: 1, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <span style={{ flex: 1, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: theme.text }}>
           {thing.content}
         </span>
-        <span style={{ fontSize: 11, color: '#999', flexShrink: 0 }}>
+        <span style={{ fontSize: 11, color: theme.textSubtle, flexShrink: 0 }}>
           {new Date(thing.createdAt).toLocaleDateString()}
         </span>
         <DeleteButton />
@@ -1356,14 +1445,14 @@ function ThingCard({
           alignItems: 'flex-start',
           gap: 12,
           padding: '12px 14px',
-          background: 'white',
+          background: theme.bgCard,
           borderRadius: 8,
-          border: '1px solid #eee',
+          border: `1px solid ${theme.border}`,
           cursor: 'pointer',
           transition: 'background 0.15s',
         }}
-        onMouseEnter={e => (e.currentTarget.style.background = '#fafafa')}
-        onMouseLeave={e => (e.currentTarget.style.background = 'white')}
+        onMouseEnter={e => (e.currentTarget.style.background = theme.bgHover)}
+        onMouseLeave={e => (e.currentTarget.style.background = theme.bgCard)}
       >
         <input
           type="checkbox"
@@ -1372,21 +1461,21 @@ function ThingCard({
             e.stopPropagation()
             onUpdateThing({ ...thing, metadata: { ...thing.metadata, done: !isDone } })
           }}
-          style={{ width: 18, height: 18, marginTop: 2, cursor: 'pointer', accentColor: '#1a1a1a' }}
+          style={{ width: 18, height: 18, marginTop: 2, cursor: 'pointer', accentColor: theme.accent }}
         />
         <div style={{ flex: 1 }} onClick={onEdit}>
           <span
             style={{
               fontSize: 15,
               textDecoration: isDone ? 'line-through' : 'none',
-              color: isDone ? '#999' : '#1a1a1a',
+              color: isDone ? theme.textSubtle : theme.text,
             }}
           >
             {thing.content}
           </span>
           <AttributesDisplay compact />
         </div>
-        <span style={{ fontSize: 11, color: '#999', flexShrink: 0 }}>
+        <span style={{ fontSize: 11, color: theme.textSubtle, flexShrink: 0 }}>
           {new Date(thing.createdAt).toLocaleDateString()}
         </span>
         <DeleteButton />
@@ -1402,21 +1491,21 @@ function ThingCard({
         onClick={onEdit}
         style={{
           padding: 14,
-          background: 'white',
+          background: theme.bgCard,
           borderRadius: 8,
-          border: '1px solid #eee',
-          borderLeft: '4px solid #1a1a1a',
+          border: `1px solid ${theme.border}`,
+          borderLeft: `4px solid ${theme.accent}`,
           cursor: 'pointer',
           transition: 'box-shadow 0.15s',
         }}
-        onMouseEnter={e => (e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)')}
+        onMouseEnter={e => (e.currentTarget.style.boxShadow = `0 2px 8px ${theme.shadow}`)}
         onMouseLeave={e => (e.currentTarget.style.boxShadow = 'none')}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
           <div style={{ flex: 1 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
               <span style={{ fontSize: 16 }}>{icon}</span>
-              <span style={{ fontSize: 15, fontWeight: 500 }}>{thing.content}</span>
+              <span style={{ fontSize: 15, fontWeight: 500, color: theme.text }}>{thing.content}</span>
             </div>
             {url && (
               <a
@@ -1426,7 +1515,7 @@ function ThingCard({
                 onClick={e => e.stopPropagation()}
                 style={{
                   fontSize: 13,
-                  color: '#0ea5e9',
+                  color: theme.link,
                   textDecoration: 'none',
                   display: 'block',
                   overflow: 'hidden',
@@ -1438,7 +1527,7 @@ function ThingCard({
                 {url}
               </a>
             )}
-            <div style={{ fontSize: 11, color: '#999', marginTop: 6 }}>
+            <div style={{ fontSize: 11, color: theme.textSubtle, marginTop: 6 }}>
               {new Date(thing.createdAt).toLocaleDateString()}
             </div>
           </div>
@@ -1454,28 +1543,28 @@ function ThingCard({
       <div
         onClick={onEdit}
         style={{
-          background: 'white',
+          background: theme.bgCard,
           borderRadius: 12,
-          border: '1px solid #eee',
+          border: `1px solid ${theme.border}`,
           overflow: 'hidden',
           cursor: 'pointer',
           transition: 'box-shadow 0.15s',
         }}
-        onMouseEnter={e => (e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)')}
+        onMouseEnter={e => (e.currentTarget.style.boxShadow = `0 4px 12px ${theme.shadow}`)}
         onMouseLeave={e => (e.currentTarget.style.boxShadow = 'none')}
       >
-        <div style={{ background: '#f5f5f5', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ background: theme.bgHover, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: 20 }}>{icon}</span>
-          <span style={{ fontSize: 12, fontWeight: 600, color: '#666', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: theme.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 }}>
             {thing.type}
           </span>
           <div style={{ flex: 1 }} />
           <DeleteButton />
         </div>
         <div style={{ padding: 16 }}>
-          <p style={{ fontSize: 17, margin: 0, lineHeight: 1.5, fontWeight: 500 }}>{thing.content}</p>
+          <Markdown content={thing.content} theme={theme} className="markdown-content" />
           <AttributesDisplay />
-          <p style={{ fontSize: 12, color: '#999', margin: '12px 0 0' }}>
+          <p style={{ fontSize: 12, color: theme.textSubtle, margin: '12px 0 0' }}>
             {new Date(thing.createdAt).toLocaleString()}
           </p>
         </div>
@@ -1492,13 +1581,13 @@ function ThingCard({
     return (
       <div
         style={{
-          background: 'white',
+          background: theme.bgCard,
           borderRadius: 12,
-          border: '1px solid #eee',
+          border: `1px solid ${theme.border}`,
           overflow: 'hidden',
           transition: 'box-shadow 0.15s',
         }}
-        onMouseEnter={e => (e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)')}
+        onMouseEnter={e => (e.currentTarget.style.boxShadow = `0 4px 12px ${theme.shadow}`)}
         onMouseLeave={e => (e.currentTarget.style.boxShadow = 'none')}
       >
         {url && (
@@ -1521,7 +1610,7 @@ function ThingCard({
                 width: '100%',
                 maxHeight: 400,
                 objectFit: 'contain',
-                background: '#f5f5f5',
+                background: theme.bgHover,
                 cursor: 'pointer',
               }}
               onClick={() => window.open(url, '_blank')}
@@ -1532,14 +1621,11 @@ function ThingCard({
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
             <div style={{ flex: 1 }}>
               {thing.content && (
-                <p
-                  style={{ fontSize: 14, margin: '0 0 8px', lineHeight: 1.4, cursor: 'pointer' }}
-                  onClick={onEdit}
-                >
-                  {thing.content}
-                </p>
+                <div onClick={onEdit} style={{ cursor: 'pointer' }}>
+                  <Markdown content={thing.content} theme={theme} className="markdown-content" />
+                </div>
               )}
-              <p style={{ fontSize: 11, color: '#999', margin: 0 }}>
+              <p style={{ fontSize: 11, color: theme.textSubtle, margin: thing.content ? '8px 0 0' : 0 }}>
                 {new Date(thing.createdAt).toLocaleString()}
               </p>
             </div>
@@ -1556,13 +1642,13 @@ function ThingCard({
       onClick={onEdit}
       style={{
         padding: 16,
-        background: 'white',
+        background: theme.bgCard,
         borderRadius: 8,
-        border: '1px solid #eee',
+        border: `1px solid ${theme.border}`,
         cursor: 'pointer',
         transition: 'box-shadow 0.15s',
       }}
-      onMouseEnter={e => (e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)')}
+      onMouseEnter={e => (e.currentTarget.style.boxShadow = `0 2px 8px ${theme.shadow}`)}
       onMouseLeave={e => (e.currentTarget.style.boxShadow = 'none')}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
@@ -1571,8 +1657,8 @@ function ThingCard({
             style={{
               display: 'inline-block',
               padding: '3px 10px',
-              background: '#f0f0f0',
-              color: '#666',
+              background: theme.bgMuted,
+              color: theme.textMuted,
               borderRadius: 4,
               fontSize: 12,
               fontWeight: 500,
@@ -1581,9 +1667,9 @@ function ThingCard({
           >
             {icon} {thing.type}
           </span>
-          <p style={{ fontSize: 16, margin: '8px 0', lineHeight: 1.5 }}>{thing.content}</p>
+          <Markdown content={thing.content} theme={theme} className="markdown-content" />
           <AttributesDisplay />
-          <p style={{ fontSize: 12, color: '#999', margin: '8px 0 0' }}>
+          <p style={{ fontSize: 12, color: theme.textSubtle, margin: '8px 0 0' }}>
             {new Date(thing.createdAt).toLocaleString()}
           </p>
         </div>
@@ -1598,43 +1684,46 @@ function AttributeInput({
   attribute,
   value,
   onChange,
+  theme,
 }: {
   attribute: Attribute
   value: unknown
   onChange: (val: unknown) => void
+  theme: Theme
 }) {
-  const labelStyle = { fontSize: 13, color: '#666', marginBottom: 4, display: 'block' }
+  const labelStyle = { fontSize: 13, color: theme.textMuted, marginBottom: 4, display: 'block' }
   const inputStyle = {
     width: '100%',
     padding: '8px 12px',
-    border: '1px solid #ddd',
+    border: `1px solid ${theme.borderInput}`,
     borderRadius: 6,
     fontSize: 14,
     boxSizing: 'border-box' as const,
-    background: 'white',
+    background: theme.bgInput,
+    color: theme.text,
   }
 
   switch (attribute.type) {
     case 'checkbox':
       return (
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: theme.text }}>
           <input
             type="checkbox"
             checked={Boolean(value)}
             onChange={e => onChange((e.target as HTMLInputElement).checked)}
           />
-          {attribute.name} {attribute.required && <span style={{ color: '#c44' }}>*</span>}
+          {attribute.name} {attribute.required && <span style={{ color: theme.errorText }}>*</span>}
         </label>
       )
     case 'select':
       const options = attribute.options.split(',').map(o => o.trim()).filter(Boolean)
       return (
         <div>
-          <label style={labelStyle}>{attribute.name} {attribute.required && <span style={{ color: '#c44' }}>*</span>}</label>
+          <label style={labelStyle}>{attribute.name} {attribute.required && <span style={{ color: theme.errorText }}>*</span>}</label>
           <select
             value={String(value || '')}
             onChange={e => onChange((e.target as HTMLSelectElement).value)}
-            style={{ ...inputStyle, background: 'white' }}
+            style={{ ...inputStyle, background: theme.bgInput }}
           >
             <option value="">Select...</option>
             {options.map(opt => (
@@ -1646,7 +1735,7 @@ function AttributeInput({
     case 'number':
       return (
         <div>
-          <label style={labelStyle}>{attribute.name} {attribute.required && <span style={{ color: '#c44' }}>*</span>}</label>
+          <label style={labelStyle}>{attribute.name} {attribute.required && <span style={{ color: theme.errorText }}>*</span>}</label>
           <input
             type="number"
             value={value as number || ''}
@@ -1658,7 +1747,7 @@ function AttributeInput({
     case 'date':
       return (
         <div>
-          <label style={labelStyle}>{attribute.name} {attribute.required && <span style={{ color: '#c44' }}>*</span>}</label>
+          <label style={labelStyle}>{attribute.name} {attribute.required && <span style={{ color: theme.errorText }}>*</span>}</label>
           <input
             type="date"
             value={String(value || '')}
@@ -1670,7 +1759,7 @@ function AttributeInput({
     case 'url':
       return (
         <div>
-          <label style={labelStyle}>{attribute.name} {attribute.required && <span style={{ color: '#c44' }}>*</span>}</label>
+          <label style={labelStyle}>{attribute.name} {attribute.required && <span style={{ color: theme.errorText }}>*</span>}</label>
           <input
             type="url"
             value={String(value || '')}
@@ -1683,7 +1772,7 @@ function AttributeInput({
     default:
       return (
         <div>
-          <label style={labelStyle}>{attribute.name} {attribute.required && <span style={{ color: '#c44' }}>*</span>}</label>
+          <label style={labelStyle}>{attribute.name} {attribute.required && <span style={{ color: theme.errorText }}>*</span>}</label>
           <input
             type="text"
             value={String(value || '')}
@@ -1700,10 +1789,12 @@ function EmojiPicker({
   value,
   onChange,
   usedEmojis,
+  theme,
 }: {
   value: string
   onChange: (emoji: string) => void
   usedEmojis: string[]
+  theme: Theme
 }) {
   const [isOpen, setIsOpen] = useState(false)
   const [search, setSearch] = useState('')
@@ -1722,9 +1813,9 @@ function EmojiPicker({
         style={{
           width: 50,
           height: 42,
-          border: '1px solid #ddd',
+          border: `1px solid ${theme.borderInput}`,
           borderRadius: 6,
-          background: 'white',
+          background: theme.bgInput,
           fontSize: 20,
           cursor: 'pointer',
           display: 'flex',
@@ -1742,10 +1833,10 @@ function EmojiPicker({
             top: '100%',
             left: 0,
             marginTop: 4,
-            background: 'white',
-            border: '1px solid #ddd',
+            background: theme.bgCard,
+            border: `1px solid ${theme.borderInput}`,
             borderRadius: 8,
-            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+            boxShadow: `0 4px 12px ${theme.shadowStrong}`,
             zIndex: 100,
             width: 320,
             display: 'flex',
@@ -1763,18 +1854,20 @@ function EmojiPicker({
               width: '100%',
               padding: '8px 12px',
               border: 'none',
-              borderBottom: '1px solid #eee',
+              borderBottom: `1px solid ${theme.border}`,
               borderRadius: '8px 8px 0 0',
               fontSize: 14,
               boxSizing: 'border-box',
               outline: 'none',
               flexShrink: 0,
+              background: theme.bgCard,
+              color: theme.text,
             }}
           />
 
           {/* Category tabs */}
           {!search.trim() && (
-            <div style={{ display: 'flex', borderBottom: '1px solid #eee', padding: '4px 4px 0', gap: 2 }}>
+            <div style={{ display: 'flex', borderBottom: `1px solid ${theme.border}`, padding: '4px 4px 0', gap: 2 }}>
               {EMOJI_CATEGORIES.map((cat, i) => (
                 <button
                   key={cat.name}
@@ -1785,7 +1878,7 @@ function EmojiPicker({
                     flex: 1,
                     padding: '6px 2px',
                     border: 'none',
-                    background: selectedCategory === i ? '#f0f0f0' : 'transparent',
+                    background: selectedCategory === i ? theme.bgMuted : 'transparent',
                     borderRadius: '4px 4px 0 0',
                     cursor: 'pointer',
                     fontSize: 16,
@@ -1827,7 +1920,7 @@ function EmojiPicker({
                     width: 32,
                     height: 32,
                     border: 'none',
-                    background: value === emoji ? '#e0e7ff' : 'transparent',
+                    background: value === emoji ? theme.bgMuted : 'transparent',
                     borderRadius: 4,
                     cursor: isUsed ? 'not-allowed' : 'pointer',
                     opacity: isUsed ? 0.3 : 1,
@@ -1843,7 +1936,7 @@ function EmojiPicker({
               )
             })}
             {displayEmojis.length === 0 && (
-              <div style={{ gridColumn: '1 / -1', padding: 12, textAlign: 'center', color: '#999', fontSize: 13 }}>
+              <div style={{ gridColumn: '1 / -1', padding: 12, textAlign: 'center', color: theme.textSubtle, fontSize: 13 }}>
                 No emojis found
               </div>
             )}
@@ -1861,12 +1954,14 @@ function KindsPanel({
   onDeleteKind,
   setEditingKind,
   usedEmojis,
+  theme,
 }: {
   kinds: Kind[]
   onCreateKind: (k: Partial<Kind>) => Promise<Kind | undefined>
   onDeleteKind: (id: string) => void
   setEditingKind: (k: Kind | null) => void
   usedEmojis: string[]
+  theme: Theme
 }) {
   const [newName, setNewName] = useState('')
   const [newIcon, setNewIcon] = useState('')
@@ -1881,23 +1976,23 @@ function KindsPanel({
 
   return (
     <div>
-      <h2 style={{ fontSize: 20, margin: '0 0 16px' }}>Kinds</h2>
+      <h2 style={{ fontSize: 20, margin: '0 0 16px', color: theme.text }}>Kinds</h2>
 
       {/* Create new kind */}
       <form onSubmit={handleCreate} style={{ marginBottom: 24 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
           <div>
-            <label style={{ fontSize: 12, color: '#666', display: 'block', marginBottom: 4 }}>Icon</label>
-            <EmojiPicker value={newIcon} onChange={setNewIcon} usedEmojis={usedEmojis} />
+            <label style={{ fontSize: 12, color: theme.textMuted, display: 'block', marginBottom: 4 }}>Icon</label>
+            <EmojiPicker value={newIcon} onChange={setNewIcon} usedEmojis={usedEmojis} theme={theme} />
           </div>
           <div style={{ flex: 1 }}>
-            <label style={{ fontSize: 12, color: '#666', display: 'block', marginBottom: 4 }}>Name</label>
+            <label style={{ fontSize: 12, color: theme.textMuted, display: 'block', marginBottom: 4 }}>Name</label>
             <input
               type="text"
               value={newName}
               onInput={e => setNewName((e.target as HTMLInputElement).value)}
               placeholder="New kind name..."
-              style={{ width: '100%', padding: '10px 14px', border: '1px solid #ddd', borderRadius: 6, boxSizing: 'border-box' }}
+              style={{ width: '100%', padding: '10px 14px', border: `1px solid ${theme.borderInput}`, borderRadius: 6, boxSizing: 'border-box', background: theme.bgInput, color: theme.text }}
             />
           </div>
           <button
@@ -1905,8 +2000,8 @@ function KindsPanel({
             disabled={!newName.trim() || !newIcon}
             style={{
               padding: '10px 20px',
-              background: newName.trim() && newIcon ? '#1a1a1a' : '#ccc',
-              color: 'white',
+              background: newName.trim() && newIcon ? theme.accent : theme.textDisabled,
+              color: newName.trim() && newIcon ? theme.accentText : theme.textSubtle,
               border: 'none',
               borderRadius: 6,
               cursor: newName.trim() && newIcon ? 'pointer' : 'not-allowed',
@@ -1925,9 +2020,9 @@ function KindsPanel({
             key={kind.id}
             style={{
               padding: 16,
-              background: 'white',
+              background: theme.bgCard,
               borderRadius: 8,
-              border: '1px solid #eee',
+              border: `1px solid ${theme.border}`,
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
@@ -1941,7 +2036,7 @@ function KindsPanel({
                   justifyContent: 'center',
                   width: 36,
                   height: 36,
-                  background: '#f0f0f0',
+                  background: theme.bgMuted,
                   borderRadius: 8,
                   fontSize: 18,
                 }}
@@ -1949,8 +2044,8 @@ function KindsPanel({
                 {kind.icon || '•'}
               </span>
               <div>
-                <div style={{ fontWeight: 600 }}>{kind.name}</div>
-                <div style={{ fontSize: 12, color: '#999' }}>
+                <div style={{ fontWeight: 600, color: theme.text }}>{kind.name}</div>
+                <div style={{ fontSize: 12, color: theme.textSubtle }}>
                   {kind.attributes?.length || 0} attributes
                 </div>
               </div>
@@ -1960,7 +2055,8 @@ function KindsPanel({
                 onClick={() => setEditingKind(kind)}
                 style={{
                   padding: '6px 12px',
-                  background: '#f5f5f5',
+                  background: theme.bgHover,
+                  color: theme.text,
                   border: 'none',
                   borderRadius: 4,
                   cursor: 'pointer',
@@ -1972,8 +2068,8 @@ function KindsPanel({
                 onClick={() => onDeleteKind(kind.id)}
                 style={{
                   padding: '6px 12px',
-                  background: '#fee',
-                  color: '#c44',
+                  background: theme.errorBg,
+                  color: theme.errorText,
                   border: 'none',
                   borderRadius: 4,
                   cursor: 'pointer',
@@ -1985,11 +2081,520 @@ function KindsPanel({
           </div>
         ))}
         {kinds.length === 0 && (
-          <p style={{ color: '#666', textAlign: 'center', padding: 20 }}>
+          <p style={{ color: theme.textMuted, textAlign: 'center', padding: 20 }}>
             No kinds yet. Create one above!
           </p>
         )}
       </div>
+    </div>
+  )
+}
+
+// API Key type
+interface APIKey {
+  id: string
+  name: string
+  keyPrefix: string
+  scopes: string[]
+  lastUsedAt: string | null
+  createdAt: string
+}
+
+// Data Management Panel (Import/Export + API Keys)
+function DataPanel({
+  theme,
+  onImportComplete,
+}: {
+  theme: Theme
+  onImportComplete: () => void
+}) {
+  const [importing, setImporting] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
+
+  // API Keys state
+  const [apiKeys, setApiKeys] = useState<APIKey[]>([])
+  const [availableScopes, setAvailableScopes] = useState<string[]>([])
+  const [showCreateKey, setShowCreateKey] = useState(false)
+  const [newKeyName, setNewKeyName] = useState('')
+  const [newKeyScopes, setNewKeyScopes] = useState<string[]>([])
+  const [isAdminKey, setIsAdminKey] = useState(true)
+  const [createdKey, setCreatedKey] = useState<string | null>(null)
+  const [keyCopied, setKeyCopied] = useState(false)
+
+  // Fetch API keys on mount
+  useEffect(() => {
+    fetchAPIKeys()
+  }, [])
+
+  async function fetchAPIKeys() {
+    try {
+      const res = await fetch('/api/keys', { credentials: 'include' })
+      if (res.ok) {
+        const data = await res.json()
+        setApiKeys(data.keys || [])
+        setAvailableScopes(data.availableScopes || [])
+      }
+    } catch (err) {
+      console.error('Failed to fetch API keys:', err)
+    }
+  }
+
+  async function createAPIKey(e: Event) {
+    e.preventDefault()
+    if (!newKeyName.trim()) return
+
+    try {
+      const res = await fetch('/api/keys', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          name: newKeyName,
+          scopes: isAdminKey ? [] : newKeyScopes, // empty = all scopes
+        }),
+      })
+
+      if (!res.ok) throw new Error('Failed to create key')
+
+      const data = await res.json()
+      setCreatedKey(data.key) // Show the key once!
+      setNewKeyName('')
+      setNewKeyScopes([])
+      setIsAdminKey(true)
+      fetchAPIKeys()
+    } catch (err) {
+      setMessage({ type: 'error', text: 'Failed to create API key' })
+    }
+  }
+
+  async function deleteAPIKey(id: string) {
+    if (!confirm('Delete this API key? This cannot be undone.')) return
+
+    try {
+      await fetch(`/api/keys/${id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      })
+      fetchAPIKeys()
+    } catch (err) {
+      setMessage({ type: 'error', text: 'Failed to delete API key' })
+    }
+  }
+
+  function copyKey() {
+    if (createdKey) {
+      navigator.clipboard.writeText(createdKey)
+      setKeyCopied(true)
+      setTimeout(() => setKeyCopied(false), 2000)
+    }
+  }
+
+  async function handleExport() {
+    setExporting(true)
+    setMessage(null)
+    try {
+      const res = await fetch('/api/export', { credentials: 'include' })
+      if (!res.ok) throw new Error('Export failed')
+
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `tenant-export-${new Date().toISOString().split('T')[0]}.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+
+      setMessage({ type: 'success', text: 'Export downloaded successfully!' })
+    } catch (err) {
+      setMessage({ type: 'error', text: 'Failed to export data' })
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  async function handleImport(e: Event) {
+    const input = e.target as HTMLInputElement
+    const file = input.files?.[0]
+    if (!file) return
+
+    setImporting(true)
+    setMessage(null)
+    try {
+      const text = await file.text()
+      const res = await fetch('/api/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: text,
+      })
+
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || 'Import failed')
+      }
+
+      const result = await res.json()
+      setMessage({
+        type: 'success',
+        text: `Imported ${result.kindsCreated} kinds and ${result.thingsCreated} things (${result.kindsSkipped + result.thingsSkipped} skipped)`
+      })
+      onImportComplete()
+    } catch (err) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to import data' })
+    } finally {
+      setImporting(false)
+      input.value = '' // Reset file input
+    }
+  }
+
+  return (
+    <div>
+      <h2 style={{ fontSize: 20, margin: '0 0 16px', color: theme.text }}>Settings</h2>
+
+      <p style={{ color: theme.textSecondary, marginBottom: 24, lineHeight: 1.6 }}>
+        Manage your data exports, imports, and API keys.
+      </p>
+
+      {/* Export Section */}
+      <div style={{
+        padding: 20,
+        background: theme.bgCard,
+        borderRadius: 12,
+        border: `1px solid ${theme.border}`,
+        marginBottom: 16,
+      }}>
+        <h3 style={{ fontSize: 16, margin: '0 0 8px', color: theme.text }}>Export Data</h3>
+        <p style={{ fontSize: 14, color: theme.textMuted, margin: '0 0 16px' }}>
+          Download all your things and kinds as a JSON file.
+        </p>
+        <button
+          onClick={handleExport}
+          disabled={exporting}
+          style={{
+            padding: '10px 20px',
+            background: exporting ? theme.textDisabled : theme.accent,
+            color: exporting ? theme.textSubtle : theme.accentText,
+            border: 'none',
+            borderRadius: 6,
+            cursor: exporting ? 'not-allowed' : 'pointer',
+            fontSize: 14,
+          }}
+        >
+          {exporting ? 'Exporting...' : 'Download Export'}
+        </button>
+      </div>
+
+      {/* Import Section */}
+      <div style={{
+        padding: 20,
+        background: theme.bgCard,
+        borderRadius: 12,
+        border: `1px solid ${theme.border}`,
+        marginBottom: 16,
+      }}>
+        <h3 style={{ fontSize: 16, margin: '0 0 8px', color: theme.text }}>Import Data</h3>
+        <p style={{ fontSize: 14, color: theme.textMuted, margin: '0 0 16px' }}>
+          Import things and kinds from a tenant export file. Duplicates will be skipped.
+        </p>
+        <label style={{
+          display: 'inline-block',
+          padding: '10px 20px',
+          background: importing ? theme.textDisabled : theme.bgHover,
+          color: importing ? theme.textSubtle : theme.text,
+          border: `1px solid ${theme.border}`,
+          borderRadius: 6,
+          cursor: importing ? 'not-allowed' : 'pointer',
+          fontSize: 14,
+        }}>
+          {importing ? 'Importing...' : 'Choose File'}
+          <input
+            type="file"
+            accept=".json"
+            onChange={handleImport}
+            disabled={importing}
+            style={{ display: 'none' }}
+          />
+        </label>
+      </div>
+
+      {/* Status Message */}
+      {message && (
+        <div style={{
+          padding: 12,
+          background: message.type === 'success' ? theme.success : theme.errorBg,
+          color: message.type === 'success' ? theme.successText : theme.errorText,
+          borderRadius: 8,
+          fontSize: 14,
+          marginBottom: 24,
+        }}>
+          {message.text}
+        </div>
+      )}
+
+      {/* API Keys Section */}
+      <h2 style={{ fontSize: 20, margin: '32px 0 16px', color: theme.text }}>API Keys</h2>
+      <p style={{ color: theme.textSecondary, marginBottom: 24, lineHeight: 1.6 }}>
+        Create API keys for programmatic access. Keys can have full admin access or be scoped to specific permissions.
+      </p>
+
+      {/* Created Key Display (only shown once!) */}
+      {createdKey && (
+        <div style={{
+          padding: 16,
+          background: theme.success,
+          borderRadius: 12,
+          marginBottom: 16,
+        }}>
+          <div style={{ fontWeight: 600, marginBottom: 8, color: theme.successText }}>
+            API Key Created - Save this now!
+          </div>
+          <div style={{
+            display: 'flex',
+            gap: 8,
+            alignItems: 'center',
+            background: theme.bgCard,
+            padding: 12,
+            borderRadius: 6,
+            fontFamily: 'monospace',
+            fontSize: 14,
+            wordBreak: 'break-all',
+          }}>
+            <code style={{ flex: 1, color: theme.text }}>{createdKey}</code>
+            <button
+              onClick={copyKey}
+              style={{
+                padding: '6px 12px',
+                background: theme.accent,
+                color: theme.accentText,
+                border: 'none',
+                borderRadius: 4,
+                cursor: 'pointer',
+                fontSize: 12,
+              }}
+            >
+              {keyCopied ? 'Copied!' : 'Copy'}
+            </button>
+          </div>
+          <button
+            onClick={() => setCreatedKey(null)}
+            style={{
+              marginTop: 12,
+              padding: '8px 16px',
+              background: 'transparent',
+              color: theme.successText,
+              border: `1px solid ${theme.successText}`,
+              borderRadius: 6,
+              cursor: 'pointer',
+              fontSize: 13,
+            }}
+          >
+            I've saved the key
+          </button>
+        </div>
+      )}
+
+      {/* Create New Key */}
+      <div style={{
+        padding: 20,
+        background: theme.bgCard,
+        borderRadius: 12,
+        border: `1px solid ${theme.border}`,
+        marginBottom: 16,
+      }}>
+        {!showCreateKey ? (
+          <button
+            onClick={() => setShowCreateKey(true)}
+            style={{
+              padding: '10px 20px',
+              background: theme.accent,
+              color: theme.accentText,
+              border: 'none',
+              borderRadius: 6,
+              cursor: 'pointer',
+              fontSize: 14,
+            }}
+          >
+            + Create New API Key
+          </button>
+        ) : (
+          <form onSubmit={createAPIKey}>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 14, color: theme.textMuted, marginBottom: 6 }}>
+                Key Name
+              </label>
+              <input
+                type="text"
+                value={newKeyName}
+                onInput={e => setNewKeyName((e.target as HTMLInputElement).value)}
+                placeholder="e.g., Chrome Extension, Mobile App..."
+                style={{
+                  width: '100%',
+                  padding: '10px 14px',
+                  border: `1px solid ${theme.borderInput}`,
+                  borderRadius: 6,
+                  background: theme.bgInput,
+                  color: theme.text,
+                  fontSize: 14,
+                  boxSizing: 'border-box',
+                }}
+              />
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={isAdminKey}
+                  onChange={e => setIsAdminKey((e.target as HTMLInputElement).checked)}
+                />
+                <span style={{ color: theme.text }}>Admin key (all permissions)</span>
+              </label>
+            </div>
+
+            {!isAdminKey && (
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: 'block', fontSize: 14, color: theme.textMuted, marginBottom: 8 }}>
+                  Scopes
+                </label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  {availableScopes.map(scope => (
+                    <label
+                      key={scope}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        padding: '6px 10px',
+                        background: newKeyScopes.includes(scope) ? theme.accent : theme.bgHover,
+                        color: newKeyScopes.includes(scope) ? theme.accentText : theme.text,
+                        borderRadius: 6,
+                        cursor: 'pointer',
+                        fontSize: 13,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={newKeyScopes.includes(scope)}
+                        onChange={e => {
+                          if ((e.target as HTMLInputElement).checked) {
+                            setNewKeyScopes([...newKeyScopes, scope])
+                          } else {
+                            setNewKeyScopes(newKeyScopes.filter(s => s !== scope))
+                          }
+                        }}
+                        style={{ display: 'none' }}
+                      />
+                      {scope}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                type="submit"
+                disabled={!newKeyName.trim() || (!isAdminKey && newKeyScopes.length === 0)}
+                style={{
+                  padding: '10px 20px',
+                  background: newKeyName.trim() && (isAdminKey || newKeyScopes.length > 0)
+                    ? theme.accent
+                    : theme.textDisabled,
+                  color: newKeyName.trim() && (isAdminKey || newKeyScopes.length > 0)
+                    ? theme.accentText
+                    : theme.textSubtle,
+                  border: 'none',
+                  borderRadius: 6,
+                  cursor: newKeyName.trim() && (isAdminKey || newKeyScopes.length > 0)
+                    ? 'pointer'
+                    : 'not-allowed',
+                  fontSize: 14,
+                }}
+              >
+                Create Key
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowCreateKey(false)
+                  setNewKeyName('')
+                  setNewKeyScopes([])
+                  setIsAdminKey(true)
+                }}
+                style={{
+                  padding: '10px 20px',
+                  background: theme.bgHover,
+                  color: theme.textMuted,
+                  border: 'none',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                  fontSize: 14,
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+
+      {/* Existing Keys */}
+      {apiKeys.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {apiKeys.map(key => (
+            <div
+              key={key.id}
+              style={{
+                padding: 16,
+                background: theme.bgCard,
+                borderRadius: 8,
+                border: `1px solid ${theme.border}`,
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 12,
+              }}
+            >
+              <div>
+                <div style={{ fontWeight: 600, color: theme.text, marginBottom: 4 }}>
+                  {key.name}
+                </div>
+                <div style={{ fontSize: 12, color: theme.textMuted }}>
+                  <code style={{ background: theme.bgMuted, padding: '2px 6px', borderRadius: 4 }}>
+                    {key.keyPrefix}...
+                  </code>
+                  {' • '}
+                  {key.scopes.length === availableScopes.length ? 'Admin' : `${key.scopes.length} scopes`}
+                  {key.lastUsedAt && (
+                    <>
+                      {' • Last used '}
+                      {new Date(key.lastUsedAt).toLocaleDateString()}
+                    </>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={() => deleteAPIKey(key.id)}
+                style={{
+                  padding: '6px 12px',
+                  background: theme.errorBg,
+                  color: theme.errorText,
+                  border: 'none',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                  fontSize: 13,
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -2000,11 +2605,13 @@ function EditThingModal({
   kinds,
   onSave,
   onClose,
+  theme,
 }: {
   thing: Thing
   kinds: Kind[]
   onSave: (t: Thing) => void
   onClose: () => void
+  theme: Theme
 }) {
   const [content, setContent] = useState(thing.content)
   const [type, setType] = useState(thing.type)
@@ -2022,7 +2629,7 @@ function EditThingModal({
       style={{
         position: 'fixed',
         inset: 0,
-        background: 'rgba(0,0,0,0.5)',
+        background: theme.overlay,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -2032,7 +2639,7 @@ function EditThingModal({
     >
       <div
         style={{
-          background: 'white',
+          background: theme.bgCard,
           borderRadius: 12,
           padding: 24,
           width: '100%',
@@ -2042,10 +2649,10 @@ function EditThingModal({
         }}
         onClick={e => e.stopPropagation()}
       >
-        <h2 style={{ margin: '0 0 20px', fontSize: 20 }}>Edit Thing</h2>
+        <h2 style={{ margin: '0 0 20px', fontSize: 20, color: theme.text }}>Edit Thing</h2>
         <form onSubmit={handleSave}>
           <div style={{ marginBottom: 16 }}>
-            <label style={{ display: 'block', marginBottom: 6, fontSize: 14, fontWeight: 500 }}>Kind</label>
+            <label style={{ display: 'block', marginBottom: 6, fontSize: 14, fontWeight: 500, color: theme.text }}>Kind</label>
             <select
               value={type}
               onChange={e => {
@@ -2055,9 +2662,11 @@ function EditThingModal({
               style={{
                 width: '100%',
                 padding: '10px 14px',
-                border: '1px solid #ddd',
+                border: `1px solid ${theme.borderInput}`,
                 borderRadius: 6,
                 fontSize: 14,
+                background: theme.bgInput,
+                color: theme.text,
               }}
             >
               {kinds.map(kind => (
@@ -2066,7 +2675,7 @@ function EditThingModal({
             </select>
           </div>
           <div style={{ marginBottom: 16 }}>
-            <label style={{ display: 'block', marginBottom: 6, fontSize: 14, fontWeight: 500 }}>Content</label>
+            <label style={{ display: 'block', marginBottom: 6, fontSize: 14, fontWeight: 500, color: theme.text }}>Content</label>
             <textarea
               value={content}
               onInput={e => setContent((e.target as HTMLTextAreaElement).value)}
@@ -2074,11 +2683,13 @@ function EditThingModal({
               style={{
                 width: '100%',
                 padding: '10px 14px',
-                border: '1px solid #ddd',
+                border: `1px solid ${theme.borderInput}`,
                 borderRadius: 6,
                 fontSize: 14,
                 resize: 'vertical',
                 boxSizing: 'border-box',
+                background: theme.bgInput,
+                color: theme.text,
               }}
             />
           </div>
@@ -2086,13 +2697,14 @@ function EditThingModal({
           {/* Kind attributes */}
           {currentKind?.attributes && currentKind.attributes.length > 0 && (
             <div style={{ marginBottom: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <label style={{ fontSize: 14, fontWeight: 500 }}>Attributes</label>
+              <label style={{ fontSize: 14, fontWeight: 500, color: theme.text }}>Attributes</label>
               {currentKind.attributes.map(attr => (
                 <AttributeInput
                   key={attr.name}
                   attribute={attr}
                   value={metadata[attr.name]}
                   onChange={val => setMetadata({ ...metadata, [attr.name]: val })}
+                  theme={theme}
                 />
               ))}
             </div>
@@ -2104,7 +2716,8 @@ function EditThingModal({
               onClick={onClose}
               style={{
                 padding: '10px 20px',
-                background: '#f5f5f5',
+                background: theme.bgHover,
+                color: theme.text,
                 border: 'none',
                 borderRadius: 6,
                 cursor: 'pointer',
@@ -2116,8 +2729,8 @@ function EditThingModal({
               type="submit"
               style={{
                 padding: '10px 20px',
-                background: '#1a1a1a',
-                color: 'white',
+                background: theme.accent,
+                color: theme.accentText,
                 border: 'none',
                 borderRadius: 6,
                 cursor: 'pointer',
@@ -2138,11 +2751,13 @@ function EditKindModal({
   onSave,
   onClose,
   usedEmojis,
+  theme,
 }: {
   kind: Kind
   onSave: (k: Kind) => void
   onClose: () => void
   usedEmojis: string[]
+  theme: Theme
 }) {
   const [name, setName] = useState(kind.name)
   const [icon, setIcon] = useState(kind.icon || '')
@@ -2173,7 +2788,7 @@ function EditKindModal({
       style={{
         position: 'fixed',
         inset: 0,
-        background: 'rgba(0,0,0,0.5)',
+        background: theme.overlay,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -2183,7 +2798,7 @@ function EditKindModal({
     >
       <div
         style={{
-          background: 'white',
+          background: theme.bgCard,
           borderRadius: 12,
           padding: 24,
           width: '100%',
@@ -2193,27 +2808,27 @@ function EditKindModal({
         }}
         onClick={e => e.stopPropagation()}
       >
-        <h2 style={{ margin: '0 0 20px', fontSize: 20 }}>Edit Kind: {kind.name}</h2>
+        <h2 style={{ margin: '0 0 20px', fontSize: 20, color: theme.text }}>Edit Kind: {kind.name}</h2>
         <form onSubmit={handleSave}>
           <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
             <div>
-              <label style={{ display: 'block', marginBottom: 6, fontSize: 14, fontWeight: 500 }}>Icon</label>
-              <EmojiPicker value={icon} onChange={setIcon} usedEmojis={usedEmojis} />
+              <label style={{ display: 'block', marginBottom: 6, fontSize: 14, fontWeight: 500, color: theme.text }}>Icon</label>
+              <EmojiPicker value={icon} onChange={setIcon} usedEmojis={usedEmojis} theme={theme} />
             </div>
             <div style={{ flex: 1 }}>
-              <label style={{ display: 'block', marginBottom: 6, fontSize: 14, fontWeight: 500 }}>Name</label>
+              <label style={{ display: 'block', marginBottom: 6, fontSize: 14, fontWeight: 500, color: theme.text }}>Name</label>
               <input
                 type="text"
                 value={name}
                 onInput={e => setName((e.target as HTMLInputElement).value)}
-                style={{ width: '100%', padding: '10px 14px', border: '1px solid #ddd', borderRadius: 6, boxSizing: 'border-box' }}
+                style={{ width: '100%', padding: '10px 14px', border: `1px solid ${theme.borderInput}`, borderRadius: 6, boxSizing: 'border-box', background: theme.bgInput, color: theme.text }}
               />
             </div>
           </div>
 
           {/* Template selector */}
           <div style={{ marginBottom: 16 }}>
-            <label style={{ display: 'block', marginBottom: 6, fontSize: 14, fontWeight: 500 }}>Display Template</label>
+            <label style={{ display: 'block', marginBottom: 6, fontSize: 14, fontWeight: 500, color: theme.text }}>Display Template</label>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {TEMPLATES.map(t => (
                 <button
@@ -2222,9 +2837,10 @@ function EditKindModal({
                   onClick={() => setTemplate(t.id as Kind['template'])}
                   style={{
                     padding: '8px 14px',
-                    border: template === t.id ? '2px solid #1a1a1a' : '1px solid #ddd',
+                    border: template === t.id ? `2px solid ${theme.accent}` : `1px solid ${theme.borderInput}`,
                     borderRadius: 6,
-                    background: template === t.id ? '#f5f5f5' : 'white',
+                    background: template === t.id ? theme.bgHover : theme.bgInput,
+                    color: theme.text,
                     cursor: 'pointer',
                     fontSize: 13,
                   }}
@@ -2234,20 +2850,21 @@ function EditKindModal({
                 </button>
               ))}
             </div>
-            <p style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
+            <p style={{ fontSize: 12, color: theme.textMuted, marginTop: 4 }}>
               {TEMPLATES.find(t => t.id === template)?.description}
             </p>
           </div>
 
           <div style={{ marginBottom: 20 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <label style={{ fontSize: 14, fontWeight: 500 }}>Attributes</label>
+              <label style={{ fontSize: 14, fontWeight: 500, color: theme.text }}>Attributes</label>
               <button
                 type="button"
                 onClick={addAttribute}
                 style={{
                   padding: '6px 12px',
-                  background: '#f5f5f5',
+                  background: theme.bgHover,
+                  color: theme.text,
                   border: 'none',
                   borderRadius: 4,
                   cursor: 'pointer',
@@ -2259,25 +2876,25 @@ function EditKindModal({
             </div>
 
             {attributes.length === 0 ? (
-              <p style={{ color: '#999', fontSize: 14, textAlign: 'center', padding: 20, background: '#f9f9f9', borderRadius: 8 }}>
+              <p style={{ color: theme.textSubtle, fontSize: 14, textAlign: 'center', padding: 20, background: theme.bgSubtle, borderRadius: 8 }}>
                 No attributes. Add one to define fields for this kind.
               </p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {attributes.map((attr, i) => (
-                  <div key={i} style={{ padding: 12, background: '#f9f9f9', borderRadius: 8 }}>
+                  <div key={i} style={{ padding: 12, background: theme.bgSubtle, borderRadius: 8 }}>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: attr.type === 'select' ? 8 : 0 }}>
                       <input
                         type="text"
                         value={attr.name}
                         placeholder="Field name"
                         onInput={e => updateAttribute(i, 'name', (e.target as HTMLInputElement).value)}
-                        style={{ flex: 1, padding: '8px 10px', border: '1px solid #ddd', borderRadius: 4, fontSize: 13 }}
+                        style={{ flex: 1, padding: '8px 10px', border: `1px solid ${theme.borderInput}`, borderRadius: 4, fontSize: 13, background: theme.bgInput, color: theme.text }}
                       />
                       <select
                         value={attr.type}
                         onChange={e => updateAttribute(i, 'type', (e.target as HTMLSelectElement).value)}
-                        style={{ padding: '8px 10px', border: '1px solid #ddd', borderRadius: 4, fontSize: 13 }}
+                        style={{ padding: '8px 10px', border: `1px solid ${theme.borderInput}`, borderRadius: 4, fontSize: 13, background: theme.bgInput, color: theme.text }}
                       >
                         <option value="text">Text</option>
                         <option value="number">Number</option>
@@ -2286,7 +2903,7 @@ function EditKindModal({
                         <option value="checkbox">Checkbox</option>
                         <option value="select">Select</option>
                       </select>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, whiteSpace: 'nowrap' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, whiteSpace: 'nowrap', color: theme.text }}>
                         <input
                           type="checkbox"
                           checked={attr.required}
@@ -2297,7 +2914,7 @@ function EditKindModal({
                       <button
                         type="button"
                         onClick={() => removeAttribute(i)}
-                        style={{ padding: '4px 8px', background: 'none', border: 'none', color: '#c44', cursor: 'pointer', fontSize: 16 }}
+                        style={{ padding: '4px 8px', background: 'none', border: 'none', color: theme.errorText, cursor: 'pointer', fontSize: 16 }}
                       >
                         ×
                       </button>
@@ -2311,7 +2928,7 @@ function EditKindModal({
                           value={attr.options}
                           placeholder="Options (comma-separated): option1, option2, option3"
                           onInput={e => updateAttribute(i, 'options', (e.target as HTMLInputElement).value)}
-                          style={{ width: '100%', padding: '8px 10px', border: '1px solid #ddd', borderRadius: 4, fontSize: 13, boxSizing: 'border-box' }}
+                          style={{ width: '100%', padding: '8px 10px', border: `1px solid ${theme.borderInput}`, borderRadius: 4, fontSize: 13, boxSizing: 'border-box', background: theme.bgInput, color: theme.text }}
                         />
                       </div>
                     )}
@@ -2327,7 +2944,8 @@ function EditKindModal({
               onClick={onClose}
               style={{
                 padding: '10px 20px',
-                background: '#f5f5f5',
+                background: theme.bgHover,
+                color: theme.text,
                 border: 'none',
                 borderRadius: 6,
                 cursor: 'pointer',
@@ -2339,8 +2957,8 @@ function EditKindModal({
               type="submit"
               style={{
                 padding: '10px 20px',
-                background: '#1a1a1a',
-                color: 'white',
+                background: theme.accent,
+                color: theme.accentText,
                 border: 'none',
                 borderRadius: 6,
                 cursor: 'pointer',

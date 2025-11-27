@@ -1,4 +1,10 @@
 import { render } from 'preact'
 import App from './App'
+import { ThemeProvider } from './theme.tsx'
 
-render(<App />, document.getElementById('root')!)
+render(
+  <ThemeProvider>
+    <App />
+  </ThemeProvider>,
+  document.getElementById('root')!
+)

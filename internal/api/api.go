@@ -85,7 +85,12 @@ func generateAPIKey() (string, error) {
 }
 
 // hasScope checks if an API key has a specific scope
+// Empty scopes means admin/all permissions (full access)
 func hasScope(apiKey *models.APIKey, scope string) bool {
+	// Empty scopes = admin key with all permissions
+	if len(apiKey.Scopes) == 0 {
+		return true
+	}
 	for _, s := range apiKey.Scopes {
 		if s == scope || s == "*" {
 			return true
@@ -421,6 +426,10 @@ func (a *API) Routes() chi.Router {
 
 		// Photos
 		r.Post("/upload", a.uploadPhoto)
+
+		// Export/Import - user data portability
+		r.Get("/export", a.exportData)
+		r.Post("/import", a.importData)
 
 		// Admin routes
 		r.Group(func(r chi.Router) {
@@ -1274,7 +1283,10 @@ func (a *API) listAPIKeys(w http.ResponseWriter, r *http.Request) {
 		keys[i].KeyHash = ""
 	}
 
-	respondJSON(w, http.StatusOK, keys)
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"keys":            keys,
+		"availableScopes": models.APIKeyScopes,
+	})
 }
 
 func (a *API) createAPIKey(w http.ResponseWriter, r *http.Request) {
@@ -1696,5 +1708,146 @@ func (a *API) bulkDeleteThings(w http.ResponseWriter, r *http.Request) {
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"deleted": len(req.IDs),
+	})
+}
+
+// Export/Import handlers for data portability
+
+// ExportData represents the full export format
+type ExportData struct {
+	Version   string          `json:"version"`
+	ExportedAt string         `json:"exportedAt"`
+	Things    []models.Thing  `json:"things"`
+	Kinds     []models.Kind   `json:"kinds"`
+}
+
+func (a *API) exportData(w http.ResponseWriter, r *http.Request) {
+	user := getUserFromContext(r)
+	if user == nil {
+		respondError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	// Get all things for this user using QueryThings with Count: -1 (all items)
+	result, err := a.store.QueryThings(store.ThingQuery{
+		UserID:         user.ID,
+		Count:          -1, // Return all items
+		IncludeDeleted: false,
+	})
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to export things: "+err.Error())
+		return
+	}
+
+	// Get all kinds for this user
+	kinds, err := a.store.ListKinds(user.ID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to export kinds: "+err.Error())
+		return
+	}
+
+	export := ExportData{
+		Version:    "1.0",
+		ExportedAt: time.Now().UTC().Format(time.RFC3339),
+		Things:     result.Things,
+		Kinds:      kinds,
+	}
+
+	// Set headers for file download
+	filename := "tenant-export-" + time.Now().Format("2006-01-02") + ".json"
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Disposition", "attachment; filename="+filename)
+
+	respondJSON(w, http.StatusOK, export)
+}
+
+func (a *API) importData(w http.ResponseWriter, r *http.Request) {
+	user := getUserFromContext(r)
+	if user == nil {
+		respondError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	// Read body (limit to 100MB)
+	body, err := io.ReadAll(io.LimitReader(r.Body, 100*1024*1024))
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "Failed to read request body")
+		return
+	}
+
+	var data ExportData
+	if err := json.Unmarshal(body, &data); err != nil {
+		respondError(w, http.StatusBadRequest, "Invalid JSON format: "+err.Error())
+		return
+	}
+
+	// Validate version
+	if data.Version == "" {
+		respondError(w, http.StatusBadRequest, "Missing version field in import data")
+		return
+	}
+
+	// Get existing kinds to check for duplicates
+	existingKinds, err := a.store.ListKinds(user.ID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to list existing kinds: "+err.Error())
+		return
+	}
+	existingKindNames := make(map[string]bool)
+	for _, k := range existingKinds {
+		existingKindNames[k.Name] = true
+	}
+
+	// Import kinds first (things depend on kinds)
+	kindsCreated := 0
+	kindsSkipped := 0
+	for _, kind := range data.Kinds {
+		// Check if kind already exists by name
+		if existingKindNames[kind.Name] {
+			kindsSkipped++
+			continue
+		}
+
+		// Create new kind with new ID
+		newKind := &models.Kind{
+			UserID:     user.ID,
+			Name:       kind.Name,
+			Icon:       kind.Icon,
+			Template:   kind.Template,
+			Attributes: kind.Attributes,
+		}
+		if err := a.store.CreateKind(newKind); err != nil {
+			// Skip on error, continue with others
+			kindsSkipped++
+			continue
+		}
+		kindsCreated++
+		existingKindNames[kind.Name] = true // Track newly created
+	}
+
+	// Import things
+	thingsCreated := 0
+	thingsSkipped := 0
+	for _, thing := range data.Things {
+		// Create new thing with new ID
+		newThing := &models.Thing{
+			UserID:   user.ID,
+			Type:     thing.Type,
+			Content:  thing.Content,
+			Metadata: thing.Metadata,
+		}
+		if err := a.store.CreateThing(newThing); err != nil {
+			thingsSkipped++
+			continue
+		}
+		thingsCreated++
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"message":       "Import completed",
+		"kindsCreated":  kindsCreated,
+		"kindsSkipped":  kindsSkipped,
+		"thingsCreated": thingsCreated,
+		"thingsSkipped": thingsSkipped,
 	})
 }
