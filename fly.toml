@@ -6,7 +6,7 @@ primary_region = "ewr"
 [env]
   PORT = "8080"
   PRODUCTION = "true"
-  # DB_BACKEND auto-detects from TURSO_DATABASE_URL in secrets
+  DB_BACKEND = "turso"
 
 [http_service]
   internal_port = 8080
