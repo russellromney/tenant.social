@@ -2,10 +2,36 @@ package models
 
 import "time"
 
-// Thing is the universal unit in Stuffbox.
+// User represents a tenant - each user owns their own data space
+type User struct {
+	ID           string    `json:"id"`
+	Username     string    `json:"username"`     // Unique username (used for login and URL)
+	Email        string    `json:"email"`        // Email address
+	PasswordHash string    `json:"-"`            // Hashed password (never sent to client)
+	DisplayName  string    `json:"displayName"`  // Display name
+	Bio          string    `json:"bio"`          // Short bio
+	AvatarURL    string    `json:"avatarUrl"`    // Profile picture URL
+	IsAdmin      bool      `json:"isAdmin"`      // Server admin (can manage users, but not see their data)
+	IsLocked     bool      `json:"isLocked"`     // If true, user cannot login (admin locked them out)
+	RecoveryHash string    `json:"-"`            // Hash of recovery phrase (for data recovery)
+	CreatedAt    time.Time `json:"createdAt"`
+	UpdatedAt    time.Time `json:"updatedAt"`
+}
+
+// Session represents an active user session
+type Session struct {
+	ID        string    `json:"id"`
+	UserID    string    `json:"userId"`
+	Token     string    `json:"-"`      // Session token (not sent in JSON)
+	ExpiresAt time.Time `json:"expiresAt"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// Thing is the universal unit in Tenant.
 // Everything is a Thing: notes, links, tasks, images, etc.
 type Thing struct {
 	ID        string                 `json:"id"`
+	UserID    string                 `json:"userId"`    // Owner of this Thing
 	Type      string                 `json:"type"`      // "note", "link", "task", "image", etc.
 	Content   string                 `json:"content"`   // Main content (text, URL, etc.)
 	Metadata  map[string]interface{} `json:"metadata"`  // Type-specific data as JSON
@@ -17,6 +43,7 @@ type Thing struct {
 // Things have exactly one Kind.
 type Kind struct {
 	ID         string      `json:"id"`
+	UserID     string      `json:"userId"`     // Owner of this Kind
 	Name       string      `json:"name"`
 	Icon       string      `json:"icon"`       // Emoji
 	Template   string      `json:"template"`   // Display template: default, compact, card, checklist, link
@@ -35,8 +62,9 @@ type Attribute struct {
 
 // Tag is a lightweight label for Things.
 type Tag struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID     string `json:"id"`
+	UserID string `json:"userId"` // Owner of this Tag
+	Name   string `json:"name"`
 }
 
 // Relationship connects two Things.
@@ -76,6 +104,7 @@ type Photo struct {
 // Same data, different representations: feed, table, board, calendar.
 type View struct {
 	ID        string     `json:"id"`
+	UserID    string     `json:"userId"`    // Owner of this View
 	Name      string     `json:"name"`      // User-defined name
 	Type      string     `json:"type"`      // "feed", "table", "board", "calendar"
 	KindID    *string    `json:"kindId"`    // Optional: filter to specific Kind (nil = all)

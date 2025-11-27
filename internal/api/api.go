@@ -1,89 +1,133 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"time"
 
-	"tenant/internal/auth"
 	"tenant/internal/models"
 	"tenant/internal/store"
 
 	"github.com/go-chi/chi/v5"
+	"golang.org/x/crypto/bcrypt"
 )
 
 const (
-	CookieMaxAge = 6 * 30 * 24 * 60 * 60 // 6 months in seconds
+	CookieMaxAge    = 6 * 30 * 24 * 60 * 60 // 6 months in seconds
+	SessionDuration = 6 * 30 * 24 * time.Hour
 )
+
+type contextKey string
+
+const userContextKey contextKey = "user"
 
 type API struct {
 	store *store.Store
-	auth  *auth.AuthManager
 }
 
 func New(s *store.Store) *API {
-	password := os.Getenv("TENANT_PASSWORD")
-	if password == "" {
-		password = "dev" // Default for local development
-	}
-
-	// Data directory for token storage
-	dataDir := os.Getenv("TENANT_DATA_DIR")
-	if dataDir == "" {
-		dataDir = "./data"
-	}
-
-	// Initialize auth manager
-	authMgr, err := auth.New(password, dataDir)
-	if err != nil {
-		panic("failed to initialize auth: " + err.Error())
-	}
-
-	return &API{store: s, auth: authMgr}
+	return &API{store: s}
 }
 
-// AuthMiddleware checks for valid token in Authorization header or cookie
+// getUserFromContext extracts the authenticated user from the request context
+func getUserFromContext(r *http.Request) *models.User {
+	user, ok := r.Context().Value(userContextKey).(*models.User)
+	if !ok {
+		return nil
+	}
+	return user
+}
+
+// AuthMiddleware checks for valid session token in Authorization header or cookie
 func (a *API) AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var token string
+
 		// Check Authorization header first (Bearer token)
 		authHeader := r.Header.Get("Authorization")
 		if strings.HasPrefix(authHeader, "Bearer ") {
-			token := strings.TrimPrefix(authHeader, "Bearer ")
-			if a.auth.ValidateToken(token) {
-				next.ServeHTTP(w, r)
-				return
+			token = strings.TrimPrefix(authHeader, "Bearer ")
+		} else {
+			// Check cookie
+			cookie, err := r.Cookie("tenant_auth")
+			if err == nil {
+				token = cookie.Value
 			}
 		}
 
-		// Check cookie
-		cookie, err := r.Cookie("tenant_auth")
-		if err == nil && a.auth.ValidateToken(cookie.Value) {
-			next.ServeHTTP(w, r)
+		if token == "" {
+			respondError(w, http.StatusUnauthorized, "Unauthorized")
 			return
 		}
 
-		respondError(w, http.StatusUnauthorized, "Unauthorized")
+		// Validate session
+		session, err := a.store.GetSessionByToken(token)
+		if err != nil {
+			respondError(w, http.StatusUnauthorized, "Invalid session")
+			return
+		}
+
+		// Check if session is expired
+		if session.ExpiresAt.Before(time.Now()) {
+			a.store.DeleteSession(token)
+			respondError(w, http.StatusUnauthorized, "Session expired")
+			return
+		}
+
+		// Get user
+		user, err := a.store.GetUser(session.UserID)
+		if err != nil {
+			respondError(w, http.StatusUnauthorized, "User not found")
+			return
+		}
+
+		// Check if user is locked
+		if user.IsLocked {
+			respondError(w, http.StatusForbidden, "Account is locked")
+			return
+		}
+
+		// Add user to context
+		ctx := context.WithValue(r.Context(), userContextKey, user)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// AdminMiddleware requires the user to be an admin
+func (a *API) AdminMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user := getUserFromContext(r)
+		if user == nil || !user.IsAdmin {
+			respondError(w, http.StatusForbidden, "Admin access required")
+			return
+		}
+		next.ServeHTTP(w, r)
 	})
 }
 
 func (a *API) Routes() chi.Router {
 	r := chi.NewRouter()
 
-	// Auth endpoint (no auth required)
-	r.Post("/auth", a.authenticate)
+	// Public auth endpoints
+	r.Post("/auth/register", a.register)
+	r.Post("/auth/login", a.login)
 	r.Post("/auth/logout", a.logout)
 	r.Get("/auth/check", a.checkAuth)
 
-	// Photos endpoint - public for serving images (auth via cookie for upload)
+	// Photos endpoint - public for serving images
 	r.Get("/photos/{id}", a.servePhoto)
 
 	// Protected routes
 	r.Group(func(r chi.Router) {
 		r.Use(a.AuthMiddleware)
+
+		// User profile
+		r.Get("/auth/me", a.getMe)
+		r.Put("/auth/me", a.updateMe)
 
 		// Things
 		r.Route("/things", func(r chi.Router) {
@@ -121,6 +165,15 @@ func (a *API) Routes() chi.Router {
 
 		// Photos
 		r.Post("/upload", a.uploadPhoto)
+
+		// Admin routes
+		r.Group(func(r chi.Router) {
+			r.Use(a.AdminMiddleware)
+			r.Get("/admin/users", a.listUsers)
+			r.Put("/admin/users/{id}/lock", a.lockUser)
+			r.Put("/admin/users/{id}/unlock", a.unlockUser)
+			r.Delete("/admin/users/{id}", a.deleteUser)
+		})
 	})
 
 	return r
@@ -128,32 +181,82 @@ func (a *API) Routes() chi.Router {
 
 // Auth handlers
 
-func (a *API) authenticate(w http.ResponseWriter, r *http.Request) {
+func (a *API) register(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		PasswordHash string `json:"passwordHash"`
+		Username string `json:"username"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "Invalid JSON")
 		return
 	}
 
-	// Verify the password hash
-	if !a.auth.VerifyPasswordHash(req.PasswordHash) {
-		respondError(w, http.StatusUnauthorized, "Invalid password")
+	// Validate required fields
+	if req.Username == "" || req.Email == "" || req.Password == "" {
+		respondError(w, http.StatusBadRequest, "Username, email, and password are required")
 		return
 	}
 
-	// Generate a new session token
-	token, err := a.auth.GenerateToken()
+	// Validate username format (alphanumeric, underscore, hyphen, 3-30 chars)
+	if len(req.Username) < 3 || len(req.Username) > 30 {
+		respondError(w, http.StatusBadRequest, "Username must be 3-30 characters")
+		return
+	}
+
+	// Check if username exists
+	if _, err := a.store.GetUserByUsername(req.Username); err == nil {
+		respondError(w, http.StatusConflict, "Username already taken")
+		return
+	}
+
+	// Check if email exists
+	if _, err := a.store.GetUserByEmail(req.Email); err == nil {
+		respondError(w, http.StatusConflict, "Email already registered")
+		return
+	}
+
+	// Hash password
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "Failed to generate token")
+		respondError(w, http.StatusInternalServerError, "Failed to hash password")
 		return
 	}
 
-	// Set cookie for browser persistence (6 months)
+	// Check if this is the first user (make them admin)
+	userCount, err := a.store.CountUsers()
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Database error")
+		return
+	}
+
+	user := &models.User{
+		Username:     req.Username,
+		Email:        req.Email,
+		PasswordHash: string(passwordHash),
+		DisplayName:  req.Username,
+		IsAdmin:      userCount == 0, // First user is admin
+	}
+
+	if err := a.store.CreateUser(user); err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to create user")
+		return
+	}
+
+	// Create session
+	session := &models.Session{
+		UserID:    user.ID,
+		ExpiresAt: time.Now().Add(SessionDuration),
+	}
+	if err := a.store.CreateSession(session); err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to create session")
+		return
+	}
+
+	// Set cookie
 	http.SetCookie(w, &http.Cookie{
 		Name:     "tenant_auth",
-		Value:    token,
+		Value:    session.Token,
 		Path:     "/",
 		MaxAge:   CookieMaxAge,
 		HttpOnly: true,
@@ -161,41 +264,95 @@ func (a *API) authenticate(w http.ResponseWriter, r *http.Request) {
 		Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
 	})
 
-	// Return token and expiry for client
-	expiry := a.auth.GetTokenExpiry()
-	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"status":    "ok",
-		"token":     token,
-		"expiresAt": expiry.Format(time.RFC3339),
+	respondJSON(w, http.StatusCreated, map[string]interface{}{
+		"user":      user,
+		"token":     session.Token,
+		"expiresAt": session.ExpiresAt.Format(time.RFC3339),
 	})
 }
 
-func (a *API) checkAuth(w http.ResponseWriter, r *http.Request) {
-	// Check Authorization header (Bearer token)
-	authHeader := r.Header.Get("Authorization")
-	if strings.HasPrefix(authHeader, "Bearer ") {
-		token := strings.TrimPrefix(authHeader, "Bearer ")
-		if a.auth.ValidateToken(token) {
-			respondJSON(w, http.StatusOK, map[string]bool{"authenticated": true})
-			return
-		}
+func (a *API) login(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Username string `json:"username"` // Can be username or email
+		Password string `json:"password"`
 	}
-
-	// Check cookie
-	cookie, err := r.Cookie("tenant_auth")
-	if err == nil && a.auth.ValidateToken(cookie.Value) {
-		respondJSON(w, http.StatusOK, map[string]bool{"authenticated": true})
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "Invalid JSON")
 		return
 	}
 
-	respondJSON(w, http.StatusOK, map[string]bool{"authenticated": false})
+	// Find user by username or email
+	var user *models.User
+	var err error
+
+	if strings.Contains(req.Username, "@") {
+		user, err = a.store.GetUserByEmail(req.Username)
+	} else {
+		user, err = a.store.GetUserByUsername(req.Username)
+	}
+
+	if err != nil {
+		respondError(w, http.StatusUnauthorized, "Invalid credentials")
+		return
+	}
+
+	// Check if user is locked
+	if user.IsLocked {
+		respondError(w, http.StatusForbidden, "Account is locked")
+		return
+	}
+
+	// Verify password
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
+		respondError(w, http.StatusUnauthorized, "Invalid credentials")
+		return
+	}
+
+	// Create session
+	session := &models.Session{
+		UserID:    user.ID,
+		ExpiresAt: time.Now().Add(SessionDuration),
+	}
+	if err := a.store.CreateSession(session); err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to create session")
+		return
+	}
+
+	// Set cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:     "tenant_auth",
+		Value:    session.Token,
+		Path:     "/",
+		MaxAge:   CookieMaxAge,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
+	})
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"user":      user,
+		"token":     session.Token,
+		"expiresAt": session.ExpiresAt.Format(time.RFC3339),
+	})
 }
 
 func (a *API) logout(w http.ResponseWriter, r *http.Request) {
-	// Revoke the token from disk
-	a.auth.RevokeToken()
+	// Get token from cookie or header
+	var token string
+	if cookie, err := r.Cookie("tenant_auth"); err == nil {
+		token = cookie.Value
+	}
+	authHeader := r.Header.Get("Authorization")
+	if strings.HasPrefix(authHeader, "Bearer ") {
+		token = strings.TrimPrefix(authHeader, "Bearer ")
+	}
 
-	// Clear the auth cookie by setting it to expire in the past
+	// Delete session if token exists
+	if token != "" {
+		a.store.DeleteSession(token)
+	}
+
+	// Clear cookie
 	http.SetCookie(w, &http.Cookie{
 		Name:     "tenant_auth",
 		Value:    "",
@@ -204,6 +361,155 @@ func (a *API) logout(w http.ResponseWriter, r *http.Request) {
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 	})
+
+	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (a *API) checkAuth(w http.ResponseWriter, r *http.Request) {
+	var token string
+
+	// Check Authorization header
+	authHeader := r.Header.Get("Authorization")
+	if strings.HasPrefix(authHeader, "Bearer ") {
+		token = strings.TrimPrefix(authHeader, "Bearer ")
+	} else {
+		// Check cookie
+		if cookie, err := r.Cookie("tenant_auth"); err == nil {
+			token = cookie.Value
+		}
+	}
+
+	if token == "" {
+		respondJSON(w, http.StatusOK, map[string]interface{}{"authenticated": false})
+		return
+	}
+
+	session, err := a.store.GetSessionByToken(token)
+	if err != nil || session.ExpiresAt.Before(time.Now()) {
+		respondJSON(w, http.StatusOK, map[string]interface{}{"authenticated": false})
+		return
+	}
+
+	user, err := a.store.GetUser(session.UserID)
+	if err != nil || user.IsLocked {
+		respondJSON(w, http.StatusOK, map[string]interface{}{"authenticated": false})
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"authenticated": true,
+		"user":          user,
+	})
+}
+
+func (a *API) getMe(w http.ResponseWriter, r *http.Request) {
+	user := getUserFromContext(r)
+	respondJSON(w, http.StatusOK, user)
+}
+
+func (a *API) updateMe(w http.ResponseWriter, r *http.Request) {
+	user := getUserFromContext(r)
+
+	var req struct {
+		DisplayName string `json:"displayName"`
+		Bio         string `json:"bio"`
+		AvatarURL   string `json:"avatarUrl"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "Invalid JSON")
+		return
+	}
+
+	user.DisplayName = req.DisplayName
+	user.Bio = req.Bio
+	user.AvatarURL = req.AvatarURL
+
+	if err := a.store.UpdateUser(user); err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to update profile")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, user)
+}
+
+// Admin handlers
+
+func (a *API) listUsers(w http.ResponseWriter, r *http.Request) {
+	users, err := a.store.ListUsers()
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Don't send password hashes
+	for i := range users {
+		users[i].PasswordHash = ""
+		users[i].RecoveryHash = ""
+	}
+
+	respondJSON(w, http.StatusOK, users)
+}
+
+func (a *API) lockUser(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	currentUser := getUserFromContext(r)
+
+	// Can't lock yourself
+	if id == currentUser.ID {
+		respondError(w, http.StatusBadRequest, "Cannot lock yourself")
+		return
+	}
+
+	user, err := a.store.GetUser(id)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "User not found")
+		return
+	}
+
+	user.IsLocked = true
+	if err := a.store.UpdateUser(user); err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to lock user")
+		return
+	}
+
+	// Delete all user sessions
+	a.store.DeleteUserSessions(id)
+
+	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (a *API) unlockUser(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	user, err := a.store.GetUser(id)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "User not found")
+		return
+	}
+
+	user.IsLocked = false
+	if err := a.store.UpdateUser(user); err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to unlock user")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (a *API) deleteUser(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	currentUser := getUserFromContext(r)
+
+	// Can't delete yourself
+	if id == currentUser.ID {
+		respondError(w, http.StatusBadRequest, "Cannot delete yourself")
+		return
+	}
+
+	if err := a.store.DeleteUser(id); err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to delete user")
+		return
+	}
 
 	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
@@ -223,6 +529,7 @@ func respondError(w http.ResponseWriter, status int, message string) {
 // Thing handlers
 
 func (a *API) listThings(w http.ResponseWriter, r *http.Request) {
+	user := getUserFromContext(r)
 	thingType := r.URL.Query().Get("type")
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
@@ -231,7 +538,7 @@ func (a *API) listThings(w http.ResponseWriter, r *http.Request) {
 		limit = 50
 	}
 
-	things, err := a.store.ListThings(thingType, limit, offset)
+	things, err := a.store.ListThings(user.ID, thingType, limit, offset)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -245,6 +552,8 @@ func (a *API) listThings(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) createThing(w http.ResponseWriter, r *http.Request) {
+	user := getUserFromContext(r)
+
 	var t models.Thing
 	if err := json.NewDecoder(r.Body).Decode(&t); err != nil {
 		respondError(w, http.StatusBadRequest, "Invalid JSON")
@@ -256,6 +565,8 @@ func (a *API) createThing(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	t.UserID = user.ID
+
 	if err := a.store.CreateThing(&t); err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -265,9 +576,10 @@ func (a *API) createThing(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) getThing(w http.ResponseWriter, r *http.Request) {
+	user := getUserFromContext(r)
 	id := chi.URLParam(r, "id")
 
-	t, err := a.store.GetThing(id)
+	t, err := a.store.GetThingForUser(id, user.ID)
 	if err != nil {
 		respondError(w, http.StatusNotFound, "Thing not found")
 		return
@@ -277,6 +589,7 @@ func (a *API) getThing(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) updateThing(w http.ResponseWriter, r *http.Request) {
+	user := getUserFromContext(r)
 	id := chi.URLParam(r, "id")
 
 	var t models.Thing
@@ -286,6 +599,7 @@ func (a *API) updateThing(w http.ResponseWriter, r *http.Request) {
 	}
 
 	t.ID = id
+	t.UserID = user.ID
 	if err := a.store.UpdateThing(&t); err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -295,9 +609,10 @@ func (a *API) updateThing(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) deleteThing(w http.ResponseWriter, r *http.Request) {
+	user := getUserFromContext(r)
 	id := chi.URLParam(r, "id")
 
-	if err := a.store.DeleteThing(id); err != nil {
+	if err := a.store.DeleteThing(id, user.ID); err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -306,6 +621,7 @@ func (a *API) deleteThing(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) searchThings(w http.ResponseWriter, r *http.Request) {
+	user := getUserFromContext(r)
 	query := r.URL.Query().Get("q")
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 
@@ -313,7 +629,7 @@ func (a *API) searchThings(w http.ResponseWriter, r *http.Request) {
 		limit = 50
 	}
 
-	things, err := a.store.SearchThings(query, limit)
+	things, err := a.store.SearchThings(user.ID, query, limit)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -329,7 +645,9 @@ func (a *API) searchThings(w http.ResponseWriter, r *http.Request) {
 // Kind handlers
 
 func (a *API) listKinds(w http.ResponseWriter, r *http.Request) {
-	kinds, err := a.store.ListKinds()
+	user := getUserFromContext(r)
+
+	kinds, err := a.store.ListKinds(user.ID)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -343,6 +661,8 @@ func (a *API) listKinds(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) createKind(w http.ResponseWriter, r *http.Request) {
+	user := getUserFromContext(r)
+
 	var k models.Kind
 	if err := json.NewDecoder(r.Body).Decode(&k); err != nil {
 		respondError(w, http.StatusBadRequest, "Invalid JSON")
@@ -354,6 +674,8 @@ func (a *API) createKind(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	k.UserID = user.ID
+
 	if err := a.store.CreateKind(&k); err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -363,9 +685,10 @@ func (a *API) createKind(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) getKind(w http.ResponseWriter, r *http.Request) {
+	user := getUserFromContext(r)
 	id := chi.URLParam(r, "id")
 
-	k, err := a.store.GetKind(id)
+	k, err := a.store.GetKindForUser(id, user.ID)
 	if err != nil {
 		respondError(w, http.StatusNotFound, "Kind not found")
 		return
@@ -375,6 +698,7 @@ func (a *API) getKind(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) updateKind(w http.ResponseWriter, r *http.Request) {
+	user := getUserFromContext(r)
 	id := chi.URLParam(r, "id")
 
 	var k models.Kind
@@ -384,6 +708,7 @@ func (a *API) updateKind(w http.ResponseWriter, r *http.Request) {
 	}
 
 	k.ID = id
+	k.UserID = user.ID
 	if err := a.store.UpdateKind(&k); err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -393,9 +718,10 @@ func (a *API) updateKind(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) deleteKind(w http.ResponseWriter, r *http.Request) {
+	user := getUserFromContext(r)
 	id := chi.URLParam(r, "id")
 
-	if err := a.store.DeleteKind(id); err != nil {
+	if err := a.store.DeleteKind(id, user.ID); err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -406,7 +732,9 @@ func (a *API) deleteKind(w http.ResponseWriter, r *http.Request) {
 // Tag handlers
 
 func (a *API) listTags(w http.ResponseWriter, r *http.Request) {
-	tags, err := a.store.ListTags()
+	user := getUserFromContext(r)
+
+	tags, err := a.store.ListTags(user.ID)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -420,6 +748,8 @@ func (a *API) listTags(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) createTag(w http.ResponseWriter, r *http.Request) {
+	user := getUserFromContext(r)
+
 	var t models.Tag
 	if err := json.NewDecoder(r.Body).Decode(&t); err != nil {
 		respondError(w, http.StatusBadRequest, "Invalid JSON")
@@ -431,7 +761,7 @@ func (a *API) createTag(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tag, err := a.store.GetOrCreateTag(t.Name)
+	tag, err := a.store.GetOrCreateTag(user.ID, t.Name)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -440,9 +770,11 @@ func (a *API) createTag(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusCreated, tag)
 }
 
-// Photo upload handler - stores photo as blob in SQLite
+// Photo upload handler
 
 func (a *API) uploadPhoto(w http.ResponseWriter, r *http.Request) {
+	user := getUserFromContext(r)
+
 	// Parse multipart form (32MB max)
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		respondError(w, http.StatusBadRequest, "Failed to parse form")
@@ -475,6 +807,7 @@ func (a *API) uploadPhoto(w http.ResponseWriter, r *http.Request) {
 
 	// Create a Thing with type "photo"
 	t := &models.Thing{
+		UserID:  user.ID,
 		Type:    "photo",
 		Content: caption,
 		Metadata: map[string]interface{}{
@@ -500,7 +833,7 @@ func (a *API) uploadPhoto(w http.ResponseWriter, r *http.Request) {
 
 	if err := a.store.CreatePhoto(photo); err != nil {
 		// Clean up the Thing if photo creation fails
-		a.store.DeleteThing(t.ID)
+		a.store.DeleteThing(t.ID, user.ID)
 		respondError(w, http.StatusInternalServerError, "Failed to save photo: "+err.Error())
 		return
 	}
@@ -533,7 +866,9 @@ func (a *API) servePhoto(w http.ResponseWriter, r *http.Request) {
 // View handlers
 
 func (a *API) listViews(w http.ResponseWriter, r *http.Request) {
-	views, err := a.store.ListViews()
+	user := getUserFromContext(r)
+
+	views, err := a.store.ListViews(user.ID)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -547,6 +882,8 @@ func (a *API) listViews(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) createView(w http.ResponseWriter, r *http.Request) {
+	user := getUserFromContext(r)
+
 	var v models.View
 	if err := json.NewDecoder(r.Body).Decode(&v); err != nil {
 		respondError(w, http.StatusBadRequest, "Invalid JSON")
@@ -569,6 +906,8 @@ func (a *API) createView(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	v.UserID = user.ID
+
 	if err := a.store.CreateView(&v); err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -578,9 +917,10 @@ func (a *API) createView(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) getView(w http.ResponseWriter, r *http.Request) {
+	user := getUserFromContext(r)
 	id := chi.URLParam(r, "id")
 
-	v, err := a.store.GetView(id)
+	v, err := a.store.GetViewForUser(id, user.ID)
 	if err != nil {
 		respondError(w, http.StatusNotFound, "View not found")
 		return
@@ -590,6 +930,7 @@ func (a *API) getView(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) updateView(w http.ResponseWriter, r *http.Request) {
+	user := getUserFromContext(r)
 	id := chi.URLParam(r, "id")
 
 	var v models.View
@@ -599,6 +940,7 @@ func (a *API) updateView(w http.ResponseWriter, r *http.Request) {
 	}
 
 	v.ID = id
+	v.UserID = user.ID
 
 	// Validate view type if provided
 	if v.Type != "" {
@@ -618,9 +960,10 @@ func (a *API) updateView(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) deleteView(w http.ResponseWriter, r *http.Request) {
+	user := getUserFromContext(r)
 	id := chi.URLParam(r, "id")
 
-	if err := a.store.DeleteView(id); err != nil {
+	if err := a.store.DeleteView(id, user.ID); err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

@@ -22,7 +22,7 @@ var embeddedFiles embed.FS
 func main() {
 	// Get database config from environment
 	// DB_BACKEND: "sqlite" or "turso" (auto-detects if not set)
-	// For SQLite: SQLITE_PATH (defaults to "eighty.db")
+	// For SQLite: SQLITE_PATH (defaults to "tenant.db")
 	// For Turso: TURSO_DATABASE_URL, TURSO_AUTH_TOKEN
 	dbConfig := store.ConfigFromEnv()
 
@@ -96,7 +96,7 @@ func main() {
 		log.Println("Running in dev mode. Frontend: cd web && npm run dev")
 	}
 
-	log.Printf("Eighty starting on http://localhost:%s", port)
+	log.Printf("Tenant starting on http://localhost:%s", port)
 	if err := http.ListenAndServe(":"+port, r); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
