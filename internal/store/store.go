@@ -219,8 +219,36 @@ func (s *Store) migrate() error {
 		type TEXT NOT NULL,
 		content TEXT NOT NULL,
 		metadata TEXT DEFAULT '{}',
+		version INTEGER DEFAULT 1,
+		deleted_at DATETIME,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+	);
+
+	CREATE TABLE IF NOT EXISTS thing_versions (
+		id TEXT PRIMARY KEY,
+		thing_id TEXT NOT NULL,
+		version INTEGER NOT NULL,
+		type TEXT NOT NULL,
+		content TEXT NOT NULL,
+		metadata TEXT DEFAULT '{}',
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		created_by TEXT NOT NULL,
+		FOREIGN KEY (thing_id) REFERENCES things(id) ON DELETE CASCADE
+	);
+
+	CREATE TABLE IF NOT EXISTS api_keys (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL,
+		name TEXT NOT NULL,
+		key_hash TEXT NOT NULL,
+		key_prefix TEXT NOT NULL,
+		scopes TEXT DEFAULT '[]',
+		metadata TEXT DEFAULT '{}',
+		last_used_at DATETIME,
+		expires_at DATETIME,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 	);
 
@@ -312,13 +340,47 @@ func (s *Store) migrate() error {
 	`
 
 	_, err := s.db.Exec(schema)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Run migrations for existing tables (add new columns if they don't exist)
+	// These ALTER TABLE statements will fail if columns already exist, which is fine
+	migrations := []string{
+		// Add version and deleted_at to things table
+		"ALTER TABLE things ADD COLUMN version INTEGER DEFAULT 1",
+		"ALTER TABLE things ADD COLUMN deleted_at DATETIME",
+	}
+
+	for _, m := range migrations {
+		// Ignore errors - column may already exist
+		s.db.Exec(m)
+	}
+
+	// Create indexes that depend on migrated columns
+	postMigrationIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_things_deleted_at ON things(deleted_at);
+	CREATE INDEX IF NOT EXISTS idx_thing_versions_thing_id ON thing_versions(thing_id);
+	CREATE INDEX IF NOT EXISTS idx_thing_versions_version ON thing_versions(thing_id, version);
+	CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id);
+	CREATE INDEX IF NOT EXISTS idx_api_keys_key_prefix ON api_keys(key_prefix);
+	`
+	s.db.Exec(postMigrationIndexes)
+
+	return nil
 }
 
 // Thing operations
 
+// CreateThing creates a new thing with version 1
 func (s *Store) CreateThing(t *models.Thing) error {
+	return s.CreateThingWithCreator(t, t.UserID)
+}
+
+// CreateThingWithCreator creates a new thing, tracking who created it (user or API key)
+func (s *Store) CreateThingWithCreator(t *models.Thing, creatorID string) error {
 	t.ID = uuid.New().String()
+	t.Version = 1
 	t.CreatedAt = time.Now()
 	t.UpdatedAt = time.Now()
 
@@ -328,8 +390,27 @@ func (s *Store) CreateThing(t *models.Thing) error {
 	}
 
 	_, err = s.db.Exec(
-		`INSERT INTO things (id, user_id, type, content, metadata, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		t.ID, t.UserID, t.Type, t.Content, string(metadata), t.CreatedAt, t.UpdatedAt,
+		`INSERT INTO things (id, user_id, type, content, metadata, version, deleted_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+		t.ID, t.UserID, t.Type, t.Content, string(metadata), t.Version, t.CreatedAt, t.UpdatedAt,
+	)
+	if err != nil {
+		return err
+	}
+
+	// Create initial version record
+	return s.createThingVersion(t, creatorID)
+}
+
+// createThingVersion creates a version record for a thing
+func (s *Store) createThingVersion(t *models.Thing, creatorID string) error {
+	metadata, err := json.Marshal(t.Metadata)
+	if err != nil {
+		return err
+	}
+
+	_, err = s.db.Exec(
+		`INSERT INTO thing_versions (id, thing_id, version, type, content, metadata, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		uuid.New().String(), t.ID, t.Version, t.Type, t.Content, string(metadata), time.Now(), creatorID,
 	)
 	return err
 }
@@ -337,14 +418,19 @@ func (s *Store) CreateThing(t *models.Thing) error {
 func (s *Store) GetThing(id string) (*models.Thing, error) {
 	var t models.Thing
 	var metadata string
+	var deletedAt sql.NullTime
 
 	err := s.db.QueryRow(
-		`SELECT id, user_id, type, content, metadata, created_at, updated_at FROM things WHERE id = ?`,
+		`SELECT id, user_id, type, content, metadata, version, deleted_at, created_at, updated_at FROM things WHERE id = ?`,
 		id,
-	).Scan(&t.ID, &t.UserID, &t.Type, &t.Content, &metadata, &t.CreatedAt, &t.UpdatedAt)
+	).Scan(&t.ID, &t.UserID, &t.Type, &t.Content, &metadata, &t.Version, &deletedAt, &t.CreatedAt, &t.UpdatedAt)
 
 	if err != nil {
 		return nil, err
+	}
+
+	if deletedAt.Valid {
+		t.DeletedAt = &deletedAt.Time
 	}
 
 	if err := json.Unmarshal([]byte(metadata), &t.Metadata); err != nil {
@@ -354,18 +440,49 @@ func (s *Store) GetThing(id string) (*models.Thing, error) {
 	return &t, nil
 }
 
-// GetThingForUser gets a thing only if it belongs to the specified user
+// GetThingForUser gets a thing only if it belongs to the specified user (excludes soft-deleted)
 func (s *Store) GetThingForUser(id, userID string) (*models.Thing, error) {
 	var t models.Thing
 	var metadata string
+	var deletedAt sql.NullTime
 
 	err := s.db.QueryRow(
-		`SELECT id, user_id, type, content, metadata, created_at, updated_at FROM things WHERE id = ? AND user_id = ?`,
+		`SELECT id, user_id, type, content, metadata, version, deleted_at, created_at, updated_at FROM things WHERE id = ? AND user_id = ? AND deleted_at IS NULL`,
 		id, userID,
-	).Scan(&t.ID, &t.UserID, &t.Type, &t.Content, &metadata, &t.CreatedAt, &t.UpdatedAt)
+	).Scan(&t.ID, &t.UserID, &t.Type, &t.Content, &metadata, &t.Version, &deletedAt, &t.CreatedAt, &t.UpdatedAt)
 
 	if err != nil {
 		return nil, err
+	}
+
+	if deletedAt.Valid {
+		t.DeletedAt = &deletedAt.Time
+	}
+
+	if err := json.Unmarshal([]byte(metadata), &t.Metadata); err != nil {
+		t.Metadata = make(map[string]interface{})
+	}
+
+	return &t, nil
+}
+
+// GetThingForUserIncludeDeleted gets a thing including soft-deleted ones
+func (s *Store) GetThingForUserIncludeDeleted(id, userID string) (*models.Thing, error) {
+	var t models.Thing
+	var metadata string
+	var deletedAt sql.NullTime
+
+	err := s.db.QueryRow(
+		`SELECT id, user_id, type, content, metadata, version, deleted_at, created_at, updated_at FROM things WHERE id = ? AND user_id = ?`,
+		id, userID,
+	).Scan(&t.ID, &t.UserID, &t.Type, &t.Content, &metadata, &t.Version, &deletedAt, &t.CreatedAt, &t.UpdatedAt)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if deletedAt.Valid {
+		t.DeletedAt = &deletedAt.Time
 	}
 
 	if err := json.Unmarshal([]byte(metadata), &t.Metadata); err != nil {
@@ -380,10 +497,10 @@ func (s *Store) ListThings(userID, thingType string, limit, offset int) ([]model
 	var args []interface{}
 
 	if thingType != "" {
-		query = `SELECT id, user_id, type, content, metadata, created_at, updated_at FROM things WHERE user_id = ? AND type = ? ORDER BY created_at DESC LIMIT ? OFFSET ?`
+		query = `SELECT id, user_id, type, content, metadata, version, deleted_at, created_at, updated_at FROM things WHERE user_id = ? AND type = ? AND deleted_at IS NULL ORDER BY created_at DESC LIMIT ? OFFSET ?`
 		args = []interface{}{userID, thingType, limit, offset}
 	} else {
-		query = `SELECT id, user_id, type, content, metadata, created_at, updated_at FROM things WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?`
+		query = `SELECT id, user_id, type, content, metadata, version, deleted_at, created_at, updated_at FROM things WHERE user_id = ? AND deleted_at IS NULL ORDER BY created_at DESC LIMIT ? OFFSET ?`
 		args = []interface{}{userID, limit, offset}
 	}
 
@@ -397,8 +514,12 @@ func (s *Store) ListThings(userID, thingType string, limit, offset int) ([]model
 	for rows.Next() {
 		var t models.Thing
 		var metadata string
-		if err := rows.Scan(&t.ID, &t.UserID, &t.Type, &t.Content, &metadata, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		var deletedAt sql.NullTime
+		if err := rows.Scan(&t.ID, &t.UserID, &t.Type, &t.Content, &metadata, &t.Version, &deletedAt, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, err
+		}
+		if deletedAt.Valid {
+			t.DeletedAt = &deletedAt.Time
 		}
 		if err := json.Unmarshal([]byte(metadata), &t.Metadata); err != nil {
 			t.Metadata = make(map[string]interface{})
@@ -410,7 +531,13 @@ func (s *Store) ListThings(userID, thingType string, limit, offset int) ([]model
 }
 
 func (s *Store) UpdateThing(t *models.Thing) error {
+	return s.UpdateThingWithCreator(t, t.UserID)
+}
+
+// UpdateThingWithCreator updates a thing and creates a new version, tracking who made the change
+func (s *Store) UpdateThingWithCreator(t *models.Thing, creatorID string) error {
 	t.UpdatedAt = time.Now()
+	t.Version++
 
 	metadata, err := json.Marshal(t.Metadata)
 	if err != nil {
@@ -418,14 +545,39 @@ func (s *Store) UpdateThing(t *models.Thing) error {
 	}
 
 	_, err = s.db.Exec(
-		`UPDATE things SET type = ?, content = ?, metadata = ?, updated_at = ? WHERE id = ? AND user_id = ?`,
-		t.Type, t.Content, string(metadata), t.UpdatedAt, t.ID, t.UserID,
+		`UPDATE things SET type = ?, content = ?, metadata = ?, version = ?, updated_at = ? WHERE id = ? AND user_id = ? AND deleted_at IS NULL`,
+		t.Type, t.Content, string(metadata), t.Version, t.UpdatedAt, t.ID, t.UserID,
 	)
+	if err != nil {
+		return err
+	}
+
+	// Create version record
+	return s.createThingVersion(t, creatorID)
+}
+
+// DeleteThing performs a soft delete
+func (s *Store) DeleteThing(id, userID string) error {
+	return s.SoftDeleteThing(id, userID)
+}
+
+// SoftDeleteThing marks a thing as deleted without removing it
+func (s *Store) SoftDeleteThing(id, userID string) error {
+	now := time.Now()
+	_, err := s.db.Exec(`UPDATE things SET deleted_at = ?, updated_at = ? WHERE id = ? AND user_id = ? AND deleted_at IS NULL`, now, now, id, userID)
 	return err
 }
 
-func (s *Store) DeleteThing(id, userID string) error {
+// HardDeleteThing permanently removes a thing and all its versions
+func (s *Store) HardDeleteThing(id, userID string) error {
+	// Versions are deleted by CASCADE
 	_, err := s.db.Exec(`DELETE FROM things WHERE id = ? AND user_id = ?`, id, userID)
+	return err
+}
+
+// RestoreThing undeletes a soft-deleted thing
+func (s *Store) RestoreThing(id, userID string) error {
+	_, err := s.db.Exec(`UPDATE things SET deleted_at = NULL, updated_at = ? WHERE id = ? AND user_id = ? AND deleted_at IS NOT NULL`, time.Now(), id, userID)
 	return err
 }
 
@@ -435,9 +587,9 @@ func (s *Store) SearchThings(userID, query string, limit int) ([]models.Thing, e
 	}
 
 	rows, err := s.db.Query(
-		`SELECT id, user_id, type, content, metadata, created_at, updated_at
+		`SELECT id, user_id, type, content, metadata, version, deleted_at, created_at, updated_at
 		FROM things
-		WHERE user_id = ? AND (content LIKE ? OR type LIKE ?)
+		WHERE user_id = ? AND deleted_at IS NULL AND (content LIKE ? OR type LIKE ?)
 		ORDER BY created_at DESC
 		LIMIT ?`,
 		userID, "%"+query+"%", "%"+query+"%", limit,
@@ -451,8 +603,12 @@ func (s *Store) SearchThings(userID, query string, limit int) ([]models.Thing, e
 	for rows.Next() {
 		var t models.Thing
 		var metadata string
-		if err := rows.Scan(&t.ID, &t.UserID, &t.Type, &t.Content, &metadata, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		var deletedAt sql.NullTime
+		if err := rows.Scan(&t.ID, &t.UserID, &t.Type, &t.Content, &metadata, &t.Version, &deletedAt, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, err
+		}
+		if deletedAt.Valid {
+			t.DeletedAt = &deletedAt.Time
 		}
 		if err := json.Unmarshal([]byte(metadata), &t.Metadata); err != nil {
 			t.Metadata = make(map[string]interface{})
@@ -461,6 +617,68 @@ func (s *Store) SearchThings(userID, query string, limit int) ([]models.Thing, e
 	}
 
 	return things, nil
+}
+
+// ListThingVersions returns all versions of a thing
+func (s *Store) ListThingVersions(thingID, userID string) ([]models.ThingVersion, error) {
+	// First verify the thing belongs to this user
+	var exists int
+	err := s.db.QueryRow(`SELECT 1 FROM things WHERE id = ? AND user_id = ?`, thingID, userID).Scan(&exists)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := s.db.Query(
+		`SELECT id, thing_id, version, type, content, metadata, created_at, created_by
+		FROM thing_versions WHERE thing_id = ? ORDER BY version DESC`,
+		thingID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var versions []models.ThingVersion
+	for rows.Next() {
+		var v models.ThingVersion
+		var metadata string
+		if err := rows.Scan(&v.ID, &v.ThingID, &v.Version, &v.Type, &v.Content, &metadata, &v.CreatedAt, &v.CreatedBy); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(metadata), &v.Metadata); err != nil {
+			v.Metadata = make(map[string]interface{})
+		}
+		versions = append(versions, v)
+	}
+
+	return versions, nil
+}
+
+// GetThingVersion returns a specific version of a thing
+func (s *Store) GetThingVersion(thingID, userID string, version int) (*models.ThingVersion, error) {
+	// First verify the thing belongs to this user
+	var exists int
+	err := s.db.QueryRow(`SELECT 1 FROM things WHERE id = ? AND user_id = ?`, thingID, userID).Scan(&exists)
+	if err != nil {
+		return nil, err
+	}
+
+	var v models.ThingVersion
+	var metadata string
+	err = s.db.QueryRow(
+		`SELECT id, thing_id, version, type, content, metadata, created_at, created_by
+		FROM thing_versions WHERE thing_id = ? AND version = ?`,
+		thingID, version,
+	).Scan(&v.ID, &v.ThingID, &v.Version, &v.Type, &v.Content, &metadata, &v.CreatedAt, &v.CreatedBy)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := json.Unmarshal([]byte(metadata), &v.Metadata); err != nil {
+		v.Metadata = make(map[string]interface{})
+	}
+
+	return &v, nil
 }
 
 // Kind operations
@@ -827,4 +1045,514 @@ func (s *Store) ListViews(userID string) ([]models.View, error) {
 	}
 
 	return views, nil
+}
+
+// ============================================================================
+// API Key operations
+// ============================================================================
+
+// CreateAPIKey creates a new API key. Returns the raw key (only available at creation time).
+func (s *Store) CreateAPIKey(k *models.APIKey, rawKey string, keyHash string) error {
+	k.ID = uuid.New().String()
+	k.KeyHash = keyHash
+	k.KeyPrefix = rawKey[:8] // First 8 chars for identification
+	k.CreatedAt = time.Now()
+
+	if k.Scopes == nil {
+		k.Scopes = []string{}
+	}
+	if k.Metadata == nil {
+		k.Metadata = make(map[string]interface{})
+	}
+
+	scopes, err := json.Marshal(k.Scopes)
+	if err != nil {
+		return err
+	}
+	metadata, err := json.Marshal(k.Metadata)
+	if err != nil {
+		return err
+	}
+
+	_, err = s.db.Exec(
+		`INSERT INTO api_keys (id, user_id, name, key_hash, key_prefix, scopes, metadata, last_used_at, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		k.ID, k.UserID, k.Name, k.KeyHash, k.KeyPrefix, string(scopes), string(metadata), k.LastUsedAt, k.ExpiresAt, k.CreatedAt,
+	)
+	return err
+}
+
+// GetAPIKey gets an API key by ID
+func (s *Store) GetAPIKey(id string) (*models.APIKey, error) {
+	var k models.APIKey
+	var scopes, metadata string
+	var lastUsedAt, expiresAt sql.NullTime
+
+	err := s.db.QueryRow(
+		`SELECT id, user_id, name, key_hash, key_prefix, scopes, metadata, last_used_at, expires_at, created_at FROM api_keys WHERE id = ?`,
+		id,
+	).Scan(&k.ID, &k.UserID, &k.Name, &k.KeyHash, &k.KeyPrefix, &scopes, &metadata, &lastUsedAt, &expiresAt, &k.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+
+	if lastUsedAt.Valid {
+		k.LastUsedAt = &lastUsedAt.Time
+	}
+	if expiresAt.Valid {
+		k.ExpiresAt = &expiresAt.Time
+	}
+	if err := json.Unmarshal([]byte(scopes), &k.Scopes); err != nil {
+		k.Scopes = []string{}
+	}
+	if err := json.Unmarshal([]byte(metadata), &k.Metadata); err != nil {
+		k.Metadata = make(map[string]interface{})
+	}
+
+	return &k, nil
+}
+
+// GetAPIKeyForUser gets an API key only if it belongs to the specified user
+func (s *Store) GetAPIKeyForUser(id, userID string) (*models.APIKey, error) {
+	var k models.APIKey
+	var scopes, metadata string
+	var lastUsedAt, expiresAt sql.NullTime
+
+	err := s.db.QueryRow(
+		`SELECT id, user_id, name, key_hash, key_prefix, scopes, metadata, last_used_at, expires_at, created_at FROM api_keys WHERE id = ? AND user_id = ?`,
+		id, userID,
+	).Scan(&k.ID, &k.UserID, &k.Name, &k.KeyHash, &k.KeyPrefix, &scopes, &metadata, &lastUsedAt, &expiresAt, &k.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+
+	if lastUsedAt.Valid {
+		k.LastUsedAt = &lastUsedAt.Time
+	}
+	if expiresAt.Valid {
+		k.ExpiresAt = &expiresAt.Time
+	}
+	if err := json.Unmarshal([]byte(scopes), &k.Scopes); err != nil {
+		k.Scopes = []string{}
+	}
+	if err := json.Unmarshal([]byte(metadata), &k.Metadata); err != nil {
+		k.Metadata = make(map[string]interface{})
+	}
+
+	return &k, nil
+}
+
+// GetAPIKeyByPrefix gets an API key by its prefix (for auth lookup)
+func (s *Store) GetAPIKeyByPrefix(prefix string) (*models.APIKey, error) {
+	var k models.APIKey
+	var scopes, metadata string
+	var lastUsedAt, expiresAt sql.NullTime
+
+	err := s.db.QueryRow(
+		`SELECT id, user_id, name, key_hash, key_prefix, scopes, metadata, last_used_at, expires_at, created_at FROM api_keys WHERE key_prefix = ?`,
+		prefix,
+	).Scan(&k.ID, &k.UserID, &k.Name, &k.KeyHash, &k.KeyPrefix, &scopes, &metadata, &lastUsedAt, &expiresAt, &k.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+
+	if lastUsedAt.Valid {
+		k.LastUsedAt = &lastUsedAt.Time
+	}
+	if expiresAt.Valid {
+		k.ExpiresAt = &expiresAt.Time
+	}
+	if err := json.Unmarshal([]byte(scopes), &k.Scopes); err != nil {
+		k.Scopes = []string{}
+	}
+	if err := json.Unmarshal([]byte(metadata), &k.Metadata); err != nil {
+		k.Metadata = make(map[string]interface{})
+	}
+
+	return &k, nil
+}
+
+// ListAPIKeys lists all API keys for a user (without the hash)
+func (s *Store) ListAPIKeys(userID string) ([]models.APIKey, error) {
+	rows, err := s.db.Query(
+		`SELECT id, user_id, name, key_hash, key_prefix, scopes, metadata, last_used_at, expires_at, created_at FROM api_keys WHERE user_id = ? ORDER BY created_at DESC`,
+		userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var keys []models.APIKey
+	for rows.Next() {
+		var k models.APIKey
+		var scopes, metadata string
+		var lastUsedAt, expiresAt sql.NullTime
+		if err := rows.Scan(&k.ID, &k.UserID, &k.Name, &k.KeyHash, &k.KeyPrefix, &scopes, &metadata, &lastUsedAt, &expiresAt, &k.CreatedAt); err != nil {
+			return nil, err
+		}
+		if lastUsedAt.Valid {
+			k.LastUsedAt = &lastUsedAt.Time
+		}
+		if expiresAt.Valid {
+			k.ExpiresAt = &expiresAt.Time
+		}
+		if err := json.Unmarshal([]byte(scopes), &k.Scopes); err != nil {
+			k.Scopes = []string{}
+		}
+		if err := json.Unmarshal([]byte(metadata), &k.Metadata); err != nil {
+			k.Metadata = make(map[string]interface{})
+		}
+		keys = append(keys, k)
+	}
+
+	return keys, nil
+}
+
+// UpdateAPIKey updates an API key's name, scopes, and metadata
+func (s *Store) UpdateAPIKey(k *models.APIKey) error {
+	scopes, err := json.Marshal(k.Scopes)
+	if err != nil {
+		return err
+	}
+	metadata, err := json.Marshal(k.Metadata)
+	if err != nil {
+		return err
+	}
+
+	_, err = s.db.Exec(
+		`UPDATE api_keys SET name = ?, scopes = ?, metadata = ?, expires_at = ? WHERE id = ? AND user_id = ?`,
+		k.Name, string(scopes), string(metadata), k.ExpiresAt, k.ID, k.UserID,
+	)
+	return err
+}
+
+// UpdateAPIKeyLastUsed updates the last_used_at timestamp
+func (s *Store) UpdateAPIKeyLastUsed(id string) error {
+	_, err := s.db.Exec(`UPDATE api_keys SET last_used_at = ? WHERE id = ?`, time.Now(), id)
+	return err
+}
+
+// DeleteAPIKey deletes an API key
+func (s *Store) DeleteAPIKey(id, userID string) error {
+	_, err := s.db.Exec(`DELETE FROM api_keys WHERE id = ? AND user_id = ?`, id, userID)
+	return err
+}
+
+// ============================================================================
+// Advanced Query Operations
+// ============================================================================
+
+// ThingQuery represents query parameters for listing things
+type ThingQuery struct {
+	UserID         string
+	Type           string            // Filter by type
+	MetadataFilter map[string]string // Filter by metadata fields (meta.field=value)
+	Sort           string            // Sort field (prefix with - for desc, e.g., "-createdAt")
+	Page           int               // Page number (1-indexed)
+	Count          int               // Items per page (0 or -1 for all)
+	IncludeDeleted bool              // Include soft-deleted items
+}
+
+// ThingQueryResult contains the query result with pagination info
+type ThingQueryResult struct {
+	Things     []models.Thing `json:"things"`
+	Total      int            `json:"total"`
+	Page       int            `json:"page"`
+	Count      int            `json:"count"`
+	TotalPages int            `json:"totalPages"`
+}
+
+// QueryThings performs an advanced query with filtering, sorting, and pagination
+func (s *Store) QueryThings(q ThingQuery) (*ThingQueryResult, error) {
+	// Build WHERE clause
+	where := []string{"user_id = ?"}
+	args := []interface{}{q.UserID}
+
+	if !q.IncludeDeleted {
+		where = append(where, "deleted_at IS NULL")
+	}
+
+	if q.Type != "" {
+		where = append(where, "type = ?")
+		args = append(args, q.Type)
+	}
+
+	// Metadata filters
+	for field, value := range q.MetadataFilter {
+		// Use JSON extraction for SQLite
+		where = append(where, "json_extract(metadata, ?) = ?")
+		args = append(args, "$."+field, value)
+	}
+
+	whereClause := "WHERE " + joinStrings(where, " AND ")
+
+	// Count total
+	var total int
+	countQuery := "SELECT COUNT(*) FROM things " + whereClause
+	if err := s.db.QueryRow(countQuery, args...).Scan(&total); err != nil {
+		return nil, err
+	}
+
+	// Build ORDER BY
+	orderBy := "ORDER BY created_at DESC" // default
+	if q.Sort != "" {
+		desc := false
+		sortField := q.Sort
+		if sortField[0] == '-' {
+			desc = true
+			sortField = sortField[1:]
+		}
+		// Map sort fields to columns
+		columnMap := map[string]string{
+			"createdAt": "created_at",
+			"updatedAt": "updated_at",
+			"type":      "type",
+			"content":   "content",
+			"version":   "version",
+		}
+		if col, ok := columnMap[sortField]; ok {
+			if desc {
+				orderBy = "ORDER BY " + col + " DESC"
+			} else {
+				orderBy = "ORDER BY " + col + " ASC"
+			}
+		}
+	}
+
+	// Build LIMIT/OFFSET
+	var limitClause string
+	page := q.Page
+	if page < 1 {
+		page = 1
+	}
+	count := q.Count
+	if count <= 0 {
+		// Return all
+		limitClause = ""
+	} else {
+		offset := (page - 1) * count
+		limitClause = " LIMIT ? OFFSET ?"
+		args = append(args, count, offset)
+	}
+
+	// Execute query
+	query := `SELECT id, user_id, type, content, metadata, version, deleted_at, created_at, updated_at FROM things ` + whereClause + " " + orderBy + limitClause
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var things []models.Thing
+	for rows.Next() {
+		var t models.Thing
+		var metadata string
+		var deletedAt sql.NullTime
+		if err := rows.Scan(&t.ID, &t.UserID, &t.Type, &t.Content, &metadata, &t.Version, &deletedAt, &t.CreatedAt, &t.UpdatedAt); err != nil {
+			return nil, err
+		}
+		if deletedAt.Valid {
+			t.DeletedAt = &deletedAt.Time
+		}
+		if err := json.Unmarshal([]byte(metadata), &t.Metadata); err != nil {
+			t.Metadata = make(map[string]interface{})
+		}
+		things = append(things, t)
+	}
+
+	// Calculate total pages
+	totalPages := 0
+	if count > 0 {
+		totalPages = (total + count - 1) / count
+	} else {
+		totalPages = 1
+	}
+
+	return &ThingQueryResult{
+		Things:     things,
+		Total:      total,
+		Page:       page,
+		Count:      count,
+		TotalPages: totalPages,
+	}, nil
+}
+
+// Helper to join strings
+func joinStrings(strs []string, sep string) string {
+	if len(strs) == 0 {
+		return ""
+	}
+	result := strs[0]
+	for i := 1; i < len(strs); i++ {
+		result += sep + strs[i]
+	}
+	return result
+}
+
+// ============================================================================
+// Upsert Operations
+// ============================================================================
+
+// UpsertThing creates a thing if it doesn't exist, or updates it if it does.
+// Match is based on type + a specific metadata field value.
+func (s *Store) UpsertThing(userID, thingType, matchField, matchValue string, t *models.Thing, creatorID string) (*models.Thing, bool, error) {
+	// Try to find existing thing
+	query := `SELECT id, user_id, type, content, metadata, version, deleted_at, created_at, updated_at
+		FROM things
+		WHERE user_id = ? AND type = ? AND json_extract(metadata, ?) = ? AND deleted_at IS NULL`
+
+	var existing models.Thing
+	var metadata string
+	var deletedAt sql.NullTime
+
+	err := s.db.QueryRow(query, userID, thingType, "$."+matchField, matchValue).Scan(
+		&existing.ID, &existing.UserID, &existing.Type, &existing.Content, &metadata, &existing.Version, &deletedAt, &existing.CreatedAt, &existing.UpdatedAt,
+	)
+
+	if err == sql.ErrNoRows {
+		// Create new
+		t.UserID = userID
+		t.Type = thingType
+		if err := s.CreateThingWithCreator(t, creatorID); err != nil {
+			return nil, false, err
+		}
+		return t, true, nil // created=true
+	}
+
+	if err != nil {
+		return nil, false, err
+	}
+
+	// Update existing
+	if err := json.Unmarshal([]byte(metadata), &existing.Metadata); err != nil {
+		existing.Metadata = make(map[string]interface{})
+	}
+	if deletedAt.Valid {
+		existing.DeletedAt = &deletedAt.Time
+	}
+
+	// Merge updates
+	existing.Content = t.Content
+	for k, v := range t.Metadata {
+		existing.Metadata[k] = v
+	}
+
+	if err := s.UpdateThingWithCreator(&existing, creatorID); err != nil {
+		return nil, false, err
+	}
+
+	return &existing, false, nil // created=false (updated)
+}
+
+// ============================================================================
+// Bulk Operations
+// ============================================================================
+
+// BulkCreateThings creates multiple things in a transaction
+func (s *Store) BulkCreateThings(things []*models.Thing, creatorID string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	for _, t := range things {
+		t.ID = uuid.New().String()
+		t.Version = 1
+		t.CreatedAt = time.Now()
+		t.UpdatedAt = time.Now()
+
+		metadata, err := json.Marshal(t.Metadata)
+		if err != nil {
+			return err
+		}
+
+		_, err = tx.Exec(
+			`INSERT INTO things (id, user_id, type, content, metadata, version, deleted_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+			t.ID, t.UserID, t.Type, t.Content, string(metadata), t.Version, t.CreatedAt, t.UpdatedAt,
+		)
+		if err != nil {
+			return err
+		}
+
+		// Create version record
+		_, err = tx.Exec(
+			`INSERT INTO thing_versions (id, thing_id, version, type, content, metadata, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			uuid.New().String(), t.ID, t.Version, t.Type, t.Content, string(metadata), time.Now(), creatorID,
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+// BulkUpdateThings updates multiple things in a transaction
+func (s *Store) BulkUpdateThings(things []*models.Thing, creatorID string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	for _, t := range things {
+		t.UpdatedAt = time.Now()
+		t.Version++
+
+		metadata, err := json.Marshal(t.Metadata)
+		if err != nil {
+			return err
+		}
+
+		_, err = tx.Exec(
+			`UPDATE things SET type = ?, content = ?, metadata = ?, version = ?, updated_at = ? WHERE id = ? AND user_id = ? AND deleted_at IS NULL`,
+			t.Type, t.Content, string(metadata), t.Version, t.UpdatedAt, t.ID, t.UserID,
+		)
+		if err != nil {
+			return err
+		}
+
+		// Create version record
+		_, err = tx.Exec(
+			`INSERT INTO thing_versions (id, thing_id, version, type, content, metadata, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			uuid.New().String(), t.ID, t.Version, t.Type, t.Content, string(metadata), time.Now(), creatorID,
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+// BulkDeleteThings soft-deletes multiple things by ID
+func (s *Store) BulkDeleteThings(userID string, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	now := time.Now()
+	for _, id := range ids {
+		_, err = tx.Exec(`UPDATE things SET deleted_at = ?, updated_at = ? WHERE id = ? AND user_id = ? AND deleted_at IS NULL`, now, now, id, userID)
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+// CountThings returns the total count of things for a user (excluding deleted)
+func (s *Store) CountThings(userID string) (int, error) {
+	var count int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM things WHERE user_id = ? AND deleted_at IS NULL`, userID).Scan(&count)
+	return count, err
 }

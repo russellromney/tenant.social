@@ -8,8 +8,92 @@
 - [x] Admin can delete users
 
 ## In Progress
-- [ ] Fix tests for multi-user API
-- [ ] Deploy to Fly.io
+
+### API Key System
+Programmatic access for integrations (personal website, scripts, apps):
+
+**API Key Model:**
+```go
+type APIKey struct {
+    ID         string
+    UserID     string
+    Name       string      // "Personal Website", "Chrome Extension"
+    KeyHash    string      // bcrypt hash (never store raw key)
+    KeyPrefix  string      // "ts_abc123" (first 8 chars for UI identification)
+    Scopes     []string    // granular permissions
+    Metadata   JSON        // arbitrary user metadata (environment, repo, etc.)
+    LastUsedAt *time.Time
+    ExpiresAt  *time.Time  // optional, default never
+    CreatedAt  time.Time
+}
+```
+
+**Granular Scopes:**
+- `things:read` - list/get things
+- `things:write` - create/update things
+- `things:delete` - delete things (separate from write!)
+- `kinds:read`, `kinds:write`, `kinds:delete`
+- `tags:read`, `tags:write`, `tags:delete`
+- `keys:manage` - create/revoke API keys
+
+**Key Format:** `ts_<random_32_chars>` - shown once at creation, stored as bcrypt hash
+
+**Endpoints:**
+- `POST /api/keys` - create key (returns raw key ONCE)
+- `GET /api/keys` - list your keys (metadata only)
+- `PUT /api/keys/:id` - update name/scopes/metadata
+- `DELETE /api/keys/:id` - revoke key
+
+**Auth:** `Authorization: Bearer ts_xxxxx`
+
+### Query API Enhancements
+Advanced filtering and pagination for Things:
+
+```
+GET /api/things?type=article&meta.status=queued&sort=-createdAt&page=1&count=20
+GET /api/things?type=article&count=all
+```
+
+**Features:**
+- Filter by type
+- Filter by metadata fields (`meta.fieldname=value`)
+- Sort by any field (`sort=createdAt`, `sort=-createdAt` for desc)
+- Pagination: `page=N&count=M` or `count=all`
+- Upsert: `PUT /api/things/upsert?type=article&meta.url=https://...`
+
+### Bulk Operations
+Efficient batch operations:
+
+```
+POST /api/things/bulk   - create many
+PUT /api/things/bulk    - update many
+DELETE /api/things/bulk - delete many (by IDs)
+```
+
+### Rate Limiting
+- 10 operations per second per IP
+- Configurable per-key limits (future)
+
+### Thing Version History
+Every Thing edit creates a new version - never lose data:
+
+```go
+type ThingVersion struct {
+    ID        string
+    ThingID   string
+    Version   int
+    Content   string
+    Metadata  JSON
+    CreatedAt time.Time
+    CreatedBy string    // user ID or API key ID
+}
+```
+
+**Endpoints:**
+- `GET /api/things/:id` - returns latest version
+- `GET /api/things/:id/versions` - returns version history
+- `GET /api/things/:id/versions/:version` - returns specific version
+- Deletes are soft-deletes (can be restored)
 
 ## Next Up
 
@@ -42,7 +126,41 @@ For when servers shut down or users want portable backups:
 ### Future Features
 - [ ] Public profiles (optional, user-controlled)
 - [ ] Sharing Things between users
-- [ ] API keys for external integrations
-- [ ] Webhooks for data changes
 - [ ] Full-text search with FTS5
 - [ ] Data encryption at rest (optional, per-user)
+
+### Webhooks (Future)
+Real-time notifications when data changes:
+
+```go
+type Webhook struct {
+    ID        string
+    UserID    string
+    URL       string
+    Events    []string  // "thing.created", "thing.updated", "thing.deleted"
+    Secret    string    // for HMAC signature verification
+    Active    bool
+    CreatedAt time.Time
+}
+```
+
+When a Thing changes → POST to webhook URL with signed payload.
+
+### Audit Log (Future)
+Track API key usage for debugging integrations:
+
+```go
+type APIKeyUsage struct {
+    ID        string
+    KeyID     string
+    UserID    string
+    Endpoint  string
+    Method    string
+    Status    int
+    Timestamp time.Time
+}
+```
+
+- Store last N requests per key
+- Queryable for debugging
+- Auto-cleanup after 30 days

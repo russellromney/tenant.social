@@ -9,11 +9,13 @@ import (
 	"strings"
 
 	"tenant/internal/api"
+	"tenant/internal/models"
 	"tenant/internal/store"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
+	"golang.org/x/crypto/bcrypt"
 )
 
 //go:embed all:dist
@@ -35,6 +37,9 @@ func main() {
 	// Check if running in production mode
 	production := os.Getenv("PRODUCTION") == "true"
 
+	// Check if running in sandbox mode
+	sandboxMode := os.Getenv("SANDBOX_MODE") == "true"
+
 	// Initialize store
 	s, err := store.New(dbConfig)
 	if err != nil {
@@ -42,8 +47,57 @@ func main() {
 	}
 	defer s.Close()
 
+	// If sandbox mode, auto-create sandbox user if no users exist
+	if sandboxMode {
+		userCount, err := s.CountUsers()
+		if err != nil {
+			log.Fatalf("Failed to count users: %v", err)
+		}
+		if userCount == 0 {
+			log.Println("Sandbox mode: creating sandbox user")
+			passwordHash, _ := bcrypt.GenerateFromPassword([]byte("sandbox"), bcrypt.DefaultCost)
+			sandboxUser := &models.User{
+				Username:     "sandbox",
+				Email:        "sandbox@tenant.social",
+				PasswordHash: string(passwordHash),
+				DisplayName:  "Sandbox User",
+				Bio:          "This is a public sandbox for trying tenant.social. Data may be reset periodically.",
+				IsAdmin:      true,
+			}
+			if err := s.CreateUser(sandboxUser); err != nil {
+				log.Fatalf("Failed to create sandbox user: %v", err)
+			}
+			log.Println("Sandbox user created (username: sandbox, password: sandbox)")
+		}
+	}
+
+	// Auto-create owner from environment variables if set and no users exist
+	ownerUsername := os.Getenv("OWNER_USERNAME")
+	ownerPassword := os.Getenv("OWNER_PASSWORD")
+	if ownerUsername != "" && ownerPassword != "" {
+		userCount, err := s.CountUsers()
+		if err != nil {
+			log.Fatalf("Failed to count users: %v", err)
+		}
+		if userCount == 0 {
+			log.Printf("Creating owner user from environment: %s", ownerUsername)
+			passwordHash, _ := bcrypt.GenerateFromPassword([]byte(ownerPassword), bcrypt.DefaultCost)
+			ownerUser := &models.User{
+				Username:     ownerUsername,
+				Email:        ownerUsername + "@tenant.social",
+				PasswordHash: string(passwordHash),
+				DisplayName:  ownerUsername,
+				IsAdmin:      true,
+			}
+			if err := s.CreateUser(ownerUser); err != nil {
+				log.Fatalf("Failed to create owner user: %v", err)
+			}
+			log.Printf("Owner user created: %s", ownerUsername)
+		}
+	}
+
 	// Initialize API
-	a := api.New(s)
+	a := api.NewWithSandbox(s, sandboxMode)
 
 	// Setup router
 	r := chi.NewRouter()

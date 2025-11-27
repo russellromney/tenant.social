@@ -1,49 +1,61 @@
-.PHONY: dev dev-api dev-web build clean test test-cover
+.PHONY: dev dev-backend dev-frontend dev-watch build test clean deploy
 
-# Development: run both API and frontend
+# Development - run backend and frontend together
 dev:
-	@echo "Starting development servers..."
-	@make -j2 dev-api dev-web
+	@echo "Starting backend and frontend..."
+	@make -j2 dev-backend dev-frontend
 
-# Run Go API in dev mode (requires TURSO_DATABASE_URL and TURSO_AUTH_TOKEN from ../.env)
-dev-api:
-	@set -a && . ../.env && set +a && cd cmd/tenant && DEV=true go run .
+# Backend only (uses local SQLite by default, no hot reload)
+dev-backend:
+	go run ./cmd/tenant
 
-# Run Vite dev server
-dev-web:
-	@cd web && npm run dev
+# Backend with hot reload using air (install: go install github.com/cosmtrek/air@latest)
+dev-watch:
+	@which air > /dev/null || (echo "Installing air..." && go install github.com/air-verse/air@latest)
+	air -c .air.toml 2>/dev/null || air
 
-# Build everything
-build: build-web build-api
+# Frontend only (Vite dev server with hot reload on port 3069)
+dev-frontend:
+	cd web && npm run dev
 
-# Build frontend
-build-web:
-	@cd web && npm install && npm run build
+# Build frontend for production
+build-frontend:
+	cd web && npm run build
 
 # Build Go binary with embedded frontend
-build-api:
-	@cd cmd/tenant && go build -o ../../tenant .
+build:
+	cd web && npm ci && npm run build
+	CGO_ENABLED=0 go build -o tenant ./cmd/tenant
+
+# Run tests
+test:
+	go test ./...
+
+# Run tests with coverage
+test-cover:
+	go test -coverprofile=coverage.out ./...
+	go tool cover -html=coverage.out -o coverage.html
 
 # Clean build artifacts
 clean:
-	@rm -f tenant
-	@rm -rf cmd/tenant/dist
-	@rm -f tenant.db
+	rm -f tenant
+	rm -f coverage.out coverage.html
+	rm -rf cmd/tenant/dist/*
+	touch cmd/tenant/dist/.gitkeep
 
-# Install frontend dependencies
+# Deploy to Fly.io
+deploy:
+	fly deploy
+
+# View Fly.io logs
+logs:
+	fly logs -a tenant-social
+
+# Install all dependencies
 install:
-	@cd web && npm install
+	cd web && npm install
+	go mod download
 
-# Run the built binary
-run:
-	@./tenant
-
-# Run tests (requires TURSO_DATABASE_URL and TURSO_AUTH_TOKEN from ../.env)
-test:
-	@set -a && . ../.env && set +a && go test ./internal/api/... ./internal/auth/... ./internal/store/... -v
-
-# Run tests with coverage report
-test-cover:
-	@set -a && . ../.env && set +a && go test ./internal/api/... ./internal/auth/... ./internal/store/... -v -coverprofile=coverage.out
-	@go tool cover -func=coverage.out
-	@rm coverage.out
+# Format code
+fmt:
+	go fmt ./...

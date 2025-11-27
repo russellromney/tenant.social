@@ -96,7 +96,7 @@ func (b *SQLiteBackend) Type() DataBackendType {
 func (b *SQLiteBackend) Connect() (*sql.DB, error) {
 	path := b.Path
 	if path == "" {
-		path = "eighty.db"
+		path = "tenantsocial.db"
 	}
 	return sql.Open("sqlite", path)
 }

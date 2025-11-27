@@ -1,16 +1,6 @@
 import { useState, useEffect } from 'preact/hooks'
 import { EMOJI_CATEGORIES, ALL_EMOJIS } from './emojis'
 
-
-// Hash password using SHA-256 (same algorithm as backend)
-async function hashPassword(password: string): Promise<string> {
-  const encoder = new TextEncoder()
-  const data = encoder.encode(password)
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
-  const hashArray = Array.from(new Uint8Array(hashBuffer))
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
-}
-
 // Types
 interface Attribute {
   name: string
@@ -83,33 +73,421 @@ function useIsMobile(breakpoint = 640) {
   return isMobile
 }
 
-// Login Screen Component
-function LoginScreen({ onLogin }: { onLogin: (password: string) => Promise<boolean> }) {
+// Auth status from the server
+interface AuthStatus {
+  hasOwner: boolean
+  registrationEnabled: boolean
+  sandboxMode: boolean
+  authDisabled: boolean
+}
+
+// Shared Footer Component
+function Footer() {
+  return (
+    <footer style={{
+      marginTop: 48,
+      paddingTop: 24,
+      borderTop: '1px solid #eee',
+      textAlign: 'center',
+      color: '#999',
+      fontSize: 14,
+    }}>
+      <div style={{ marginBottom: 8, color: '#888', fontSize: 13 }}>
+        Your personal social data platform
+      </div>
+      <div style={{ marginBottom: 12 }}>
+        <a href="#/about" style={{ color: '#666', textDecoration: 'none', margin: '0 12px' }}>About</a>
+        <a href="#/docs" style={{ color: '#666', textDecoration: 'none', margin: '0 12px' }}>Docs</a>
+        <a href="#/guides" style={{ color: '#666', textDecoration: 'none', margin: '0 12px' }}>Guides</a>
+        <a href="https://github.com/russellromney/tenant.social" target="_blank" rel="noopener noreferrer" style={{ color: '#666', textDecoration: 'none', margin: '0 12px' }}>GitHub</a>
+      </div>
+      Made with ❤️ in NYC by <a href="https://russellromney.com" target="_blank" rel="noopener noreferrer" style={{ color: '#0ea5e9', textDecoration: 'none' }}>me</a>
+    </footer>
+  )
+}
+
+// Page wrapper for static pages
+function PageWrapper({ children, title }: { children: preact.ComponentChildren, title: string }) {
+  return (
+    <div style={{ maxWidth: 700, margin: '0 auto', padding: 20, fontFamily: 'system-ui, sans-serif' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+        <a href="#/" style={{ textDecoration: 'none', color: 'inherit' }}>
+          <h1 style={{ fontSize: 28, fontWeight: 700, margin: 0 }}>tenant</h1>
+        </a>
+        <a
+          href="#/"
+          style={{
+            padding: '8px 16px',
+            background: '#f5f5f5',
+            color: '#333',
+            borderRadius: 6,
+            fontSize: 14,
+            textDecoration: 'none',
+          }}
+        >
+          ← Back
+        </a>
+      </div>
+      <h2 style={{ fontSize: 24, fontWeight: 600, marginBottom: 24 }}>{title}</h2>
+      {children}
+      <Footer />
+    </div>
+  )
+}
+
+// About Page
+function AboutPage() {
+  return (
+    <PageWrapper title="About Tenant">
+      <div style={{ lineHeight: 1.7, color: '#333' }}>
+        <p style={{ fontSize: 18, marginBottom: 24 }}>
+          <strong>Tenant</strong> is your personal social data platform. Own your data, your way.
+        </p>
+
+        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12 }}>What is Tenant?</h3>
+        <p>
+          Tenant combines the best parts of Twitter and Notion—without the creepy parts.
+          It's open source, highly extensible, and puts you in control.
+        </p>
+
+        <ul style={{ marginTop: 16, paddingLeft: 24 }}>
+          <li><strong>Store anything</strong> — Notes, links, tasks, bookmarks, photos, anything</li>
+          <li><strong>Your own schema</strong> — Define custom types (Kinds) with your own attributes</li>
+          <li><strong>Multiple views</strong> — See the same data as a feed, table, board, or calendar</li>
+          <li><strong>API-first</strong> — Full REST API with granular scopes for integrations</li>
+          <li><strong>Version history</strong> — Never lose data, track every change</li>
+          <li><strong>Cheap to run</strong> — Single binary, SQLite or Turso, minimal resources</li>
+        </ul>
+
+        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12 }}>Philosophy</h3>
+        <p>
+          Social platforms have become creepy data extractors. Notion-like tools are great but don't feel social.
+          Tenant is different:
+        </p>
+        <ul style={{ marginTop: 16, paddingLeft: 24 }}>
+          <li><strong>Single tenant</strong> — One owner per instance. Your data, your server.</li>
+          <li><strong>Open source</strong> — See exactly what's running. Modify it how you like.</li>
+          <li><strong>Extensible</strong> — API keys with granular scopes let you build integrations</li>
+          <li><strong>Not creepy</strong> — No ads, no tracking, no selling your data</li>
+        </ul>
+
+        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12 }}>Links</h3>
+        <ul style={{ paddingLeft: 24 }}>
+          <li><a href="https://github.com/russellromney/tenant.social" style={{ color: '#0ea5e9' }}>GitHub Repository</a></li>
+          <li><a href="https://tenant.social" style={{ color: '#0ea5e9' }}>Sandbox (try it out)</a></li>
+        </ul>
+      </div>
+    </PageWrapper>
+  )
+}
+
+// Docs Page
+function DocsPage() {
+  return (
+    <PageWrapper title="API Documentation">
+      <div style={{ lineHeight: 1.7, color: '#333' }}>
+        <p style={{ marginBottom: 24 }}>
+          Tenant has a full REST API for building integrations. Create an API key in the settings to get started.
+        </p>
+
+        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12 }}>Authentication</h3>
+        <p>Use your API key in the Authorization header:</p>
+        <pre style={{ background: '#f5f5f5', padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13 }}>
+{`curl https://your-tenant.fly.dev/api/things \\
+  -H "Authorization: Bearer ts_your_api_key"`}
+        </pre>
+
+        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12 }}>API Scopes</h3>
+        <ul style={{ paddingLeft: 24 }}>
+          <li><code style={{ background: '#f0f0f0', padding: '2px 6px', borderRadius: 4 }}>things:read</code> — Read things</li>
+          <li><code style={{ background: '#f0f0f0', padding: '2px 6px', borderRadius: 4 }}>things:write</code> — Create and update things</li>
+          <li><code style={{ background: '#f0f0f0', padding: '2px 6px', borderRadius: 4 }}>things:delete</code> — Delete things</li>
+          <li><code style={{ background: '#f0f0f0', padding: '2px 6px', borderRadius: 4 }}>kinds:read</code> — Read kinds</li>
+          <li><code style={{ background: '#f0f0f0', padding: '2px 6px', borderRadius: 4 }}>kinds:write</code> — Create and update kinds</li>
+          <li><code style={{ background: '#f0f0f0', padding: '2px 6px', borderRadius: 4 }}>kinds:delete</code> — Delete kinds</li>
+          <li><code style={{ background: '#f0f0f0', padding: '2px 6px', borderRadius: 4 }}>keys:manage</code> — Manage API keys</li>
+        </ul>
+
+        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12 }}>Endpoints</h3>
+
+        <h4 style={{ fontSize: 16, marginTop: 24, marginBottom: 8 }}>Things</h4>
+        <pre style={{ background: '#f5f5f5', padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13 }}>
+{`GET    /api/things          # List all things
+GET    /api/things/:id       # Get a thing
+POST   /api/things           # Create a thing
+PUT    /api/things/:id       # Update a thing
+DELETE /api/things/:id       # Delete a thing
+GET    /api/things/search?q= # Search things`}
+        </pre>
+
+        <h4 style={{ fontSize: 16, marginTop: 24, marginBottom: 8 }}>Kinds</h4>
+        <pre style={{ background: '#f5f5f5', padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13 }}>
+{`GET    /api/kinds           # List all kinds
+GET    /api/kinds/:id        # Get a kind
+POST   /api/kinds            # Create a kind
+PUT    /api/kinds/:id        # Update a kind
+DELETE /api/kinds/:id        # Delete a kind`}
+        </pre>
+
+        <h4 style={{ fontSize: 16, marginTop: 24, marginBottom: 8 }}>Example: Create a Thing</h4>
+        <pre style={{ background: '#f5f5f5', padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13 }}>
+{`curl -X POST https://your-tenant.fly.dev/api/things \\
+  -H "Authorization: Bearer ts_your_api_key" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "type": "note",
+    "content": "Hello from the API!",
+    "metadata": {}
+  }'`}
+        </pre>
+      </div>
+    </PageWrapper>
+  )
+}
+
+// Guides Page
+function GuidesPage() {
+  return (
+    <PageWrapper title="Deployment Guides">
+      <div style={{ lineHeight: 1.7, color: '#333' }}>
+        <p style={{ marginBottom: 24 }}>
+          Deploy your own Tenant instance in minutes. Choose your preferred platform:
+        </p>
+
+        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12 }}>🚀 Fly.io (Recommended)</h3>
+        <p>Easiest deployment with automatic HTTPS and global edge network.</p>
+        <pre style={{ background: '#f5f5f5', padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13 }}>
+{`# Install Fly CLI
+curl -L https://fly.io/install.sh | sh
+
+# Clone and deploy
+git clone https://github.com/russellromney/tenant.social.git
+cd tenant.social
+
+# Create app and volume
+fly apps create my-tenant
+fly volumes create tenant_data --size 1 --region ewr
+
+# Deploy
+fly deploy
+
+# Visit https://my-tenant.fly.dev`}
+        </pre>
+
+        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12 }}>🐳 Docker</h3>
+        <p>Run anywhere Docker runs.</p>
+        <pre style={{ background: '#f5f5f5', padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13 }}>
+{`# Build
+docker build -t tenant .
+
+# Run with persistent data
+docker run -d \\
+  -p 8080:8080 \\
+  -v tenant_data:/data \\
+  -e PRODUCTION=true \\
+  -e DB_BACKEND=sqlite \\
+  -e SQLITE_PATH=/data/tenant.db \\
+  tenant`}
+        </pre>
+
+        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12 }}>💻 Run Locally</h3>
+        <p>For development or personal use on your machine.</p>
+        <pre style={{ background: '#f5f5f5', padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13 }}>
+{`# Clone
+git clone https://github.com/russellromney/tenant.social.git
+cd tenant.social
+
+# Install frontend dependencies
+cd web && npm install && cd ..
+
+# Run (uses local SQLite)
+make dev
+
+# Visit http://localhost:3069`}
+        </pre>
+
+        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12 }}>☁️ Turso (Cloud Database)</h3>
+        <p>Use Turso for edge-replicated SQLite in the cloud.</p>
+        <pre style={{ background: '#f5f5f5', padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13 }}>
+{`# Create Turso database
+turso db create tenant
+
+# Get credentials
+turso db show tenant --url
+turso db tokens create tenant
+
+# Set environment variables
+DB_BACKEND=turso
+TURSO_DATABASE_URL=libsql://tenant-xxx.turso.io
+TURSO_AUTH_TOKEN=your-token`}
+        </pre>
+
+        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12 }}>Environment Variables</h3>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+          <thead>
+            <tr style={{ borderBottom: '2px solid #ddd' }}>
+              <th style={{ textAlign: 'left', padding: '8px 0' }}>Variable</th>
+              <th style={{ textAlign: 'left', padding: '8px 0' }}>Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style={{ borderBottom: '1px solid #eee' }}>
+              <td style={{ padding: '8px 0' }}><code>PORT</code></td>
+              <td style={{ padding: '8px 0' }}>Server port (default: 8069)</td>
+            </tr>
+            <tr style={{ borderBottom: '1px solid #eee' }}>
+              <td style={{ padding: '8px 0' }}><code>PRODUCTION</code></td>
+              <td style={{ padding: '8px 0' }}>Set to "true" for production mode</td>
+            </tr>
+            <tr style={{ borderBottom: '1px solid #eee' }}>
+              <td style={{ padding: '8px 0' }}><code>DB_BACKEND</code></td>
+              <td style={{ padding: '8px 0' }}>"sqlite" or "turso"</td>
+            </tr>
+            <tr style={{ borderBottom: '1px solid #eee' }}>
+              <td style={{ padding: '8px 0' }}><code>SQLITE_PATH</code></td>
+              <td style={{ padding: '8px 0' }}>Path to SQLite database file</td>
+            </tr>
+            <tr style={{ borderBottom: '1px solid #eee' }}>
+              <td style={{ padding: '8px 0' }}><code>TURSO_DATABASE_URL</code></td>
+              <td style={{ padding: '8px 0' }}>Turso database URL</td>
+            </tr>
+            <tr>
+              <td style={{ padding: '8px 0' }}><code>TURSO_AUTH_TOKEN</code></td>
+              <td style={{ padding: '8px 0' }}>Turso auth token</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </PageWrapper>
+  )
+}
+
+// Auth Screen Component - handles both login and registration
+function AuthScreen({ onAuth, authStatus }: { onAuth: () => void, authStatus: AuthStatus | null }) {
+  const [mode, setMode] = useState<'login' | 'register'>('login')
+  const [username, setUsername] = useState('')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+
+  // Sandbox mode - just show enter button
+  if (authStatus?.sandboxMode) {
+    return (
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: '100vh',
+        fontFamily: 'system-ui, sans-serif',
+        background: '#fafafa',
+        flexDirection: 'column',
+      }}>
+        <div style={{
+          background: 'white',
+          padding: 32,
+          borderRadius: 12,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+          width: '100%',
+          maxWidth: 380,
+          textAlign: 'center',
+        }}>
+          <h1 style={{ fontSize: 36, fontWeight: 700, margin: '0 0 8px' }}>tenant.social</h1>
+          <p style={{ color: '#666', fontSize: 14, margin: '0 0 20px' }}>
+            Your personal social data platform
+          </p>
+          <p style={{
+            background: '#fef3c7',
+            color: '#92400e',
+            padding: '8px 12px',
+            borderRadius: 6,
+            fontSize: 13,
+            margin: '0 0 20px',
+          }}>
+            This is sandbox mode. Go wild!
+          </p>
+          <button
+            onClick={onAuth}
+            style={{
+              width: '100%',
+              padding: '12px 20px',
+              background: '#1a1a1a',
+              color: 'white',
+              border: 'none',
+              borderRadius: 6,
+              fontSize: 16,
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            Enter Sandbox
+          </button>
+        </div>
+        <Footer />
+      </div>
+    )
+  }
+
+  // Auto-switch to register mode if registration is enabled and no owner
+  useEffect(() => {
+    if (authStatus?.registrationEnabled && !authStatus?.hasOwner) {
+      setMode('register')
+    }
+  }, [authStatus])
 
   async function handleSubmit(e: Event) {
     e.preventDefault()
     setError('')
     setLoading(true)
 
-    const success = await onLogin(password)
-    if (!success) {
-      setError('Invalid password')
-      setPassword('')
+    try {
+      const endpoint = mode === 'register' ? '/api/auth/register' : '/api/auth/login'
+      const body = mode === 'register'
+        ? { username, email, password }
+        : { username, password }
+
+      console.log('Submitting to', endpoint, body)
+
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        credentials: 'include',
+      })
+
+      console.log('Response status:', res.status)
+
+      if (res.ok) {
+        onAuth()
+      } else {
+        const data = await res.json()
+        console.log('Error response:', data)
+        setError(data.error || 'Authentication failed')
+      }
+    } catch (err) {
+      console.error('Network error:', err)
+      setError('Network error')
     }
     setLoading(false)
   }
+
+  const isValid = mode === 'register'
+    ? username && email && password
+    : username && password
+
+  // Show different UI based on whether this is a fresh instance
+  const showRegisterOption = authStatus?.registrationEnabled
+  const isFreshInstance = !authStatus?.hasOwner
 
   return (
     <div style={{
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      height: '100vh',
+      minHeight: '100vh',
       fontFamily: 'system-ui, sans-serif',
       background: '#fafafa',
+      flexDirection: 'column',
     }}>
       <div style={{
         background: 'white',
@@ -117,19 +495,56 @@ function LoginScreen({ onLogin }: { onLogin: (password: string) => Promise<boole
         borderRadius: 12,
         boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
         width: '100%',
-        maxWidth: 320,
+        maxWidth: 380,
       }}>
-        <h1 style={{ fontSize: 48, fontWeight: 700, margin: '0 0 8px', textAlign: 'center' }}>eighty</h1>
-        <p style={{ color: '#666', fontSize: 14, margin: '0 0 24px', textAlign: 'center' }}>
-          Enter password to continue
+        <h1 style={{ fontSize: 36, fontWeight: 700, margin: '0 0 8px', textAlign: 'center' }}>tenant.social</h1>
+        <p style={{ color: '#666', fontSize: 14, margin: '0 0 20px', textAlign: 'center' }}>
+          Your personal social data platform
+        </p>
+        <p style={{ color: '#333', fontSize: 14, margin: '0 0 16px', textAlign: 'center', fontWeight: 500 }}>
+          {isFreshInstance
+            ? 'Claim this instance'
+            : (mode === 'register' ? 'Create your account' : 'Sign in to continue')}
         </p>
         <form onSubmit={handleSubmit}>
+          <input
+            type="text"
+            value={username}
+            onInput={e => setUsername((e.target as HTMLInputElement).value)}
+            placeholder="Username"
+            autoFocus
+            style={{
+              width: '100%',
+              padding: '12px 14px',
+              border: '1px solid #ddd',
+              borderRadius: 6,
+              fontSize: 16,
+              boxSizing: 'border-box',
+              marginBottom: 12,
+            }}
+          />
+          {mode === 'register' && (
+            <input
+              type="email"
+              value={email}
+              onInput={e => setEmail((e.target as HTMLInputElement).value)}
+              placeholder="Email"
+              style={{
+                width: '100%',
+                padding: '12px 14px',
+                border: '1px solid #ddd',
+                borderRadius: 6,
+                fontSize: 16,
+                boxSizing: 'border-box',
+                marginBottom: 12,
+              }}
+            />
+          )}
           <input
             type="password"
             value={password}
             onInput={e => setPassword((e.target as HTMLInputElement).value)}
             placeholder="Password"
-            autoFocus
             style={{
               width: '100%',
               padding: '12px 14px',
@@ -145,23 +560,43 @@ function LoginScreen({ onLogin }: { onLogin: (password: string) => Promise<boole
           )}
           <button
             type="submit"
-            disabled={!password || loading}
+            disabled={!isValid || loading}
             style={{
               width: '100%',
               padding: '12px 20px',
-              background: password && !loading ? '#1a1a1a' : '#ccc',
+              background: isValid && !loading ? '#1a1a1a' : '#ccc',
               color: 'white',
               border: 'none',
               borderRadius: 6,
               fontSize: 16,
               fontWeight: 600,
-              cursor: password && !loading ? 'pointer' : 'not-allowed',
+              cursor: isValid && !loading ? 'pointer' : 'not-allowed',
+              marginBottom: 16,
             }}
           >
-            {loading ? 'Signing in...' : 'Sign in'}
+            {loading
+              ? (mode === 'register' ? 'Creating account...' : 'Signing in...')
+              : (mode === 'register' ? (isFreshInstance ? 'Claim Instance' : 'Create account') : 'Sign in')}
           </button>
         </form>
+        {/* Only show toggle if registration is enabled and there's already an owner */}
+        {showRegisterOption && !isFreshInstance && (
+          <p style={{ textAlign: 'center', fontSize: 14, color: '#666', margin: 0 }}>
+            {mode === 'register' ? (
+              <>Already have an account? <button onClick={() => { setMode('login'); setError('') }} style={{ background: 'none', border: 'none', color: '#0ea5e9', cursor: 'pointer', fontSize: 14, padding: 0 }}>Sign in</button></>
+            ) : (
+              <>Don't have an account? <button onClick={() => { setMode('register'); setError('') }} style={{ background: 'none', border: 'none', color: '#0ea5e9', cursor: 'pointer', fontSize: 14, padding: 0 }}>Register</button></>
+            )}
+          </p>
+        )}
+        {/* For single-tenant instances with an owner, no registration option */}
+        {!showRegisterOption && authStatus?.hasOwner && mode === 'login' && (
+          <p style={{ textAlign: 'center', fontSize: 12, color: '#999', margin: 0 }}>
+            This is a private instance
+          </p>
+        )}
       </div>
+      <Footer />
     </div>
   )
 }
@@ -170,6 +605,7 @@ function App() {
   const route = useRoute()
   const isMobile = useIsMobile()
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null)
+  const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null)
   const [things, setThings] = useState<Thing[]>([])
   const [kinds, setKinds] = useState<Kind[]>([])
   const [newContent, setNewContent] = useState('')
@@ -191,32 +627,28 @@ function App() {
 
   async function checkAuth() {
     try {
-      const res = await fetch('/api/auth/check', { credentials: 'include' })
-      const data = await res.json()
-      setIsAuthenticated(data.authenticated)
-    } catch {
-      setIsAuthenticated(false)
-    }
-  }
+      // First, check auth status to understand the instance state
+      const statusRes = await fetch('/api/auth/status', { credentials: 'include' })
+      if (statusRes.ok) {
+        const status: AuthStatus = await statusRes.json()
+        setAuthStatus(status)
 
-  async function handleLogin(password: string): Promise<boolean> {
-    try {
-      // Hash password client-side before sending
-      const passwordHash = await hashPassword(password)
+        // In sandbox mode, show the welcome screen first (user clicks "Enter Sandbox")
+        if (status.authDisabled) {
+          setIsAuthenticated(false)
+          return
+        }
+      }
 
-      const res = await fetch('/api/auth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ passwordHash }),
-        credentials: 'include',
-      })
+      // Then check if we have a valid session
+      const res = await fetch('/api/auth/me', { credentials: 'include' })
       if (res.ok) {
         setIsAuthenticated(true)
-        return true
+      } else {
+        setIsAuthenticated(false)
       }
-      return false
     } catch {
-      return false
+      setIsAuthenticated(false)
     }
   }
 
@@ -450,14 +882,25 @@ function App() {
 
   const currentKind = getKind(newType)
 
+  // Public pages - accessible without authentication
+  if (route === '#/about') {
+    return <AboutPage />
+  }
+  if (route === '#/docs') {
+    return <DocsPage />
+  }
+  if (route === '#/guides') {
+    return <GuidesPage />
+  }
+
   // Show nothing while checking auth
   if (isAuthenticated === null) {
     return null
   }
 
-  // Show login screen if not authenticated
+  // Show auth screen if not authenticated
   if (!isAuthenticated) {
-    return <LoginScreen onLogin={handleLogin} />
+    return <AuthScreen onAuth={() => setIsAuthenticated(true)} authStatus={authStatus} />
   }
 
   return (
@@ -465,7 +908,7 @@ function App() {
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
         <a href="#/" style={{ textDecoration: 'none', color: 'inherit' }}>
-          <h1 style={{ fontSize: 28, fontWeight: 700, margin: 0 }}>eighty</h1>
+          <h1 style={{ fontSize: 28, fontWeight: 700, margin: 0 }}>tenant</h1>
         </a>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <a
@@ -705,6 +1148,8 @@ function App() {
           usedEmojis={getUsedEmojis().filter(e => e !== editingKind.icon)}
         />
       )}
+
+      <Footer />
     </div>
   )
 }

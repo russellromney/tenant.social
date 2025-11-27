@@ -1,18 +1,63 @@
-# Binary
+# Binaries
+tenant
 eighty
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go
+*.test
+*.out
+go.work
+go.work.sum
 
 # Database
 *.db
+*.db-journal
+*.db-shm
+*.db-wal
 
 # Build artifacts
+cmd/tenant/dist/
 cmd/eighty/dist/
+dist/
+tmp/
 
-# Node
+# Node / JS / TS
+node_modules/
 web/node_modules/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+.eslintcache
+*.tsbuildinfo
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Personal deployment configs
+fly.*.toml
 
 # OS
 .DS_Store
+Thumbs.db
 
 # IDE
 .idea/
 .vscode/
+*.swp
+*.swo
+*~
+
+# Test coverage
+coverage/
+coverage.out
+coverage.html
+*.cover
+*.coverage

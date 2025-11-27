@@ -1,23 +1,26 @@
 # tenant.social
 
-A massively multi-tenant social platform where everyone runs their own space.
-
-```
-   /\
-  /  \
- | || |
-```
+Your personal social data platform. Own your data, your way.
 
 ## What is Tenant?
 
-Tenant is a personal data platform inspired by Notion. Store anything - notes, links, tasks, photos - in a flexible schema you control. Each user is a "tenant" with their own data space.
+Tenant is a personal data platform that combines the best parts of Twitter and Notion - without the creepy parts. It's open source, highly extensible, and puts you in control.
 
-**Features:**
-- **Things** - Universal data units (notes, links, tasks, photos, etc.)
-- **Kinds** - Define your own schemas with custom attributes
-- **Views** - See the same data as feed, table, board, or calendar
-- **Multi-tenant** - Each user owns their data
-- **Self-hostable** - Run on your own hardware or use hosted version
+- **Store anything** - Notes, links, tasks, bookmarks, photos, anything
+- **Your own schema** - Define custom types (Kinds) with your own attributes
+- **Multiple views** - See the same data as a feed, table, board, or calendar
+- **API-first** - Full REST API with granular scopes for integrations
+- **Version history** - Never lose data, track every change
+- **Cheap to run** - Single binary, SQLite or Turso, minimal resources
+
+## Philosophy
+
+Social platforms have become creepy data extractors. Notion-like tools are great but don't feel social. Tenant is different:
+
+- **Single tenant** - One owner per instance. Your data, your server.
+- **Open source** - See exactly what's running. Modify it how you like.
+- **Extensible** - API keys with granular scopes let you build integrations
+- **Not creepy** - No ads, no tracking, no selling your data
 
 ## Quick Start
 
@@ -35,48 +38,66 @@ cd web && npm install && cd ..
 make dev
 ```
 
-Visit `http://localhost:8069`
+Visit `http://localhost:3069` and register your account.
 
-### Deploy
+### Deploy Your Own
 
 See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for:
-- Fly.io
+- Fly.io (recommended)
 - Docker
-- DigitalOcean
 - Any VPS
 
-## Data Backends
+## API
 
-Tenant supports two database backends:
+Tenant has a full REST API for building integrations:
+
+```bash
+# Create an API key in the UI, then:
+curl https://your-tenant.fly.dev/api/things \
+  -H "Authorization: Bearer ts_your_api_key"
+```
+
+**Scopes:** `things:read`, `things:write`, `things:delete`, `kinds:*`, `tags:*`, `keys:manage`
+
+## Try It
+
+Want to try before deploying? Use the public sandbox:
+
+- **Sandbox:** [sandbox.tenant.social](https://sandbox.tenant.social)
+  - No password required
+  - Data resets periodically
+  - Not for real use
+
+## Data Backends
 
 | Backend | Best For | Config |
 |---------|----------|--------|
 | SQLite | Self-hosting, single instance | `DB_BACKEND=sqlite` |
-| Turso | Cloud, multi-region | `DB_BACKEND=turso` |
+| Turso | Cloud, edge deployment | `DB_BACKEND=turso` |
 
-## Environment Variables
+## Architecture
 
-```bash
-# Required
-TENANT_PASSWORD=your-password    # Login password
+**Development** runs two processes:
+- **Frontend** (Vite) on port `3069` — hot reload, proxies `/api/*` to backend
+- **Backend** (Go) on port `8069` — API only, serves JSON
 
-# Database
-DB_BACKEND=sqlite                # "sqlite" or "turso"
-SQLITE_PATH=tenant.db            # For SQLite
-TURSO_DATABASE_URL=libsql://...  # For Turso
-TURSO_AUTH_TOKEN=...             # For Turso
+Visit `localhost:3069` during development.
 
-# Optional
-PORT=8080
-PRODUCTION=true
-```
+**Production** is a single binary:
+- Frontend is built and embedded into the Go binary
+- One process serves both API and static files on one port
+- Deploy anywhere: Fly.io, Docker, any VPS
+
+This means zero config for deployment — just `fly deploy` and you're done.
 
 ## Development
 
 ```bash
-make dev        # Run API + frontend in dev mode
-make test       # Run tests
-make build      # Build production binary
+make dev          # Run both backend + frontend together
+make dev-watch    # Backend with hot reload (requires air)
+make dev-frontend # Frontend with Vite hot reload
+make test         # Run tests
+make build        # Build production binary
 ```
 
 ## License
@@ -86,4 +107,5 @@ MIT
 ## Links
 
 - Website: [tenant.social](https://tenant.social)
+- Sandbox: [sandbox.tenant.social](https://sandbox.tenant.social)
 - GitHub: [github.com/russellromney/tenant.social](https://github.com/russellromney/tenant.social)

@@ -35,8 +35,52 @@ type Thing struct {
 	Type      string                 `json:"type"`      // "note", "link", "task", "image", etc.
 	Content   string                 `json:"content"`   // Main content (text, URL, etc.)
 	Metadata  map[string]interface{} `json:"metadata"`  // Type-specific data as JSON
+	Version   int                    `json:"version"`   // Current version number
+	DeletedAt *time.Time             `json:"deletedAt"` // Soft delete timestamp (nil = not deleted)
 	CreatedAt time.Time              `json:"createdAt"`
 	UpdatedAt time.Time              `json:"updatedAt"`
+}
+
+// ThingVersion stores historical versions of a Thing.
+// Every update creates a new version - you never lose data.
+type ThingVersion struct {
+	ID        string                 `json:"id"`
+	ThingID   string                 `json:"thingId"`   // Parent Thing ID
+	Version   int                    `json:"version"`   // Version number (1, 2, 3, ...)
+	Type      string                 `json:"type"`      // Type at this version
+	Content   string                 `json:"content"`   // Content at this version
+	Metadata  map[string]interface{} `json:"metadata"`  // Metadata at this version
+	CreatedAt time.Time              `json:"createdAt"` // When this version was created
+	CreatedBy string                 `json:"createdBy"` // User ID or API Key ID that made this change
+}
+
+// APIKey allows programmatic access to the API.
+// Keys are shown once at creation, then stored as bcrypt hash.
+type APIKey struct {
+	ID         string                 `json:"id"`
+	UserID     string                 `json:"userId"`              // Owner of this key
+	Name       string                 `json:"name"`                // Human-readable name (e.g., "Personal Website")
+	KeyHash    string                 `json:"-"`                   // bcrypt hash of the key (never exposed)
+	KeyPrefix  string                 `json:"keyPrefix"`           // First 8 chars for identification (e.g., "ts_abc12")
+	Scopes     []string               `json:"scopes"`              // Permissions: things:read, things:write, etc.
+	Metadata   map[string]interface{} `json:"metadata,omitempty"`  // User-defined metadata
+	LastUsedAt *time.Time             `json:"lastUsedAt"`          // Last time this key was used
+	ExpiresAt  *time.Time             `json:"expiresAt,omitempty"` // Optional expiration (nil = never)
+	CreatedAt  time.Time              `json:"createdAt"`
+}
+
+// APIKeyScopes defines available permission scopes
+var APIKeyScopes = []string{
+	"things:read",   // List and get things
+	"things:write",  // Create and update things
+	"things:delete", // Delete things
+	"kinds:read",    // List and get kinds
+	"kinds:write",   // Create and update kinds
+	"kinds:delete",  // Delete kinds
+	"tags:read",     // List and get tags
+	"tags:write",    // Create and update tags
+	"tags:delete",   // Delete tags
+	"keys:manage",   // Create, update, delete API keys
 }
 
 // Kind is a category of Thing (note, link, task, article, etc.).

@@ -14,7 +14,7 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: '../cmd/eighty/dist',
+    outDir: '../cmd/tenant/dist',
     emptyOutDir: true,
   },
 })
