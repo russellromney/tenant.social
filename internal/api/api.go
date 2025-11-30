@@ -1071,40 +1071,33 @@ func (a *API) uploadPhoto(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	file, header, err := r.FormFile("file")
-	if err != nil {
-		respondError(w, http.StatusBadRequest, "No file provided")
-		return
-	}
-	defer file.Close()
-
-	// Validate file type
-	contentType := header.Header.Get("Content-Type")
-	if !strings.HasPrefix(contentType, "image/") && !strings.HasPrefix(contentType, "video/") {
-		respondError(w, http.StatusBadRequest, "Only images and videos are allowed")
+	// Get files from "files" field (multipart form)
+	files := r.MultipartForm.File["files"]
+	if len(files) == 0 {
+		respondError(w, http.StatusBadRequest, "No files provided")
 		return
 	}
 
-	// Read file data into memory
-	data, err := io.ReadAll(file)
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, "Failed to read file")
-		return
-	}
+	// Get captions array from form
+	captions := r.Form["captions"]
 
-	// Get optional caption
-	caption := r.FormValue("caption")
+	// Get post content
+	content := r.FormValue("content")
 
-	// Create a Thing with type "photo"
+	// Create a Thing with type "gallery"
 	t := &models.Thing{
-		UserID:  user.ID,
-		Type:    "photo",
-		Content: caption,
+		UserID:     user.ID,
+		Type:       "gallery",
+		Content:    content,
+		Visibility: r.FormValue("visibility"),
 		Metadata: map[string]interface{}{
-			"filename":    header.Filename,
-			"contentType": contentType,
-			"size":        len(data),
+			"photoCount": len(files),
 		},
+	}
+
+	// Default visibility to private
+	if t.Visibility == "" {
+		t.Visibility = "private"
 	}
 
 	if err := a.store.CreateThing(t); err != nil {
@@ -1112,26 +1105,59 @@ func (a *API) uploadPhoto(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create Photo blob linked to the Thing
-	photo := &models.Photo{
-		ThingID:     t.ID,
-		Data:        data,
-		ContentType: contentType,
-		Filename:    header.Filename,
-		Size:        int64(len(data)),
+	// Process each file
+	var photos []models.Photo
+	for i, fileHeader := range files {
+		file, err := fileHeader.Open()
+		if err != nil {
+			respondError(w, http.StatusInternalServerError, "Failed to open file: "+err.Error())
+			return
+		}
+		defer file.Close()
+
+		// Validate file type
+		contentType := fileHeader.Header.Get("Content-Type")
+		if !strings.HasPrefix(contentType, "image/") && !strings.HasPrefix(contentType, "video/") {
+			respondError(w, http.StatusBadRequest, "Only images and videos are allowed")
+			return
+		}
+
+		// Read file data into memory
+		data, err := io.ReadAll(file)
+		if err != nil {
+			respondError(w, http.StatusInternalServerError, "Failed to read file")
+			return
+		}
+
+		// Get caption for this photo (if provided)
+		caption := ""
+		if i < len(captions) {
+			caption = captions[i]
+		}
+
+		// Create Photo blob linked to the gallery Thing
+		photo := &models.Photo{
+			ThingID:     t.ID,
+			Caption:     caption,
+			OrderIndex:  i,
+			Data:        data,
+			ContentType: contentType,
+			Filename:    fileHeader.Filename,
+			Size:        int64(len(data)),
+		}
+
+		if err := a.store.CreatePhoto(photo); err != nil {
+			// Clean up the Thing if any photo creation fails
+			a.store.DeleteThing(t.ID, user.ID)
+			respondError(w, http.StatusInternalServerError, "Failed to save photo: "+err.Error())
+			return
+		}
+
+		photos = append(photos, *photo)
 	}
 
-	if err := a.store.CreatePhoto(photo); err != nil {
-		// Clean up the Thing if photo creation fails
-		a.store.DeleteThing(t.ID, user.ID)
-		respondError(w, http.StatusInternalServerError, "Failed to save photo: "+err.Error())
-		return
-	}
-
-	// Add photo ID to metadata so frontend knows how to fetch it
-	t.Metadata["photoId"] = photo.ID
-	t.Metadata["url"] = "/api/photos/" + photo.ID
-	a.store.UpdateThing(t)
+	// Reload the Thing with photos included
+	t.Photos = photos
 
 	respondJSON(w, http.StatusCreated, t)
 }

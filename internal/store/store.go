@@ -350,6 +350,11 @@ func (s *Store) migrate() error {
 		// Add version and deleted_at to things table
 		"ALTER TABLE things ADD COLUMN version INTEGER DEFAULT 1",
 		"ALTER TABLE things ADD COLUMN deleted_at DATETIME",
+		// Add visibility to things table
+		"ALTER TABLE things ADD COLUMN visibility TEXT DEFAULT 'private'",
+		// Add caption and order_index to photos table
+		"ALTER TABLE photos ADD COLUMN caption TEXT",
+		"ALTER TABLE photos ADD COLUMN order_index INTEGER DEFAULT 0",
 	}
 
 	for _, m := range migrations {
@@ -360,10 +365,12 @@ func (s *Store) migrate() error {
 	// Create indexes that depend on migrated columns
 	postMigrationIndexes := `
 	CREATE INDEX IF NOT EXISTS idx_things_deleted_at ON things(deleted_at);
+	CREATE INDEX IF NOT EXISTS idx_things_visibility ON things(visibility);
 	CREATE INDEX IF NOT EXISTS idx_thing_versions_thing_id ON thing_versions(thing_id);
 	CREATE INDEX IF NOT EXISTS idx_thing_versions_version ON thing_versions(thing_id, version);
 	CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id);
 	CREATE INDEX IF NOT EXISTS idx_api_keys_key_prefix ON api_keys(key_prefix);
+	CREATE INDEX IF NOT EXISTS idx_photos_thing_order ON photos(thing_id, order_index);
 	`
 	s.db.Exec(postMigrationIndexes)
 
@@ -384,14 +391,19 @@ func (s *Store) CreateThingWithCreator(t *models.Thing, creatorID string) error 
 	t.CreatedAt = time.Now()
 	t.UpdatedAt = time.Now()
 
+	// Default visibility to private if not set
+	if t.Visibility == "" {
+		t.Visibility = "private"
+	}
+
 	metadata, err := json.Marshal(t.Metadata)
 	if err != nil {
 		return err
 	}
 
 	_, err = s.db.Exec(
-		`INSERT INTO things (id, user_id, type, content, metadata, version, deleted_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
-		t.ID, t.UserID, t.Type, t.Content, string(metadata), t.Version, t.CreatedAt, t.UpdatedAt,
+		`INSERT INTO things (id, user_id, type, content, metadata, visibility, version, deleted_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+		t.ID, t.UserID, t.Type, t.Content, string(metadata), t.Visibility, t.Version, t.CreatedAt, t.UpdatedAt,
 	)
 	if err != nil {
 		return err
@@ -419,11 +431,12 @@ func (s *Store) GetThing(id string) (*models.Thing, error) {
 	var t models.Thing
 	var metadata string
 	var deletedAt sql.NullTime
+	var visibility sql.NullString
 
 	err := s.db.QueryRow(
-		`SELECT id, user_id, type, content, metadata, version, deleted_at, created_at, updated_at FROM things WHERE id = ?`,
+		`SELECT id, user_id, type, content, metadata, visibility, version, deleted_at, created_at, updated_at FROM things WHERE id = ?`,
 		id,
-	).Scan(&t.ID, &t.UserID, &t.Type, &t.Content, &metadata, &t.Version, &deletedAt, &t.CreatedAt, &t.UpdatedAt)
+	).Scan(&t.ID, &t.UserID, &t.Type, &t.Content, &metadata, &visibility, &t.Version, &deletedAt, &t.CreatedAt, &t.UpdatedAt)
 
 	if err != nil {
 		return nil, err
@@ -433,8 +446,22 @@ func (s *Store) GetThing(id string) (*models.Thing, error) {
 		t.DeletedAt = &deletedAt.Time
 	}
 
+	if visibility.Valid {
+		t.Visibility = visibility.String
+	} else {
+		t.Visibility = "private"
+	}
+
 	if err := json.Unmarshal([]byte(metadata), &t.Metadata); err != nil {
 		t.Metadata = make(map[string]interface{})
+	}
+
+	// Load photos for this Thing if it's a gallery
+	if t.Type == "gallery" {
+		photos, err := s.GetPhotosByThingID(t.ID)
+		if err == nil {
+			t.Photos = photos
+		}
 	}
 
 	return &t, nil
@@ -445,11 +472,12 @@ func (s *Store) GetThingForUser(id, userID string) (*models.Thing, error) {
 	var t models.Thing
 	var metadata string
 	var deletedAt sql.NullTime
+	var visibility sql.NullString
 
 	err := s.db.QueryRow(
-		`SELECT id, user_id, type, content, metadata, version, deleted_at, created_at, updated_at FROM things WHERE id = ? AND user_id = ? AND deleted_at IS NULL`,
+		`SELECT id, user_id, type, content, metadata, visibility, version, deleted_at, created_at, updated_at FROM things WHERE id = ? AND user_id = ? AND deleted_at IS NULL`,
 		id, userID,
-	).Scan(&t.ID, &t.UserID, &t.Type, &t.Content, &metadata, &t.Version, &deletedAt, &t.CreatedAt, &t.UpdatedAt)
+	).Scan(&t.ID, &t.UserID, &t.Type, &t.Content, &metadata, &visibility, &t.Version, &deletedAt, &t.CreatedAt, &t.UpdatedAt)
 
 	if err != nil {
 		return nil, err
@@ -459,8 +487,22 @@ func (s *Store) GetThingForUser(id, userID string) (*models.Thing, error) {
 		t.DeletedAt = &deletedAt.Time
 	}
 
+	if visibility.Valid {
+		t.Visibility = visibility.String
+	} else {
+		t.Visibility = "private"
+	}
+
 	if err := json.Unmarshal([]byte(metadata), &t.Metadata); err != nil {
 		t.Metadata = make(map[string]interface{})
+	}
+
+	// Load photos for this Thing if it's a gallery
+	if t.Type == "gallery" {
+		photos, err := s.GetPhotosByThingID(t.ID)
+		if err == nil {
+			t.Photos = photos
+		}
 	}
 
 	return &t, nil
@@ -471,11 +513,12 @@ func (s *Store) GetThingForUserIncludeDeleted(id, userID string) (*models.Thing,
 	var t models.Thing
 	var metadata string
 	var deletedAt sql.NullTime
+	var visibility sql.NullString
 
 	err := s.db.QueryRow(
-		`SELECT id, user_id, type, content, metadata, version, deleted_at, created_at, updated_at FROM things WHERE id = ? AND user_id = ?`,
+		`SELECT id, user_id, type, content, metadata, visibility, version, deleted_at, created_at, updated_at FROM things WHERE id = ? AND user_id = ?`,
 		id, userID,
-	).Scan(&t.ID, &t.UserID, &t.Type, &t.Content, &metadata, &t.Version, &deletedAt, &t.CreatedAt, &t.UpdatedAt)
+	).Scan(&t.ID, &t.UserID, &t.Type, &t.Content, &metadata, &visibility, &t.Version, &deletedAt, &t.CreatedAt, &t.UpdatedAt)
 
 	if err != nil {
 		return nil, err
@@ -485,8 +528,22 @@ func (s *Store) GetThingForUserIncludeDeleted(id, userID string) (*models.Thing,
 		t.DeletedAt = &deletedAt.Time
 	}
 
+	if visibility.Valid {
+		t.Visibility = visibility.String
+	} else {
+		t.Visibility = "private"
+	}
+
 	if err := json.Unmarshal([]byte(metadata), &t.Metadata); err != nil {
 		t.Metadata = make(map[string]interface{})
+	}
+
+	// Load photos for this Thing if it's a gallery
+	if t.Type == "gallery" {
+		photos, err := s.GetPhotosByThingID(t.ID)
+		if err == nil {
+			t.Photos = photos
+		}
 	}
 
 	return &t, nil
@@ -497,10 +554,10 @@ func (s *Store) ListThings(userID, thingType string, limit, offset int) ([]model
 	var args []interface{}
 
 	if thingType != "" {
-		query = `SELECT id, user_id, type, content, metadata, version, deleted_at, created_at, updated_at FROM things WHERE user_id = ? AND type = ? AND deleted_at IS NULL ORDER BY created_at DESC LIMIT ? OFFSET ?`
+		query = `SELECT id, user_id, type, content, metadata, visibility, version, deleted_at, created_at, updated_at FROM things WHERE user_id = ? AND type = ? AND deleted_at IS NULL ORDER BY created_at DESC LIMIT ? OFFSET ?`
 		args = []interface{}{userID, thingType, limit, offset}
 	} else {
-		query = `SELECT id, user_id, type, content, metadata, version, deleted_at, created_at, updated_at FROM things WHERE user_id = ? AND deleted_at IS NULL ORDER BY created_at DESC LIMIT ? OFFSET ?`
+		query = `SELECT id, user_id, type, content, metadata, visibility, version, deleted_at, created_at, updated_at FROM things WHERE user_id = ? AND deleted_at IS NULL ORDER BY created_at DESC LIMIT ? OFFSET ?`
 		args = []interface{}{userID, limit, offset}
 	}
 
@@ -515,14 +572,26 @@ func (s *Store) ListThings(userID, thingType string, limit, offset int) ([]model
 		var t models.Thing
 		var metadata string
 		var deletedAt sql.NullTime
-		if err := rows.Scan(&t.ID, &t.UserID, &t.Type, &t.Content, &metadata, &t.Version, &deletedAt, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		var visibility sql.NullString
+		if err := rows.Scan(&t.ID, &t.UserID, &t.Type, &t.Content, &metadata, &visibility, &t.Version, &deletedAt, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, err
 		}
 		if deletedAt.Valid {
 			t.DeletedAt = &deletedAt.Time
 		}
+		if visibility.Valid {
+			t.Visibility = visibility.String
+		} else {
+			t.Visibility = "private"
+		}
 		if err := json.Unmarshal([]byte(metadata), &t.Metadata); err != nil {
 			t.Metadata = make(map[string]interface{})
+		}
+		// Load photos for gallery Things
+		if t.Type == "gallery" {
+			if photos, err := s.GetPhotosByThingID(t.ID); err == nil {
+				t.Photos = photos
+			}
 		}
 		things = append(things, t)
 	}
@@ -545,8 +614,8 @@ func (s *Store) UpdateThingWithCreator(t *models.Thing, creatorID string) error 
 	}
 
 	_, err = s.db.Exec(
-		`UPDATE things SET type = ?, content = ?, metadata = ?, version = ?, updated_at = ? WHERE id = ? AND user_id = ? AND deleted_at IS NULL`,
-		t.Type, t.Content, string(metadata), t.Version, t.UpdatedAt, t.ID, t.UserID,
+		`UPDATE things SET type = ?, content = ?, metadata = ?, visibility = ?, version = ?, updated_at = ? WHERE id = ? AND user_id = ? AND deleted_at IS NULL`,
+		t.Type, t.Content, string(metadata), t.Visibility, t.Version, t.UpdatedAt, t.ID, t.UserID,
 	)
 	if err != nil {
 		return err
@@ -887,8 +956,8 @@ func (s *Store) CreatePhoto(p *models.Photo) error {
 	p.CreatedAt = time.Now()
 
 	_, err := s.db.Exec(
-		`INSERT INTO photos (id, thing_id, data, content_type, filename, size, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		p.ID, p.ThingID, p.Data, p.ContentType, p.Filename, p.Size, p.CreatedAt,
+		`INSERT INTO photos (id, thing_id, caption, order_index, data, content_type, filename, size, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.ID, p.ThingID, p.Caption, p.OrderIndex, p.Data, p.ContentType, p.Filename, p.Size, p.CreatedAt,
 	)
 	return err
 }
@@ -897,9 +966,9 @@ func (s *Store) GetPhoto(id string) (*models.Photo, error) {
 	var p models.Photo
 
 	err := s.db.QueryRow(
-		`SELECT id, thing_id, data, content_type, filename, size, created_at FROM photos WHERE id = ?`,
+		`SELECT id, thing_id, caption, order_index, data, content_type, filename, size, created_at FROM photos WHERE id = ?`,
 		id,
-	).Scan(&p.ID, &p.ThingID, &p.Data, &p.ContentType, &p.Filename, &p.Size, &p.CreatedAt)
+	).Scan(&p.ID, &p.ThingID, &p.Caption, &p.OrderIndex, &p.Data, &p.ContentType, &p.Filename, &p.Size, &p.CreatedAt)
 
 	if err != nil {
 		return nil, err
@@ -912,15 +981,38 @@ func (s *Store) GetPhotoByThingID(thingID string) (*models.Photo, error) {
 	var p models.Photo
 
 	err := s.db.QueryRow(
-		`SELECT id, thing_id, data, content_type, filename, size, created_at FROM photos WHERE thing_id = ?`,
+		`SELECT id, thing_id, caption, order_index, data, content_type, filename, size, created_at FROM photos WHERE thing_id = ? ORDER BY order_index LIMIT 1`,
 		thingID,
-	).Scan(&p.ID, &p.ThingID, &p.Data, &p.ContentType, &p.Filename, &p.Size, &p.CreatedAt)
+	).Scan(&p.ID, &p.ThingID, &p.Caption, &p.OrderIndex, &p.Data, &p.ContentType, &p.Filename, &p.Size, &p.CreatedAt)
 
 	if err != nil {
 		return nil, err
 	}
 
 	return &p, nil
+}
+
+// GetPhotosByThingID gets all photos for a Thing, ordered by order_index
+func (s *Store) GetPhotosByThingID(thingID string) ([]models.Photo, error) {
+	rows, err := s.db.Query(
+		`SELECT id, thing_id, caption, order_index, data, content_type, filename, size, created_at FROM photos WHERE thing_id = ? ORDER BY order_index`,
+		thingID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var photos []models.Photo
+	for rows.Next() {
+		var p models.Photo
+		err := rows.Scan(&p.ID, &p.ThingID, &p.Caption, &p.OrderIndex, &p.Data, &p.ContentType, &p.Filename, &p.Size, &p.CreatedAt)
+		if err != nil {
+			return nil, err
+		}
+		photos = append(photos, p)
+	}
+	return photos, rows.Err()
 }
 
 func (s *Store) DeletePhoto(id string) error {

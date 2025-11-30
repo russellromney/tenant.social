@@ -30,15 +30,19 @@ type Session struct {
 // Thing is the universal unit in Tenant.
 // Everything is a Thing: notes, links, tasks, images, etc.
 type Thing struct {
-	ID        string                 `json:"id"`
-	UserID    string                 `json:"userId"`    // Owner of this Thing
-	Type      string                 `json:"type"`      // "note", "link", "task", "image", etc.
-	Content   string                 `json:"content"`   // Main content (text, URL, etc.)
-	Metadata  map[string]interface{} `json:"metadata"`  // Type-specific data as JSON
-	Version   int                    `json:"version"`   // Current version number
-	DeletedAt *time.Time             `json:"deletedAt"` // Soft delete timestamp (nil = not deleted)
-	CreatedAt time.Time              `json:"createdAt"`
-	UpdatedAt time.Time              `json:"updatedAt"`
+	ID         string                 `json:"id"`
+	UserID     string                 `json:"userId"`     // Owner of this Thing
+	Type       string                 `json:"type"`       // "note", "link", "task", "gallery", etc.
+	Content    string                 `json:"content"`    // Main content (text, URL, post text, etc.)
+	Metadata   map[string]interface{} `json:"metadata"`   // Type-specific data as JSON
+	Visibility string                 `json:"visibility"` // "private", "friends", "public"
+	Version    int                    `json:"version"`    // Current version number
+	DeletedAt  *time.Time             `json:"deletedAt"`  // Soft delete timestamp (nil = not deleted)
+	CreatedAt  time.Time              `json:"createdAt"`
+	UpdatedAt  time.Time              `json:"updatedAt"`
+
+	// Populated when fetching (not stored in DB)
+	Photos []Photo `json:"photos,omitempty"`
 }
 
 // ThingVersion stores historical versions of a Thing.
@@ -132,13 +136,15 @@ type ThingTag struct {
 
 // Photo stores image/video binary data as a blob
 type Photo struct {
-	ID          string    `json:"id"`
-	ThingID     string    `json:"thingId"`     // Associated Thing
-	Data        []byte    `json:"-"`           // Binary data (not serialized to JSON)
-	ContentType string    `json:"contentType"` // MIME type (image/jpeg, video/mp4, etc.)
-	Filename    string    `json:"filename"`    // Original filename
-	Size        int64     `json:"size"`        // File size in bytes
-	CreatedAt   time.Time `json:"createdAt"`
+	ID         string    `json:"id"`
+	ThingID    string    `json:"thingId"`     // Associated gallery Thing
+	Caption    string    `json:"caption"`     // Per-photo caption
+	OrderIndex int       `json:"orderIndex"`  // Position in carousel (0, 1, 2...)
+	Data       []byte    `json:"-"`           // Binary data (not serialized to JSON)
+	ContentType string   `json:"contentType"` // MIME type (image/jpeg, video/mp4, etc.)
+	Filename   string    `json:"filename"`    // Original filename
+	Size       int64     `json:"size"`        // File size in bytes
+	CreatedAt  time.Time `json:"createdAt"`
 }
 
 // View is a way to display Things (Notion-inspired).
