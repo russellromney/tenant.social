@@ -1,4 +1,4 @@
-.PHONY: dev dev-backend dev-frontend dev-watch build test clean deploy
+.PHONY: dev dev-backend dev-frontend dev-watch build build-frontend build-go test test-go test-e2e test-cover clean deploy logs install fmt
 
 # Development - run backend and frontend together
 dev:
@@ -18,34 +18,69 @@ dev-watch:
 dev-frontend:
 	cd web && npm run dev
 
+# ===== BUILD TARGETS =====
+
 # Build frontend for production
 build-frontend:
-	cd web && npm run build
+	@echo "Building frontend..."
+	cd web && npm ci && npm run build
 
 # Build Go binary with embedded frontend
-build:
-	cd web && npm ci && npm run build
+build-go:
+	@echo "Building Go binary..."
 	CGO_ENABLED=0 go build -o tenant ./cmd/tenant
+	@echo "✅ Go binary built: ./tenant"
 
-# Run tests
-test:
-	go test ./...
+# Build everything (frontend + go binary)
+build: build-frontend build-go
+	@echo "✅ Full build complete"
 
-# Run tests with coverage
+# ===== TEST TARGETS =====
+
+# Run all Go tests
+test-go:
+	@echo "Running Go tests..."
+	go test -v ./...
+
+# Run Go tests with coverage
 test-cover:
+	@echo "Running Go tests with coverage..."
 	go test -coverprofile=coverage.out ./...
 	go tool cover -html=coverage.out -o coverage.html
+	@echo "✅ Coverage report: coverage.html"
+
+# Run Playwright E2E tests (requires server running on :8069)
+test-e2e:
+	@echo "Running Playwright E2E tests..."
+	@which npx > /dev/null || (echo "❌ npm not found"; exit 1)
+	cd web && npm install --save-dev @playwright/test 2>/dev/null || true
+	npx playwright test --config=playwright.config.ts
+	@echo "✅ E2E tests complete. Report: playwright-report/index.html"
+
+# Run all tests (Go + E2E)
+test: test-go test-e2e
+	@echo "✅ All tests passed"
+
+# ===== DEPLOY TARGET =====
+
+# Deploy to Fly.io (builds, tests, then deploys)
+deploy: clean build test
+	@echo "All checks passed! Deploying to Fly.io..."
+	@git status --short | grep -q . && (echo "❌ Uncommitted changes. Commit first:" && git status && exit 1) || true
+	@echo "✅ Repository clean, deploying..."
+	fly deploy
+	@echo "✅ Deployment complete!"
+
+# ===== UTILITY TARGETS =====
 
 # Clean build artifacts
 clean:
+	@echo "Cleaning build artifacts..."
 	rm -f tenant
 	rm -f coverage.out coverage.html
-	rm -rf cmd/tenant/dist/*
-	touch cmd/tenant/dist/.gitkeep
-
-# Deploy to Fly.io
-deploy:
-	fly deploy
+	rm -rf playwright-report
+	rm -rf web/dist
+	@echo "✅ Clean complete"
 
 # View Fly.io logs
 logs:
@@ -53,9 +88,13 @@ logs:
 
 # Install all dependencies
 install:
-	cd web && npm install
+	@echo "Installing dependencies..."
 	go mod download
+	cd web && npm install
+	@echo "✅ Dependencies installed"
 
 # Format code
 fmt:
+	@echo "Formatting code..."
 	go fmt ./...
+	@echo "✅ Code formatted"
