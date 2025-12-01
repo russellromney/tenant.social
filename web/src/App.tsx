@@ -2779,38 +2779,24 @@ function LinkAttributeInput({
       </label>
 
       {/* Selected Things */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-        {linkedThings.map((thing: Thing) => (
-          <div
-            key={thing.id}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              padding: '6px 10px',
-              background: theme.bgMuted,
-              borderRadius: 6,
-              fontSize: 13,
-              color: theme.text,
-            }}
-          >
-            <span>{thing.content || thing.type}</span>
-            <button
-              onClick={() => onChange(linkedThingIds.filter(id => id !== thing.id))}
+      {linkedThings.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+          {linkedThings.map((thing: Thing) => (
+            <div
+              key={thing.id}
               style={{
-                background: 'none',
-                border: 'none',
-                color: theme.textMuted,
-                cursor: 'pointer',
-                fontSize: 16,
-                padding: 0,
+                padding: '6px 10px',
+                background: theme.bgMuted,
+                borderRadius: 6,
+                fontSize: 13,
+                color: theme.text,
               }}
             >
-              ×
-            </button>
-          </div>
-        ))}
-      </div>
+              {thing.content || thing.type}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Search and Dropdown */}
       <div style={{ position: 'relative' }}>
