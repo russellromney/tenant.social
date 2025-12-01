@@ -1,4 +1,4 @@
-import { test, expect, Page } from '@playwright/test';
+import { test, expect, type Page } from '../../web/node_modules/@playwright/test';
 
 // Helper to login as test user
 async function loginAsTestUser(page: Page) {

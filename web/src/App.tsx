@@ -713,6 +713,12 @@ function App() {
     setNewMetadata({})
   }, [newType])
 
+  // Listen for paste events for images
+  useEffect(() => {
+    window.addEventListener('paste', handlePaste)
+    return () => window.removeEventListener('paste', handlePaste)
+  }, [])
+
   async function initializeKinds() {
     try {
       const res = await fetch('/api/kinds')
@@ -817,36 +823,108 @@ function App() {
     }
   }
 
-  async function handlePhotoUpload(e: Event) {
-    const input = e.target as HTMLInputElement
-    const files = input.files
-    if (!files || files.length === 0) return
+  // Photo upload state
+  const [selectedPhotos, setSelectedPhotos] = useState<Array<{ file: File, caption: string, preview: string }>>([])
+  const [showPhotoModal, setShowPhotoModal] = useState(false)
+  const [photoContent, setPhotoContent] = useState('')
+  const [photoVisibility, setPhotoVisibility] = useState<'private' | 'friends' | 'public'>('private')
 
-    setUploading(true)
+  async function handlePhotoSelect(files: FileList) {
+    const newPhotos: Array<{ file: File, caption: string, preview: string }> = []
+
     for (let i = 0; i < files.length; i++) {
       const file = files[i]
       if (file.type.startsWith('image/') || file.type.startsWith('video/')) {
-        try {
-          const formData = new FormData()
-          formData.append('file', file)
-
-          const res = await fetch('/api/upload', {
-            method: 'POST',
-            body: formData,
-            credentials: 'include',
-          })
-
-          if (res.ok) {
-            const thing = await res.json()
-            setThings(prev => [thing, ...prev])
-          }
-        } catch (err) {
-          console.error('Failed to upload photo:', err)
-        }
+        // Create preview URL
+        const preview = URL.createObjectURL(file)
+        newPhotos.push({ file, caption: '', preview })
       }
     }
-    setUploading(false)
-    input.value = '' // Reset input
+
+    setSelectedPhotos(prev => [...prev, ...newPhotos])
+    setShowPhotoModal(true)
+  }
+
+  async function handlePhotoInputChange(e: Event) {
+    const input = e.target as HTMLInputElement
+    if (input.files) {
+      handlePhotoSelect(input.files)
+      input.value = '' // Reset input for re-selection
+    }
+  }
+
+  // Handle paste events for images
+  function handlePaste(e: ClipboardEvent) {
+    const items = e.clipboardData?.items
+    if (!items) return
+
+    const files = new DataTransfer()
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].kind === 'file' && items[i].type.startsWith('image/')) {
+        const file = items[i].getAsFile()
+        if (file) files.items.add(file)
+      }
+    }
+
+    if (files.files.length > 0) {
+      e.preventDefault()
+      handlePhotoSelect(files.files)
+    }
+  }
+
+  async function submitPhotoUpload() {
+    if (selectedPhotos.length === 0) return
+
+    setUploading(true)
+    try {
+      const formData = new FormData()
+
+      // Add all files and captions
+      selectedPhotos.forEach((photo) => {
+        formData.append('files', photo.file)
+        formData.append('captions', photo.caption)
+      })
+
+      // Add post content and visibility
+      formData.append('content', photoContent)
+      formData.append('visibility', photoVisibility)
+
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+        credentials: 'include',
+      })
+
+      if (res.ok) {
+        const thing = await res.json()
+        setThings(prev => [thing, ...prev])
+
+        // Reset state
+        setSelectedPhotos([])
+        setPhotoContent('')
+        setPhotoVisibility('private')
+        setShowPhotoModal(false)
+      } else {
+        console.error('Upload failed:', res.statusText)
+      }
+    } catch (err) {
+      console.error('Failed to upload photos:', err)
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  function removePhoto(index: number) {
+    URL.revokeObjectURL(selectedPhotos[index].preview)
+    setSelectedPhotos(prev => prev.filter((_, i) => i !== index))
+  }
+
+  function updatePhotoCaption(index: number, caption: string) {
+    setSelectedPhotos(prev => {
+      const updated = [...prev]
+      updated[index].caption = caption
+      return updated
+    })
   }
 
   async function createKind(kind: Partial<Kind>) {
@@ -1156,14 +1234,21 @@ function App() {
                     cursor: uploading ? 'wait' : 'pointer',
                     color: theme.textMuted,
                   }}
+                  onClick={() => {
+                    const input = document.getElementById('photo-input') as HTMLInputElement
+                    input?.click()
+                  }}
+                  onPaste={handlePaste}
+                  tabIndex={0}
                 >
                   <input
                     type="file"
                     accept="image/*,video/*"
                     multiple
-                    onChange={handlePhotoUpload}
+                    onChange={handlePhotoInputChange}
                     style={{ display: 'none' }}
                     disabled={uploading}
+                    id="photo-input"
                   />
                   <span style={{ fontSize: 18 }}>📷</span>
                   <span>{uploading ? 'Uploading...' : 'Photo'}</span>
@@ -1232,6 +1317,237 @@ function App() {
           usedEmojis={getUsedEmojis().filter(e => e !== editingKind.icon)}
           theme={theme}
         />
+      )}
+
+      {/* Photo Upload Modal */}
+      {showPhotoModal && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: 16,
+          }}
+          onClick={() => {
+            if (!uploading) {
+              setShowPhotoModal(false)
+              selectedPhotos.forEach(p => URL.revokeObjectURL(p.preview))
+              setSelectedPhotos([])
+            }
+          }}
+        >
+          <div
+            style={{
+              background: theme.bg,
+              borderRadius: 12,
+              padding: 24,
+              maxWidth: 600,
+              maxHeight: '90vh',
+              overflow: 'auto',
+              width: '100%',
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <h2 style={{ margin: 0, color: theme.text, fontSize: 20, fontWeight: 600 }}>
+                📷 Upload Photos
+              </h2>
+              <button
+                onClick={() => {
+                  setShowPhotoModal(false)
+                  selectedPhotos.forEach(p => URL.revokeObjectURL(p.preview))
+                  setSelectedPhotos([])
+                }}
+                disabled={uploading}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  fontSize: 24,
+                  cursor: uploading ? 'not-allowed' : 'pointer',
+                  opacity: uploading ? 0.5 : 1,
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Photo previews and captions */}
+            <div style={{ marginBottom: 20 }}>
+              {selectedPhotos.length > 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  {selectedPhotos.map((photo, index) => (
+                    <div
+                      key={index}
+                      style={{
+                        background: theme.bgMuted,
+                        borderRadius: 8,
+                        padding: 12,
+                        display: 'flex',
+                        gap: 12,
+                        alignItems: 'flex-start',
+                      }}
+                    >
+                      <img
+                        src={photo.preview}
+                        alt={`Photo ${index + 1}`}
+                        style={{
+                          width: 80,
+                          height: 80,
+                          objectFit: 'cover',
+                          borderRadius: 6,
+                          flexShrink: 0,
+                        }}
+                      />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <label style={{ display: 'block', marginBottom: 6, fontSize: 12, color: theme.textMuted }}>
+                          Caption (optional)
+                        </label>
+                        <input
+                          type="text"
+                          value={photo.caption}
+                          onChange={e => updatePhotoCaption(index, e.currentTarget.value)}
+                          placeholder="Add a caption..."
+                          disabled={uploading}
+                          style={{
+                            width: '100%',
+                            padding: '8px 10px',
+                            border: `1px solid ${theme.borderInput}`,
+                            borderRadius: 6,
+                            fontSize: 13,
+                            background: theme.bgInput,
+                            color: theme.text,
+                            opacity: uploading ? 0.5 : 1,
+                            cursor: uploading ? 'not-allowed' : 'text',
+                          }}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removePhoto(index)}
+                        disabled={uploading}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          fontSize: 18,
+                          cursor: uploading ? 'not-allowed' : 'pointer',
+                          opacity: uploading ? 0.5 : 1,
+                          color: theme.error,
+                        }}
+                      >
+                        🗑️
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p style={{ color: theme.textMuted, textAlign: 'center', margin: 0 }}>No photos selected</p>
+              )}
+            </div>
+
+            {/* Post content and visibility */}
+            <div style={{ marginBottom: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div>
+                <label style={{ display: 'block', marginBottom: 6, fontSize: 12, color: theme.textMuted, fontWeight: 500 }}>
+                  Post content (optional)
+                </label>
+                <textarea
+                  value={photoContent}
+                  onChange={e => setPhotoContent(e.currentTarget.value)}
+                  placeholder="Add a caption for your gallery..."
+                  disabled={uploading}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    border: `1px solid ${theme.borderInput}`,
+                    borderRadius: 6,
+                    fontSize: 13,
+                    background: theme.bgInput,
+                    color: theme.text,
+                    fontFamily: 'inherit',
+                    minHeight: 60,
+                    resize: 'vertical',
+                    opacity: uploading ? 0.5 : 1,
+                    cursor: uploading ? 'not-allowed' : 'text',
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', marginBottom: 6, fontSize: 12, color: theme.textMuted, fontWeight: 500 }}>
+                  Visibility
+                </label>
+                <select
+                  value={photoVisibility}
+                  onChange={e => setPhotoVisibility(e.currentTarget.value as 'private' | 'friends' | 'public')}
+                  disabled={uploading}
+                  style={{
+                    width: '100%',
+                    padding: '8px 10px',
+                    border: `1px solid ${theme.borderInput}`,
+                    borderRadius: 6,
+                    fontSize: 13,
+                    background: theme.bgInput,
+                    color: theme.text,
+                    opacity: uploading ? 0.5 : 1,
+                    cursor: uploading ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  <option value="private">🔒 Private (only me)</option>
+                  <option value="friends">👥 Friends (me + connections)</option>
+                  <option value="public">🌐 Public (everyone)</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Action buttons */}
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => {
+                  setShowPhotoModal(false)
+                  selectedPhotos.forEach(p => URL.revokeObjectURL(p.preview))
+                  setSelectedPhotos([])
+                }}
+                disabled={uploading}
+                style={{
+                  padding: '8px 16px',
+                  background: theme.bgMuted,
+                  border: 'none',
+                  borderRadius: 6,
+                  fontSize: 13,
+                  fontWeight: 500,
+                  cursor: uploading ? 'not-allowed' : 'pointer',
+                  color: theme.text,
+                  opacity: uploading ? 0.5 : 1,
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitPhotoUpload}
+                disabled={uploading || selectedPhotos.length === 0}
+                style={{
+                  padding: '8px 16px',
+                  background: uploading || selectedPhotos.length === 0 ? theme.textDisabled : theme.accent,
+                  border: 'none',
+                  borderRadius: 6,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: uploading || selectedPhotos.length === 0 ? 'not-allowed' : 'pointer',
+                  color: uploading || selectedPhotos.length === 0 ? theme.textSubtle : theme.accentText,
+                }}
+              >
+                {uploading ? 'Uploading...' : `Upload ${selectedPhotos.length} Photo${selectedPhotos.length !== 1 ? 's' : ''}`}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       <Footer theme={theme} />

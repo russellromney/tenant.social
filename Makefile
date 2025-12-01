@@ -52,10 +52,10 @@ test-cover:
 # Run Playwright E2E tests (requires server running on :8069)
 test-e2e:
 	@echo "Running Playwright E2E tests..."
-	@which npx > /dev/null || (echo "❌ npm not found"; exit 1)
-	cd web && npm install --save-dev @playwright/test 2>/dev/null || true
-	npx playwright test --config=playwright.config.ts
-	@echo "✅ E2E tests complete. Report: playwright-report/index.html"
+	@which npm > /dev/null || (echo "❌ npm not found"; exit 1)
+	cd web && npm ci --save-dev @playwright/test 2>/dev/null || true
+	cd web && npx playwright test --config=playwright.config.ts
+	@echo "✅ E2E tests complete. Report: web/playwright-report/index.html"
 
 # Run all tests (Go + E2E)
 test: test-go test-e2e
