@@ -1,12 +1,20 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"image"
+	"image/jpeg"
+	_ "image/png"
+	_ "image/gif"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,6 +31,19 @@ const (
 	CookieMaxAge    = 6 * 30 * 24 * 60 * 60 // 6 months in seconds
 	SessionDuration = 6 * 30 * 24 * time.Hour
 	APIKeyPrefix    = "ts_" // tenant-social API key prefix
+
+	// Image cache configuration
+	PhotoCacheDir             = "/tmp/tenant-photo-cache"
+	PhotoCacheTTL             = 30 * 24 * time.Hour // 30 days
+	PhotoCacheCleanupInterval = 6 * time.Hour       // Cleanup every 6 hours
+
+	// Full size image settings (for modal viewer)
+	PhotoQuality  = 80  // JPEG quality (0-100)
+	PhotoMaxWidth = 1600 // Max width in pixels
+
+	// Thumbnail settings (for feed/gallery display)
+	PhotoThumbQuality  = 65  // Lower quality for thumbnails
+	PhotoThumbMaxWidth = 400 // Smaller size for gallery thumbnails
 )
 
 type contextKey string
@@ -37,11 +58,16 @@ type API struct {
 }
 
 func New(s *store.Store) *API {
-	return &API{store: s, sandboxMode: false}
+	return NewWithSandbox(s, false)
 }
 
 func NewWithSandbox(s *store.Store, sandboxMode bool) *API {
-	return &API{store: s, sandboxMode: sandboxMode}
+	api := &API{store: s, sandboxMode: sandboxMode}
+
+	// Start background cache cleanup routine
+	go api.cleanupPhotoCache()
+
+	return api
 }
 
 // getUserFromContext extracts the authenticated user from the request context
@@ -426,6 +452,9 @@ func (a *API) Routes() chi.Router {
 
 		// Photos
 		r.Post("/upload", a.uploadPhoto)
+		r.Get("/photos/{id}", a.servePhoto)
+		r.Put("/photos/{id}", a.updatePhoto)
+		r.Delete("/photos/{id}", a.deletePhoto)
 
 		// Export/Import - user data portability
 		r.Get("/export", a.exportData)
@@ -1064,10 +1093,14 @@ func (a *API) createTag(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) uploadPhoto(w http.ResponseWriter, r *http.Request) {
 	user := getUserFromContext(r)
+	if user == nil {
+		respondError(w, http.StatusUnauthorized, "User not found in context")
+		return
+	}
 
 	// Parse multipart form (32MB max)
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
-		respondError(w, http.StatusBadRequest, "Failed to parse form")
+		respondError(w, http.StatusBadRequest, "Failed to parse form: "+err.Error())
 		return
 	}
 
@@ -1163,20 +1196,260 @@ func (a *API) uploadPhoto(w http.ResponseWriter, r *http.Request) {
 }
 
 // Photo serve handler - serves photo blob from SQLite
+// Supports ?size=thumb for thumbnail or ?size=full (default) for full size
 
 func (a *API) servePhoto(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	size := r.URL.Query().Get("size") // "thumb" or "full" (default)
+	isThumb := size == "thumb"
 
+	photo, err := a.store.GetPhoto(id)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "Photo not found: "+id)
+		return
+	}
+
+	// Try to serve from cache first (separate cache for thumb vs full)
+	cacheKey := id
+	if isThumb {
+		cacheKey = id + "_thumb"
+	}
+	cachedData, contentType, cacheHit := a.getPhotoFromCache(cacheKey, photo.ContentType)
+
+	if !cacheHit {
+		// Compress/transform image if needed and save to cache
+		var transformedData []byte
+
+		if strings.HasPrefix(photo.ContentType, "image/") {
+			if isThumb {
+				transformedData, err = a.compressImageWithSettings(photo.Data, photo.ContentType, PhotoThumbMaxWidth, PhotoThumbQuality)
+			} else {
+				transformedData, err = a.compressImageWithSettings(photo.Data, photo.ContentType, PhotoMaxWidth, PhotoQuality)
+			}
+			if err != nil {
+				// Fall back to original if compression fails
+				transformedData = photo.Data
+			} else {
+				// Cache the compressed image (best effort, don't fail if cache write fails)
+				_ = a.cachePhoto(cacheKey, transformedData, photo.ContentType)
+			}
+		} else {
+			// Videos: serve original (no compression)
+			transformedData = photo.Data
+		}
+
+		cachedData = transformedData
+		contentType = photo.ContentType
+	}
+
+	// For cached images, serve as JPEG
+	if cacheHit {
+		contentType = "image/jpeg"
+	}
+
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Length", strconv.Itoa(len(cachedData)))
+	w.Header().Set("Cache-Control", "public, max-age=2592000") // Cache for 30 days
+	w.Write(cachedData)
+}
+
+// updatePhoto updates photo metadata (caption)
+func (a *API) updatePhoto(w http.ResponseWriter, r *http.Request) {
+	user := getUserFromContext(r)
+	id := chi.URLParam(r, "id")
+
+	// Get the photo to verify ownership
 	photo, err := a.store.GetPhoto(id)
 	if err != nil {
 		respondError(w, http.StatusNotFound, "Photo not found")
 		return
 	}
 
-	w.Header().Set("Content-Type", photo.ContentType)
-	w.Header().Set("Content-Length", strconv.FormatInt(photo.Size, 10))
-	w.Header().Set("Cache-Control", "public, max-age=31536000") // Cache for 1 year
-	w.Write(photo.Data)
+	// Get the parent thing to verify user owns it
+	thing, err := a.store.GetThingForUser(photo.ThingID, user.ID)
+	if err != nil || thing == nil {
+		respondError(w, http.StatusForbidden, "Not authorized to edit this photo")
+		return
+	}
+
+	// Parse the update request
+	var update struct {
+		Caption string `json:"caption"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
+		respondError(w, http.StatusBadRequest, "Invalid JSON")
+		return
+	}
+
+	// Update the photo caption
+	if err := a.store.UpdatePhotoCaption(id, update.Caption); err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to update photo")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// deletePhoto deletes a photo from a gallery
+func (a *API) deletePhoto(w http.ResponseWriter, r *http.Request) {
+	user := getUserFromContext(r)
+	id := chi.URLParam(r, "id")
+
+	// Get the photo to verify ownership
+	photo, err := a.store.GetPhoto(id)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "Photo not found")
+		return
+	}
+
+	// Get the parent thing to verify user owns it
+	thing, err := a.store.GetThingForUser(photo.ThingID, user.ID)
+	if err != nil || thing == nil {
+		respondError(w, http.StatusForbidden, "Not authorized to delete this photo")
+		return
+	}
+
+	// Delete the photo
+	if err := a.store.DeletePhoto(id); err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to delete photo")
+		return
+	}
+
+	// Clean up cached files
+	cachePath := filepath.Join(PhotoCacheDir, id+".jpg")
+	_ = os.Remove(cachePath)
+	thumbCachePath := filepath.Join(PhotoCacheDir, id+"_thumb.jpg")
+	_ = os.Remove(thumbCachePath)
+
+	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// getPhotoFromCache retrieves a cached photo if it exists and is fresh
+func (a *API) getPhotoFromCache(photoID, contentType string) ([]byte, string, bool) {
+	cachePath := filepath.Join(PhotoCacheDir, photoID+".jpg")
+
+	// Check if cached file exists
+	info, err := os.Stat(cachePath)
+	if err != nil {
+		return nil, "", false
+	}
+
+	// Check if cache is still fresh (less than 30 days old)
+	if time.Since(info.ModTime()) > PhotoCacheTTL {
+		_ = os.Remove(cachePath) // Delete stale cache
+		return nil, "", false
+	}
+
+	// Read cached data
+	data, err := os.ReadFile(cachePath)
+	if err != nil {
+		return nil, "", false
+	}
+
+	// Cached images are always JPEG
+	return data, "image/jpeg", true
+}
+
+// cachePhoto saves a compressed photo to the cache directory
+func (a *API) cachePhoto(photoID string, data []byte, contentType string) error {
+	// Ensure cache directory exists
+	if err := os.MkdirAll(PhotoCacheDir, 0755); err != nil {
+		return err
+	}
+
+	cachePath := filepath.Join(PhotoCacheDir, photoID+".jpg")
+	return os.WriteFile(cachePath, data, 0644)
+}
+
+// compressImage reduces image quality and resizes to max width (uses default settings)
+func (a *API) compressImage(data []byte, contentType string) ([]byte, error) {
+	return a.compressImageWithSettings(data, contentType, PhotoMaxWidth, PhotoQuality)
+}
+
+// compressImageWithSettings reduces image quality and resizes with custom settings
+func (a *API) compressImageWithSettings(data []byte, contentType string, maxWidth, quality int) ([]byte, error) {
+	// Decode image
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode image: %w", err)
+	}
+
+	// Resize if larger than max width
+	bounds := img.Bounds()
+	width := bounds.Max.X - bounds.Min.X
+
+	if width > maxWidth {
+		height := bounds.Max.Y - bounds.Min.Y
+		newHeight := (height * maxWidth) / width
+		img = resizeImage(img, maxWidth, newHeight)
+	}
+
+	// Encode as JPEG with specified quality
+	var buf bytes.Buffer
+	err = jpeg.Encode(&buf, img, &jpeg.Options{Quality: quality})
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode image: %w", err)
+	}
+
+	return buf.Bytes(), nil
+}
+
+// resizeImage performs simple nearest-neighbor resizing
+func resizeImage(src image.Image, newWidth, newHeight int) image.Image {
+	srcBounds := src.Bounds()
+	srcWidth := srcBounds.Max.X - srcBounds.Min.X
+	srcHeight := srcBounds.Max.Y - srcBounds.Min.Y
+
+	dst := image.NewRGBA(image.Rect(0, 0, newWidth, newHeight))
+
+	for y := 0; y < newHeight; y++ {
+		for x := 0; x < newWidth; x++ {
+			srcX := (x * srcWidth) / newWidth
+			srcY := (y * srcHeight) / newHeight
+			dst.Set(x, y, src.At(srcBounds.Min.X+srcX, srcBounds.Min.Y+srcY))
+		}
+	}
+
+	return dst
+}
+
+// cleanupPhotoCache periodically removes expired cached images
+func (a *API) cleanupPhotoCache() {
+	ticker := time.NewTicker(PhotoCacheCleanupInterval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		_ = a.cleanupExpiredPhotos()
+	}
+}
+
+// cleanupExpiredPhotos removes photo cache files older than the TTL
+func (a *API) cleanupExpiredPhotos() error {
+	entries, err := os.ReadDir(PhotoCacheDir)
+	if err != nil {
+		// Directory might not exist yet, that's fine
+		return nil
+	}
+
+	now := time.Now()
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+
+		// Delete if older than TTL
+		if now.Sub(info.ModTime()) > PhotoCacheTTL {
+			filePath := filepath.Join(PhotoCacheDir, entry.Name())
+			_ = os.Remove(filePath)
+		}
+	}
+
+	return nil
 }
 
 // View handlers

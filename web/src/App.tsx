@@ -32,6 +32,17 @@ const TEMPLATES = [
   { id: 'photo', name: 'Photo', description: 'Image/video gallery display' },
 ] as const
 
+interface Photo {
+  id: string
+  thingId: string
+  caption: string
+  orderIndex: number
+  contentType: string
+  filename: string
+  size: number
+  createdAt: string
+}
+
 interface Thing {
   id: string
   type: string
@@ -39,6 +50,7 @@ interface Thing {
   metadata: Record<string, unknown>
   createdAt: string
   updatedAt: string
+  photos?: Photo[]
 }
 
 // Default kinds - will be created in DB on first load
@@ -47,6 +59,7 @@ const DEFAULT_KINDS: Omit<Kind, 'createdAt' | 'updatedAt'>[] = [
   { id: 'default-link', name: 'link', icon: '🔗', template: 'link', attributes: [{ name: 'url', type: 'url', required: true, options: '' }], isDefault: true },
   { id: 'default-task', name: 'task', icon: '✅', template: 'checklist', attributes: [{ name: 'done', type: 'checkbox', required: false, options: '' }], isDefault: true },
   { id: 'default-photo', name: 'photo', icon: '📷', template: 'photo', attributes: [], isDefault: true },
+  { id: 'default-gallery', name: 'gallery', icon: '🖼️', template: 'photo', attributes: [], isDefault: true },
 ]
 
 // Simple hash-based routing
@@ -614,6 +627,168 @@ function AuthScreen({ onAuth, authStatus }: { onAuth: () => void, authStatus: Au
   )
 }
 
+// Post detail page - shows a single post at its own URL
+function PostPage({
+  postId,
+  kinds,
+  theme,
+  isDark,
+  toggleTheme,
+  onLogout,
+  onBack,
+  onDelete,
+  isMobile,
+}: {
+  postId: string
+  kinds: Kind[]
+  theme: Theme
+  isDark: boolean
+  toggleTheme: () => void
+  onLogout: () => void
+  onBack: () => void
+  onDelete: (id: string) => void
+  isMobile: boolean
+}) {
+  const [thing, setThing] = useState<Thing | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [editingThing, setEditingThing] = useState<Thing | null>(null)
+
+  useEffect(() => {
+    fetchPost()
+  }, [postId])
+
+  async function fetchPost() {
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/things/${postId}`, { credentials: 'include' })
+      if (res.ok) {
+        const data = await res.json()
+        setThing(data)
+      } else {
+        setError('Post not found')
+      }
+    } catch {
+      setError('Failed to load post')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function getKind(typeName: string): Kind | undefined {
+    return kinds.find(k => k.name === typeName)
+  }
+
+  async function updateThing(updated: Thing) {
+    try {
+      const res = await fetch(`/api/things/${updated.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updated),
+        credentials: 'include',
+      })
+      if (res.ok) {
+        // Refetch to get fresh data with photos
+        await fetchPost()
+        setEditingThing(null)
+      }
+    } catch (err) {
+      console.error('Failed to update thing:', err)
+    }
+  }
+
+  const kind = thing ? getKind(thing.type) : undefined
+
+  return (
+    <div style={{ maxWidth: 700, margin: '0 auto', padding: isMobile ? 12 : 20, fontFamily: 'system-ui, sans-serif', background: theme.bg, minHeight: '100vh', color: theme.text }}>
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: isMobile ? 16 : 24, gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <button
+            onClick={onBack}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: theme.textMuted,
+              cursor: 'pointer',
+              fontSize: 20,
+              padding: '4px 8px',
+            }}
+          >
+            ←
+          </button>
+          <a href="#/" style={{ textDecoration: 'none', color: theme.text }}>
+            <h1 style={{ fontSize: isMobile ? 22 : 28, fontWeight: 700, margin: 0 }}>tenant</h1>
+          </a>
+        </div>
+        <div style={{ display: 'flex', gap: isMobile ? 4 : 8, alignItems: 'center' }}>
+          <button
+            onClick={toggleTheme}
+            style={{
+              padding: isMobile ? '6px 10px' : '8px 12px',
+              background: theme.bgHover,
+              color: theme.textMuted,
+              border: 'none',
+              borderRadius: 6,
+              cursor: 'pointer',
+              fontSize: 14,
+            }}
+          >
+            {isDark ? '☀️' : '🌙'}
+          </button>
+          <button
+            onClick={onLogout}
+            style={{
+              padding: isMobile ? '6px 10px' : '8px 12px',
+              background: theme.bgHover,
+              color: theme.textMuted,
+              border: 'none',
+              borderRadius: 6,
+              cursor: 'pointer',
+              fontSize: 14,
+            }}
+          >
+            Logout
+          </button>
+        </div>
+      </div>
+
+      {/* Content */}
+      {loading ? (
+        <p style={{ textAlign: 'center', color: theme.textMuted }}>Loading...</p>
+      ) : error ? (
+        <p style={{ textAlign: 'center', color: theme.error }}>{error}</p>
+      ) : thing ? (
+        <ThingCard
+          thing={thing}
+          kind={kind}
+          onEdit={() => setEditingThing(thing)}
+          onDelete={() => {
+            onDelete(thing.id)
+            onBack()
+          }}
+          onUpdateThing={updateThing}
+          theme={theme}
+          isDetailView={true}
+        />
+      ) : null}
+
+      {/* Edit Modal */}
+      {editingThing && (
+        <EditThingModal
+          thing={editingThing}
+          kinds={kinds}
+          onSave={updateThing}
+          onClose={() => setEditingThing(null)}
+          theme={theme}
+        />
+      )}
+
+      <Footer theme={theme} />
+    </div>
+  )
+}
+
 function App() {
   const route = useRoute()
   const isMobile = useIsMobile()
@@ -640,6 +815,22 @@ function App() {
   useEffect(() => {
     checkAuth()
   }, [])
+
+  // Restore scroll position when returning to feed from a post
+  useEffect(() => {
+    const isFeedRoute = route === '#/' || route === ''
+    if (isFeedRoute && !loading) {
+      const savedPosition = sessionStorage.getItem('feedScrollPosition')
+      if (savedPosition) {
+        // Use requestAnimationFrame to ensure DOM is ready
+        requestAnimationFrame(() => {
+          window.scrollTo(0, parseInt(savedPosition, 10))
+        })
+        // Clear the saved position after restoring
+        sessionStorage.removeItem('feedScrollPosition')
+      }
+    }
+  }, [route, loading])
 
   async function checkAuth() {
     try {
@@ -828,6 +1019,7 @@ function App() {
   const [showPhotoModal, setShowPhotoModal] = useState(false)
   const [photoContent, setPhotoContent] = useState('')
   const [photoVisibility, setPhotoVisibility] = useState<'private' | 'friends' | 'public'>('private')
+  const [dragOverModal, setDragOverModal] = useState(false)
 
   async function handlePhotoSelect(files: FileList) {
     const newPhotos: Array<{ file: File, caption: string, preview: string }> = []
@@ -859,16 +1051,30 @@ function App() {
     if (!items) return
 
     const files = new DataTransfer()
+    let hasImages = false
+
+    // First, look for file items (real files or image data)
     for (let i = 0; i < items.length; i++) {
-      if (items[i].kind === 'file' && items[i].type.startsWith('image/')) {
-        const file = items[i].getAsFile()
-        if (file) files.items.add(file)
+      const item = items[i]
+
+      // Handle file items (images from clipboard, screenshots, etc.)
+      if (item.kind === 'file' && (item.type.startsWith('image/') || item.type.startsWith('video/'))) {
+        const file = item.getAsFile()
+        if (file) {
+          files.items.add(file)
+          hasImages = true
+        }
       }
     }
 
-    if (files.files.length > 0) {
+    // Process pasted files if any were found
+    if (hasImages) {
       e.preventDefault()
       handlePhotoSelect(files.files)
+      // Focus the modal if not already open
+      if (!showPhotoModal) {
+        setShowPhotoModal(true)
+      }
     }
   }
 
@@ -905,7 +1111,9 @@ function App() {
         setPhotoVisibility('private')
         setShowPhotoModal(false)
       } else {
-        console.error('Upload failed:', res.statusText)
+        const error = await res.json().catch(() => ({ error: res.statusText }))
+        console.error('Upload failed:', res.status, error)
+        alert(`Upload failed: ${error.error || res.statusText}`)
       }
     } catch (err) {
       console.error('Failed to upload photos:', err)
@@ -925,6 +1133,29 @@ function App() {
       updated[index].caption = caption
       return updated
     })
+  }
+
+  function handleDragOverModal(e: DragEvent) {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragOverModal(true)
+  }
+
+  function handleDragLeaveModal(e: DragEvent) {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragOverModal(false)
+  }
+
+  function handleDropOnModal(e: DragEvent) {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragOverModal(false)
+
+    const files = e.dataTransfer?.files
+    if (files && files.length > 0) {
+      handlePhotoSelect(files)
+    }
   }
 
   async function createKind(kind: Partial<Kind>) {
@@ -985,6 +1216,25 @@ function App() {
   }
   if (route === '#/guides') {
     return <GuidesPage />
+  }
+
+  // Post detail page - requires authentication
+  const postMatch = route.match(/^#\/post\/(.+)$/)
+  if (postMatch && isAuthenticated) {
+    const postId = postMatch[1]
+    return (
+      <PostPage
+        postId={postId}
+        kinds={kinds}
+        theme={theme}
+        isDark={isDark}
+        toggleTheme={toggleTheme}
+        onLogout={handleLogout}
+        onBack={() => window.location.hash = '#/'}
+        onDelete={deleteThing}
+        isMobile={isMobile}
+      />
+    )
   }
 
   // Show nothing while checking auth
@@ -1221,7 +1471,8 @@ function App() {
                   borderTop: `1px solid ${theme.bgMuted}`,
                 }}
               >
-                <label
+                <button
+                  type="button"
                   style={{
                     display: 'flex',
                     alignItems: 'center',
@@ -1234,25 +1485,29 @@ function App() {
                     cursor: uploading ? 'wait' : 'pointer',
                     color: theme.textMuted,
                   }}
-                  onClick={() => {
-                    const input = document.getElementById('photo-input') as HTMLInputElement
-                    input?.click()
-                  }}
-                  onPaste={handlePaste}
-                  tabIndex={0}
+                  onClick={() => setShowPhotoModal(true)}
+                  disabled={uploading}
                 >
-                  <input
-                    type="file"
-                    accept="image/*,video/*"
-                    multiple
-                    onChange={handlePhotoInputChange}
-                    style={{ display: 'none' }}
-                    disabled={uploading}
-                    id="photo-input"
-                  />
                   <span style={{ fontSize: 18 }}>📷</span>
                   <span>{uploading ? 'Uploading...' : 'Photo'}</span>
-                </label>
+                  {selectedPhotos.length > 0 && (
+                    <span style={{
+                      background: theme.accent,
+                      color: theme.accentText,
+                      borderRadius: '50%',
+                      width: 20,
+                      height: 20,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: 12,
+                      fontWeight: 600,
+                      marginLeft: 4,
+                    }}>
+                      {selectedPhotos.length}
+                    </span>
+                  )}
+                </button>
                 <button
                   type="submit"
                   disabled={!newContent.trim()}
@@ -1338,44 +1593,70 @@ function App() {
           onClick={() => {
             if (!uploading) {
               setShowPhotoModal(false)
-              selectedPhotos.forEach(p => URL.revokeObjectURL(p.preview))
-              setSelectedPhotos([])
+              // Keep photos as draft - don't clear!
             }
           }}
         >
           <div
             style={{
-              background: theme.bg,
+              background: dragOverModal ? theme.bgHover : theme.bg,
               borderRadius: 12,
               padding: 24,
               maxWidth: 600,
               maxHeight: '90vh',
               overflow: 'auto',
               width: '100%',
+              border: dragOverModal ? `2px dashed ${theme.accent}` : 'none',
+              transition: 'all 0.2s',
             }}
             onClick={e => e.stopPropagation()}
+            onDragOver={handleDragOverModal as any}
+            onDragLeave={handleDragLeaveModal as any}
+            onDrop={handleDropOnModal as any}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <h2 style={{ margin: 0, color: theme.text, fontSize: 20, fontWeight: 600 }}>
                 📷 Upload Photos
               </h2>
-              <button
-                onClick={() => {
-                  setShowPhotoModal(false)
-                  selectedPhotos.forEach(p => URL.revokeObjectURL(p.preview))
-                  setSelectedPhotos([])
-                }}
-                disabled={uploading}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  fontSize: 24,
-                  cursor: uploading ? 'not-allowed' : 'pointer',
-                  opacity: uploading ? 0.5 : 1,
-                }}
-              >
-                ✕
-              </button>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {selectedPhotos.length > 0 && (
+                  <button
+                    onClick={() => {
+                      selectedPhotos.forEach(p => URL.revokeObjectURL(p.preview))
+                      setSelectedPhotos([])
+                    }}
+                    disabled={uploading}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      fontSize: 13,
+                      color: theme.error,
+                      cursor: uploading ? 'not-allowed' : 'pointer',
+                      opacity: uploading ? 0.5 : 1,
+                      fontWeight: 500,
+                      padding: 0,
+                    }}
+                  >
+                    Clear All
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    setShowPhotoModal(false)
+                    // Don't clear photos - keep as draft!
+                  }}
+                  disabled={uploading}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    fontSize: 24,
+                    cursor: uploading ? 'not-allowed' : 'pointer',
+                    opacity: uploading ? 0.5 : 1,
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
             </div>
 
             {/* Photo previews and captions */}
@@ -1447,7 +1728,45 @@ function App() {
                   ))}
                 </div>
               ) : (
-                <p style={{ color: theme.textMuted, textAlign: 'center', margin: 0 }}>No photos selected</p>
+                <div style={{
+                  textAlign: 'center',
+                  padding: 40,
+                  color: theme.textMuted,
+                }}>
+                  <p style={{ margin: '0 0 8px 0', fontSize: 14 }}>📁 Drag and drop photos here</p>
+                  <p style={{ margin: '0 0 12px 0', fontSize: 13, color: theme.textSubtle }}>or use the Photo button to select files</p>
+                  <input
+                    type="file"
+                    accept="image/*,video/*"
+                    multiple
+                    onChange={handlePhotoInputChange}
+                    style={{ display: 'none' }}
+                    disabled={uploading}
+                    id="photo-modal-input"
+                  />
+                  <button
+                    type="button"
+                    style={{
+                      display: 'inline-block',
+                      padding: '8px 16px',
+                      background: theme.accent,
+                      color: theme.accentText,
+                      borderRadius: 6,
+                      fontSize: 13,
+                      fontWeight: 500,
+                      cursor: uploading ? 'not-allowed' : 'pointer',
+                      border: 'none',
+                      opacity: uploading ? 0.5 : 1,
+                    }}
+                    onClick={() => {
+                      const input = document.getElementById('photo-modal-input') as HTMLInputElement
+                      input?.click()
+                    }}
+                    disabled={uploading}
+                  >
+                    Choose Photos
+                  </button>
+                </div>
               )}
             </div>
 
@@ -1511,8 +1830,7 @@ function App() {
               <button
                 onClick={() => {
                   setShowPhotoModal(false)
-                  selectedPhotos.forEach(p => URL.revokeObjectURL(p.preview))
-                  setSelectedPhotos([])
+                  // Keep photos as draft - don't clear!
                 }}
                 disabled={uploading}
                 style={{
@@ -1527,9 +1845,10 @@ function App() {
                   opacity: uploading ? 0.5 : 1,
                 }}
               >
-                Cancel
+                Close
               </button>
               <button
+                type="button"
                 onClick={submitPhotoUpload}
                 disabled={uploading || selectedPhotos.length === 0}
                 style={{
@@ -1647,9 +1966,11 @@ function ThingCard({
   onDelete,
   onUpdateThing,
   theme,
+  isDetailView = false,
 }: {
   thing: Thing
   kind: Kind | undefined
+  isDetailView?: boolean
   onEdit: () => void
   onDelete: () => void
   onUpdateThing: (thing: Thing) => void
@@ -1680,6 +2001,39 @@ function ThingCard({
       ×
     </button>
   )
+
+  // Edit button (shared across templates)
+  const EditButton = () => (
+    <button
+      onClick={(e) => {
+        e.stopPropagation()
+        onEdit()
+      }}
+      style={{
+        background: 'none',
+        border: 'none',
+        color: theme.textDisabled,
+        cursor: 'pointer',
+        fontSize: 14,
+        padding: '4px 8px',
+        flexShrink: 0,
+      }}
+      onMouseEnter={e => (e.currentTarget.style.color = theme.accent)}
+      onMouseLeave={e => (e.currentTarget.style.color = theme.textDisabled)}
+      title="Edit"
+    >
+      ✎
+    </button>
+  )
+
+  // Navigate to post detail page
+  const handleCardClick = () => {
+    if (!isDetailView) {
+      // Save scroll position before navigating
+      sessionStorage.setItem('feedScrollPosition', String(window.scrollY))
+      window.location.hash = `#/post/${thing.id}`
+    }
+  }
 
   // Attributes display (shared across templates)
   const AttributesDisplay = ({ compact = false }: { compact?: boolean }) => {
@@ -1724,7 +2078,7 @@ function ThingCard({
   if (template === 'compact') {
     return (
       <div
-        onClick={onEdit}
+        onClick={handleCardClick}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -1746,7 +2100,7 @@ function ThingCard({
         <span style={{ fontSize: 11, color: theme.textSubtle, flexShrink: 0 }}>
           {new Date(thing.createdAt).toLocaleDateString()}
         </span>
-        <DeleteButton />
+        <EditButton /><DeleteButton />
       </div>
     )
   }
@@ -1779,7 +2133,7 @@ function ThingCard({
           }}
           style={{ width: 18, height: 18, marginTop: 2, cursor: 'pointer', accentColor: theme.accent }}
         />
-        <div style={{ flex: 1 }} onClick={onEdit}>
+        <div style={{ flex: 1 }} onClick={handleCardClick}>
           <span
             style={{
               fontSize: 15,
@@ -1794,7 +2148,7 @@ function ThingCard({
         <span style={{ fontSize: 11, color: theme.textSubtle, flexShrink: 0 }}>
           {new Date(thing.createdAt).toLocaleDateString()}
         </span>
-        <DeleteButton />
+        <EditButton /><DeleteButton />
       </div>
     )
   }
@@ -1804,7 +2158,7 @@ function ThingCard({
     const url = thing.metadata?.url as string | undefined
     return (
       <div
-        onClick={onEdit}
+        onClick={handleCardClick}
         style={{
           padding: 14,
           background: theme.bgCard,
@@ -1847,7 +2201,7 @@ function ThingCard({
               {new Date(thing.createdAt).toLocaleDateString()}
             </div>
           </div>
-          <DeleteButton />
+          <EditButton /><DeleteButton />
         </div>
       </div>
     )
@@ -1857,7 +2211,7 @@ function ThingCard({
   if (template === 'card') {
     return (
       <div
-        onClick={onEdit}
+        onClick={handleCardClick}
         style={{
           background: theme.bgCard,
           borderRadius: 12,
@@ -1875,7 +2229,7 @@ function ThingCard({
             {thing.type}
           </span>
           <div style={{ flex: 1 }} />
-          <DeleteButton />
+          <EditButton /><DeleteButton />
         </div>
         <div style={{ padding: 16 }}>
           <Markdown content={thing.content} theme={theme} className="markdown-content" />
@@ -1890,17 +2244,289 @@ function ThingCard({
 
   // PHOTO template - image/video display
   if (template === 'photo') {
+    // Handle gallery with multiple photos
+    if (thing.photos && thing.photos.length > 0) {
+      const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0)
+      const [viewerOpen, setViewerOpen] = useState(false)
+      const currentPhoto = thing.photos[currentPhotoIndex]
+      const isVideo = currentPhoto.contentType?.startsWith('video/')
+
+      // Photo Viewer Modal - keyboard navigation
+      useEffect(() => {
+        if (!viewerOpen) return
+        const handleKeyDown = (e: KeyboardEvent) => {
+          if (e.key === 'Escape') {
+            setViewerOpen(false)
+          } else if (e.key === 'ArrowLeft') {
+            setCurrentPhotoIndex((prev) => (prev === 0 ? thing.photos!.length - 1 : prev - 1))
+          } else if (e.key === 'ArrowRight') {
+            setCurrentPhotoIndex((prev) => (prev === thing.photos!.length - 1 ? 0 : prev + 1))
+          }
+        }
+        window.addEventListener('keydown', handleKeyDown)
+        return () => window.removeEventListener('keydown', handleKeyDown)
+      }, [viewerOpen, thing.photos])
+
+      const PhotoViewer = () => {
+        if (!viewerOpen) return null
+        return (
+          <div
+            onClick={() => setViewerOpen(false)}
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'rgba(0, 0, 0, 0.95)',
+              zIndex: 10000,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'zoom-out',
+            }}
+          >
+            {/* Close button */}
+            <button
+              onClick={() => setViewerOpen(false)}
+              style={{
+                position: 'absolute',
+                top: 16,
+                right: 16,
+                background: 'rgba(255, 255, 255, 0.1)',
+                border: 'none',
+                color: '#fff',
+                fontSize: 24,
+                padding: '8px 16px',
+                borderRadius: 8,
+                cursor: 'pointer',
+              }}
+            >
+              ×
+            </button>
+
+            {/* Navigation arrows */}
+            {thing.photos!.length > 1 && (
+              <>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setCurrentPhotoIndex((prev) => (prev === 0 ? thing.photos!.length - 1 : prev - 1)) }}
+                  style={{
+                    position: 'absolute',
+                    left: 16,
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'rgba(255, 255, 255, 0.1)',
+                    color: '#fff',
+                    border: 'none',
+                    padding: '16px 24px',
+                    borderRadius: 8,
+                    cursor: 'pointer',
+                    fontSize: 24,
+                  }}
+                >
+                  ‹
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setCurrentPhotoIndex((prev) => (prev === thing.photos!.length - 1 ? 0 : prev + 1)) }}
+                  style={{
+                    position: 'absolute',
+                    right: 16,
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'rgba(255, 255, 255, 0.1)',
+                    color: '#fff',
+                    border: 'none',
+                    padding: '16px 24px',
+                    borderRadius: 8,
+                    cursor: 'pointer',
+                    fontSize: 24,
+                  }}
+                >
+                  ›
+                </button>
+              </>
+            )}
+
+            {/* Full-size image */}
+            <div onClick={(e) => e.stopPropagation()} style={{ maxWidth: '90vw', maxHeight: '90vh', cursor: 'default' }}>
+              {isVideo ? (
+                <video
+                  src={`/api/photos/${currentPhoto.id}?size=full`}
+                  controls
+                  autoPlay
+                  style={{ maxWidth: '90vw', maxHeight: '90vh', objectFit: 'contain' }}
+                />
+              ) : (
+                <img
+                  src={`/api/photos/${currentPhoto.id}?size=full`}
+                  alt={currentPhoto.caption || 'Photo'}
+                  style={{ maxWidth: '90vw', maxHeight: '90vh', objectFit: 'contain' }}
+                />
+              )}
+              {currentPhoto.caption && (
+                <p style={{ color: '#fff', textAlign: 'center', marginTop: 12, fontSize: 14 }}>
+                  {currentPhoto.caption}
+                </p>
+              )}
+              {thing.photos!.length > 1 && (
+                <p style={{ color: 'rgba(255,255,255,0.6)', textAlign: 'center', marginTop: 8, fontSize: 12 }}>
+                  {currentPhotoIndex + 1} / {thing.photos!.length}
+                </p>
+              )}
+            </div>
+          </div>
+        )
+      }
+
+      return (
+        <div
+          onClick={handleCardClick}
+          style={{
+            background: theme.bgCard,
+            borderRadius: 12,
+            border: `1px solid ${theme.border}`,
+            overflow: 'hidden',
+            cursor: 'pointer',
+            transition: 'box-shadow 0.15s',
+          }}
+          onMouseEnter={e => (e.currentTarget.style.boxShadow = `0 4px 12px ${theme.shadow}`)}
+          onMouseLeave={e => (e.currentTarget.style.boxShadow = 'none')}
+        >
+          <PhotoViewer />
+          {/* Photo/Video Display */}
+          <div style={{ position: 'relative', background: '#000' }}>
+            {isVideo ? (
+              <video
+                src={`/api/photos/${currentPhoto.id}?size=thumb`}
+                controls
+                style={{
+                  width: '100%',
+                  maxHeight: 400,
+                  objectFit: 'contain',
+                  display: 'block',
+                }}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (isDetailView) setViewerOpen(true)
+                  else handleCardClick()
+                }}
+              />
+            ) : (
+              <img
+                src={`/api/photos/${currentPhoto.id}?size=thumb`}
+                alt={currentPhoto.caption || 'Photo'}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (isDetailView) setViewerOpen(true)
+                  else handleCardClick()
+                }}
+                style={{
+                  width: '100%',
+                  maxHeight: 400,
+                  objectFit: 'contain',
+                  display: 'block',
+                  cursor: isDetailView ? 'zoom-in' : 'pointer',
+                }}
+              />
+            )}
+
+            {/* Carousel Navigation */}
+            {thing.photos!.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); setCurrentPhotoIndex((prev) => (prev === 0 ? thing.photos!.length - 1 : prev - 1)) }}
+                  style={{
+                    position: 'absolute',
+                    left: 8,
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'rgba(0, 0, 0, 0.5)',
+                    color: '#fff',
+                    border: 'none',
+                    padding: '8px 12px',
+                    borderRadius: 4,
+                    cursor: 'pointer',
+                    fontSize: 18,
+                  }}
+                >
+                  ‹
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); setCurrentPhotoIndex((prev) => (prev === thing.photos!.length - 1 ? 0 : prev + 1)) }}
+                  style={{
+                    position: 'absolute',
+                    right: 8,
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'rgba(0, 0, 0, 0.5)',
+                    color: '#fff',
+                    border: 'none',
+                    padding: '8px 12px',
+                    borderRadius: 4,
+                    cursor: 'pointer',
+                    fontSize: 18,
+                  }}
+                >
+                  ›
+                </button>
+                <div
+                  style={{
+                    position: 'absolute',
+                    bottom: 8,
+                    right: 8,
+                    background: 'rgba(0, 0, 0, 0.7)',
+                    color: '#fff',
+                    padding: '4px 8px',
+                    borderRadius: 4,
+                    fontSize: 12,
+                  }}
+                >
+                  {currentPhotoIndex + 1} / {thing.photos.length}
+                </div>
+              </>
+            )}
+          </div>
+
+          <div style={{ padding: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
+              <div style={{ flex: 1 }}>
+                {currentPhoto.caption && (
+                  <p style={{ margin: '0 0 8px 0', fontSize: 13, color: theme.text }}>
+                    {currentPhoto.caption}
+                  </p>
+                )}
+                {thing.content && (
+                  <div onClick={handleCardClick} style={{ cursor: 'pointer', marginBottom: 8 }}>
+                    <Markdown content={thing.content} theme={theme} className="markdown-content" />
+                  </div>
+                )}
+                <p style={{ fontSize: 11, color: theme.textSubtle, margin: 0 }}>
+                  {new Date(thing.createdAt).toLocaleString()}
+                </p>
+              </div>
+              <EditButton /><DeleteButton />
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+    // Handle single photo (metadata.url)
     const url = thing.metadata?.url as string | undefined
     const contentType = thing.metadata?.contentType as string | undefined
     const isVideo = contentType?.startsWith('video/')
 
     return (
       <div
+        onClick={handleCardClick}
         style={{
           background: theme.bgCard,
           borderRadius: 12,
           border: `1px solid ${theme.border}`,
           overflow: 'hidden',
+          cursor: 'pointer',
           transition: 'box-shadow 0.15s',
         }}
         onMouseEnter={e => (e.currentTarget.style.boxShadow = `0 4px 12px ${theme.shadow}`)}
@@ -1937,7 +2563,7 @@ function ThingCard({
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
             <div style={{ flex: 1 }}>
               {thing.content && (
-                <div onClick={onEdit} style={{ cursor: 'pointer' }}>
+                <div onClick={handleCardClick} style={{ cursor: 'pointer' }}>
                   <Markdown content={thing.content} theme={theme} className="markdown-content" />
                 </div>
               )}
@@ -1945,7 +2571,7 @@ function ThingCard({
                 {new Date(thing.createdAt).toLocaleString()}
               </p>
             </div>
-            <DeleteButton />
+            <EditButton /><DeleteButton />
           </div>
         </div>
       </div>
@@ -1955,7 +2581,7 @@ function ThingCard({
   // DEFAULT template - standard card
   return (
     <div
-      onClick={onEdit}
+      onClick={handleCardClick}
       style={{
         padding: 16,
         background: theme.bgCard,
@@ -1989,7 +2615,7 @@ function ThingCard({
             {new Date(thing.createdAt).toLocaleString()}
           </p>
         </div>
-        <DeleteButton />
+        <EditButton /><DeleteButton />
       </div>
     </div>
   )
@@ -2932,12 +3558,61 @@ function EditThingModal({
   const [content, setContent] = useState(thing.content)
   const [type, setType] = useState(thing.type)
   const [metadata, setMetadata] = useState<Record<string, unknown>>(thing.metadata || {})
+  const [photoCaptions, setPhotoCaptions] = useState<Record<string, string>>(
+    thing.photos?.reduce((acc, p) => ({ ...acc, [p.id]: p.caption || '' }), {}) || {}
+  )
+  const [deletedPhotoIds, setDeletedPhotoIds] = useState<string[]>([])
+  const [saving, setSaving] = useState(false)
 
   const currentKind = kinds.find(k => k.name === type)
+  const isGallery = thing.type === 'gallery' && thing.photos && thing.photos.length > 0
 
-  function handleSave(e: Event) {
+  // Filter out deleted photos for display
+  const visiblePhotos = thing.photos?.filter(p => !deletedPhotoIds.includes(p.id)) || []
+
+  async function handleSave(e: Event) {
     e.preventDefault()
-    onSave({ ...thing, content, type, metadata })
+    setSaving(true)
+
+    try {
+      // Delete photos that were marked for deletion
+      for (const photoId of deletedPhotoIds) {
+        await fetch(`/api/photos/${photoId}`, {
+          method: 'DELETE',
+          credentials: 'include',
+        })
+      }
+
+      // Save photo captions if this is a gallery
+      if (isGallery && thing.photos) {
+        for (const photo of thing.photos) {
+          // Skip deleted photos
+          if (deletedPhotoIds.includes(photo.id)) continue
+
+          const newCaption = photoCaptions[photo.id] || ''
+          if (newCaption !== (photo.caption || '')) {
+            await fetch(`/api/photos/${photo.id}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ caption: newCaption }),
+              credentials: 'include',
+            })
+          }
+        }
+      }
+
+      // Build updated photos array with new captions, excluding deleted photos
+      const updatedPhotos = thing.photos
+        ?.filter(p => !deletedPhotoIds.includes(p.id))
+        .map(p => ({ ...p, caption: photoCaptions[p.id] || p.caption }))
+
+      // Save the thing with updated photos
+      onSave({ ...thing, content, type, metadata, photos: updatedPhotos })
+    } catch (err) {
+      console.error('Failed to save:', err)
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -3026,6 +3701,68 @@ function EditThingModal({
             </div>
           )}
 
+          {/* Photo captions for galleries */}
+          {isGallery && visiblePhotos.length > 0 && (
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', marginBottom: 8, fontSize: 14, fontWeight: 500, color: theme.text }}>
+                Photos ({visiblePhotos.length})
+              </label>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {visiblePhotos.map((photo, index) => (
+                  <div key={photo.id} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <img
+                      src={`/api/photos/${photo.id}?size=thumb`}
+                      alt={`Photo ${index + 1}`}
+                      style={{
+                        width: 60,
+                        height: 60,
+                        objectFit: 'cover',
+                        borderRadius: 4,
+                        flexShrink: 0,
+                      }}
+                    />
+                    <input
+                      type="text"
+                      value={photoCaptions[photo.id] || ''}
+                      onChange={e => setPhotoCaptions({ ...photoCaptions, [photo.id]: (e.target as HTMLInputElement).value })}
+                      placeholder={`Caption for photo ${index + 1}`}
+                      style={{
+                        flex: 1,
+                        padding: '8px 12px',
+                        border: `1px solid ${theme.borderInput}`,
+                        borderRadius: 6,
+                        fontSize: 13,
+                        background: theme.bgInput,
+                        color: theme.text,
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setDeletedPhotoIds([...deletedPhotoIds, photo.id])}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: theme.error,
+                        cursor: 'pointer',
+                        fontSize: 18,
+                        padding: '4px 8px',
+                        flexShrink: 0,
+                      }}
+                      title="Delete photo"
+                    >
+                      🗑️
+                    </button>
+                  </div>
+                ))}
+              </div>
+              {deletedPhotoIds.length > 0 && (
+                <p style={{ fontSize: 12, color: theme.textMuted, marginTop: 8 }}>
+                  {deletedPhotoIds.length} photo(s) will be deleted when you save
+                </p>
+              )}
+            </div>
+          )}
+
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <button
               type="button"
@@ -3043,16 +3780,18 @@ function EditThingModal({
             </button>
             <button
               type="submit"
+              disabled={saving}
               style={{
                 padding: '10px 20px',
-                background: theme.accent,
+                background: saving ? theme.textMuted : theme.accent,
                 color: theme.accentText,
                 border: 'none',
                 borderRadius: 6,
-                cursor: 'pointer',
+                cursor: saving ? 'not-allowed' : 'pointer',
+                opacity: saving ? 0.7 : 1,
               }}
             >
-              Save
+              {saving ? 'Saving...' : 'Save'}
             </button>
           </div>
         </form>

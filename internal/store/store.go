@@ -1020,6 +1020,11 @@ func (s *Store) DeletePhoto(id string) error {
 	return err
 }
 
+func (s *Store) UpdatePhotoCaption(id, caption string) error {
+	_, err := s.db.Exec(`UPDATE photos SET caption = ? WHERE id = ?`, caption, id)
+	return err
+}
+
 // View operations
 
 func (s *Store) CreateView(v *models.View) error {

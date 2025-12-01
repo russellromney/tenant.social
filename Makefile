@@ -23,7 +23,7 @@ dev-frontend:
 # Build frontend for production
 build-frontend:
 	@echo "Building frontend..."
-	cd web && npm ci && npm run build
+	cd web && rm -rf dist .vite && npm ci && npm run build
 
 # Build Go binary with embedded frontend
 build-go:
@@ -31,8 +31,8 @@ build-go:
 	CGO_ENABLED=0 go build -o tenant ./cmd/tenant
 	@echo "✅ Go binary built: ./tenant"
 
-# Build everything (frontend + go binary)
-build: build-frontend build-go
+# Build everything (frontend + go binary) - always clean first
+build: clean build-frontend build-go
 	@echo "✅ Full build complete"
 
 # ===== TEST TARGETS =====
@@ -79,7 +79,8 @@ clean:
 	rm -f tenant
 	rm -f coverage.out coverage.html
 	rm -rf playwright-report
-	rm -rf web/dist
+	rm -rf web/dist cmd/tenant/dist
+	rm -rf web/.vite
 	@echo "✅ Clean complete"
 
 # View Fly.io logs

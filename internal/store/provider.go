@@ -34,7 +34,7 @@ type Config struct {
 	Backend DataBackendType `json:"backend"`
 
 	// SQLite-specific
-	SQLitePath string `json:"sqlitePath,omitempty"` // e.g., "./eighty.db" or ":memory:"
+	SQLitePath string `json:"sqlitePath,omitempty"` // e.g., "./tenant.db" or ":memory:"
 
 	// Turso-specific
 	TursoURL   string `json:"tursoUrl,omitempty"`   // e.g., "libsql://mydb.turso.io"
@@ -43,7 +43,7 @@ type Config struct {
 
 // ConfigFromEnv creates a Config from environment variables
 // DB_BACKEND: "sqlite" or "turso" (defaults to "sqlite")
-// For SQLite: SQLITE_PATH (defaults to "eighty.db")
+// For SQLite: SQLITE_PATH (defaults to "tenant.db")
 // For Turso: TURSO_DATABASE_URL, TURSO_AUTH_TOKEN
 func ConfigFromEnv() Config {
 	backend := DataBackendType(os.Getenv("DB_BACKEND"))
@@ -65,7 +65,7 @@ func ConfigFromEnv() Config {
 	case BackendSQLite:
 		cfg.SQLitePath = os.Getenv("SQLITE_PATH")
 		if cfg.SQLitePath == "" {
-			cfg.SQLitePath = "eighty.db"
+			cfg.SQLitePath = "tenant.db"
 		}
 	}
 
