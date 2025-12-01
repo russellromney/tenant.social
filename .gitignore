@@ -20,7 +20,8 @@ go.work.sum
 *.db-wal
 
 # Build artifacts
-cmd/tenant/dist/
+cmd/tenant/dist/*
+!cmd/tenant/dist/.gitkeep
 cmd/eighty/dist/
 dist/
 tmp/

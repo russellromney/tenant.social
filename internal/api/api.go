@@ -412,6 +412,8 @@ func (a *API) Routes() chi.Router {
 			r.With(a.RequireScope("things:read")).Get("/{id}", a.getThing)
 			r.With(a.RequireScope("things:read")).Get("/{id}/versions", a.listThingVersions)
 			r.With(a.RequireScope("things:read")).Get("/{id}/versions/{version}", a.getThingVersion)
+		r.With(a.RequireScope("things:read")).Get("/{id}/backlinks", a.getThingBacklinks)
+		r.With(a.RequireScope("things:write")).Post("/{id}/versions/{version}/revert", a.revertToVersion)
 
 			// Write operations
 			r.With(a.RequireScope("things:write")).Post("/", a.createThing)
@@ -1247,9 +1249,19 @@ func (a *API) servePhoto(w http.ResponseWriter, r *http.Request) {
 		contentType = "image/jpeg"
 	}
 
+	// Generate ETag based on photo ID and size (content-addressable)
+	etag := fmt.Sprintf(`"%s"`, cacheKey)
+
+	// Check if client has cached version
+	if match := r.Header.Get("If-None-Match"); match == etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Length", strconv.Itoa(len(cachedData)))
-	w.Header().Set("Cache-Control", "public, max-age=2592000") // Cache for 30 days
+	w.Header().Set("Cache-Control", "public, max-age=604800") // Cache for 1 week
+	w.Header().Set("ETag", etag)
 	w.Write(cachedData)
 }
 
@@ -1774,6 +1786,26 @@ func (a *API) getThingVersion(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, v)
 }
 
+
+func (a *API) getThingBacklinks(w http.ResponseWriter, r *http.Request) {
+	user := getUserFromContext(r)
+	id := chi.URLParam(r, "id")
+
+	backlinks, err := a.store.GetBacklinks(user.ID, id)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if backlinks == nil {
+		backlinks = []models.Thing{} // Return empty array instead of null
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"backlinks": backlinks,
+	})
+}
+
 func (a *API) restoreThing(w http.ResponseWriter, r *http.Request) {
 	user := getUserFromContext(r)
 	id := chi.URLParam(r, "id")
@@ -1791,6 +1823,49 @@ func (a *API) restoreThing(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, http.StatusOK, t)
+}
+
+func (a *API) revertToVersion(w http.ResponseWriter, r *http.Request) {
+	user := getUserFromContext(r)
+	id := chi.URLParam(r, "id")
+	versionStr := chi.URLParam(r, "version")
+
+	version, err := strconv.Atoi(versionStr)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "Invalid version number")
+		return
+	}
+
+	// Get the specified version
+	v, err := a.store.GetThingVersion(id, user.ID, version)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "Version not found")
+		return
+	}
+
+	// Get the current thing to check ownership
+	current, err := a.store.GetThingForUser(id, user.ID)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "Thing not found")
+		return
+	}
+
+	// Update the thing with the version's content (this creates a new version)
+	current.Content = v.Content
+	current.Type = v.Type
+	current.Metadata = v.Metadata
+
+	// Get creator ID (user or API key)
+	creatorID := getCreatorIDFromContext(r)
+
+	if err := a.store.UpdateThingWithCreator(current, creatorID); err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Return the updated thing
+	updated, _ := a.store.GetThingForUser(id, user.ID)
+	respondJSON(w, http.StatusOK, updated)
 }
 
 // ============================================================================

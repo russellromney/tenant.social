@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"golang.org/x/crypto/bcrypt"
@@ -15,14 +16,14 @@ import (
 	"tenant/internal/store"
 )
 
-var testDBCounter int
+var testDBCounter int64
 
 // setupTestAPI creates a test API with a file-based SQLite database
 func setupTestAPI(t *testing.T) (*API, *store.Store, string, func()) {
 	t.Helper()
 
-	testDBCounter++
-	dbPath := fmt.Sprintf("test_%d.db", testDBCounter)
+	counter := atomic.AddInt64(&testDBCounter, 1)
+	dbPath := fmt.Sprintf("test_%d.db", counter)
 
 	cfg := store.Config{
 		Backend:    store.BackendSQLite,
@@ -50,6 +51,8 @@ func setupTestAPI(t *testing.T) (*API, *store.Store, string, func()) {
 	cleanup := func() {
 		s.Close()
 		os.Remove(dbPath)
+		os.Remove(dbPath + "-wal")
+		os.Remove(dbPath + "-shm")
 	}
 
 	// Return the generated user ID
@@ -271,5 +274,233 @@ func TestAuthStatus(t *testing.T) {
 
 	if resp["hasOwner"] != true {
 		t.Error("Expected hasOwner to be true")
+	}
+}
+
+// ============================================================================
+// Version History Tests
+// ============================================================================
+
+func TestListThingVersions(t *testing.T) {
+	api, s, userID, cleanup := setupTestAPI(t)
+	defer cleanup()
+
+	rawKey := createTestAPIKey(t, s, userID, "Admin Key", []string{})
+
+	// Create a thing
+	body := `{"type":"note","content":"Version 1"}`
+	req := httptest.NewRequest("POST", "/things", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+rawKey)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	api.Routes().ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("Failed to create thing: %d - %s", w.Code, w.Body.String())
+	}
+
+	var thing models.Thing
+	json.NewDecoder(w.Body).Decode(&thing)
+
+	// Update the thing to create version 2
+	body = `{"type":"note","content":"Version 2"}`
+	req = httptest.NewRequest("PUT", "/things/"+thing.ID, strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+rawKey)
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	api.Routes().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Failed to update thing: %d - %s", w.Code, w.Body.String())
+	}
+
+	// List versions
+	req = httptest.NewRequest("GET", "/things/"+thing.ID+"/versions", nil)
+	req.Header.Set("Authorization", "Bearer "+rawKey)
+	w = httptest.NewRecorder()
+	api.Routes().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var versions []models.ThingVersion
+	json.NewDecoder(w.Body).Decode(&versions)
+
+	if len(versions) != 2 {
+		t.Errorf("Expected 2 versions, got %d", len(versions))
+	}
+}
+
+func TestGetThingVersion(t *testing.T) {
+	api, s, userID, cleanup := setupTestAPI(t)
+	defer cleanup()
+
+	rawKey := createTestAPIKey(t, s, userID, "Admin Key", []string{})
+
+	// Create a thing
+	body := `{"type":"note","content":"Original content"}`
+	req := httptest.NewRequest("POST", "/things", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+rawKey)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	api.Routes().ServeHTTP(w, req)
+
+	var thing models.Thing
+	json.NewDecoder(w.Body).Decode(&thing)
+
+	// Get version 1
+	req = httptest.NewRequest("GET", "/things/"+thing.ID+"/versions/1", nil)
+	req.Header.Set("Authorization", "Bearer "+rawKey)
+	w = httptest.NewRecorder()
+	api.Routes().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var version models.ThingVersion
+	json.NewDecoder(w.Body).Decode(&version)
+
+	if version.Content != "Original content" {
+		t.Errorf("Expected content 'Original content', got '%s'", version.Content)
+	}
+	if version.Version != 1 {
+		t.Errorf("Expected version 1, got %d", version.Version)
+	}
+}
+
+func TestRevertToVersion(t *testing.T) {
+	api, s, userID, cleanup := setupTestAPI(t)
+	defer cleanup()
+
+	rawKey := createTestAPIKey(t, s, userID, "Admin Key", []string{})
+
+	// Create a thing with original content
+	body := `{"type":"note","content":"Original content"}`
+	req := httptest.NewRequest("POST", "/things", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+rawKey)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	api.Routes().ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("Failed to create thing: %d - %s", w.Code, w.Body.String())
+	}
+
+	var thing models.Thing
+	json.NewDecoder(w.Body).Decode(&thing)
+
+	// Update the thing to create version 2
+	body = `{"type":"note","content":"Updated content"}`
+	req = httptest.NewRequest("PUT", "/things/"+thing.ID, strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+rawKey)
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	api.Routes().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Failed to update thing: %d - %s", w.Code, w.Body.String())
+	}
+
+	// Verify content is now "Updated content"
+	req = httptest.NewRequest("GET", "/things/"+thing.ID, nil)
+	req.Header.Set("Authorization", "Bearer "+rawKey)
+	w = httptest.NewRecorder()
+	api.Routes().ServeHTTP(w, req)
+
+	var updatedThing models.Thing
+	json.NewDecoder(w.Body).Decode(&updatedThing)
+	if updatedThing.Content != "Updated content" {
+		t.Fatalf("Expected 'Updated content', got '%s'", updatedThing.Content)
+	}
+
+	// Revert to version 1
+	req = httptest.NewRequest("POST", "/things/"+thing.ID+"/versions/1/revert", nil)
+	req.Header.Set("Authorization", "Bearer "+rawKey)
+	w = httptest.NewRecorder()
+	api.Routes().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status 200 for revert, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Verify content is back to "Original content"
+	var revertedThing models.Thing
+	json.NewDecoder(w.Body).Decode(&revertedThing)
+
+	if revertedThing.Content != "Original content" {
+		t.Errorf("Expected 'Original content' after revert, got '%s'", revertedThing.Content)
+	}
+
+	// Should now have 3 versions (original, update, revert)
+	req = httptest.NewRequest("GET", "/things/"+thing.ID+"/versions", nil)
+	req.Header.Set("Authorization", "Bearer "+rawKey)
+	w = httptest.NewRecorder()
+	api.Routes().ServeHTTP(w, req)
+
+	var versions []models.ThingVersion
+	json.NewDecoder(w.Body).Decode(&versions)
+
+	if len(versions) != 3 {
+		t.Errorf("Expected 3 versions after revert, got %d", len(versions))
+	}
+}
+
+func TestRevertToVersionNotFound(t *testing.T) {
+	api, s, userID, cleanup := setupTestAPI(t)
+	defer cleanup()
+
+	rawKey := createTestAPIKey(t, s, userID, "Admin Key", []string{})
+
+	// Create a thing
+	body := `{"type":"note","content":"Test"}`
+	req := httptest.NewRequest("POST", "/things", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+rawKey)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	api.Routes().ServeHTTP(w, req)
+
+	var thing models.Thing
+	json.NewDecoder(w.Body).Decode(&thing)
+
+	// Try to revert to non-existent version 99
+	req = httptest.NewRequest("POST", "/things/"+thing.ID+"/versions/99/revert", nil)
+	req.Header.Set("Authorization", "Bearer "+rawKey)
+	w = httptest.NewRecorder()
+	api.Routes().ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("Expected status 404 for non-existent version, got %d", w.Code)
+	}
+}
+
+func TestRevertToVersionRequiresWriteScope(t *testing.T) {
+	api, s, userID, cleanup := setupTestAPI(t)
+	defer cleanup()
+
+	// Create key with only read scope
+	readOnlyKey := createTestAPIKey(t, s, userID, "Read Only", []string{"things:read"})
+
+	// Create a thing with admin key first
+	adminKey := createTestAPIKey(t, s, userID, "Admin", []string{})
+	body := `{"type":"note","content":"Test"}`
+	req := httptest.NewRequest("POST", "/things", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+adminKey)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	api.Routes().ServeHTTP(w, req)
+
+	var thing models.Thing
+	json.NewDecoder(w.Body).Decode(&thing)
+
+	// Try to revert with read-only key
+	req = httptest.NewRequest("POST", "/things/"+thing.ID+"/versions/1/revert", nil)
+	req.Header.Set("Authorization", "Bearer "+readOnlyKey)
+	w = httptest.NewRecorder()
+	api.Routes().ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("Expected status 403 for read-only key, got %d", w.Code)
 	}
 }

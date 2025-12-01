@@ -1,0 +1,30 @@
+# Dependencies (installed in container)
+web/node_modules/
+node_modules/
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+
+# Photo cache (generated at runtime)
+photo_cache/
+
+# Build artifacts (rebuilt in container)
+tenant
+web/dist/
+
+# Git
+.git/
+
+# IDE/Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Test artifacts
+coverage/

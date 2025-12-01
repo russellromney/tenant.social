@@ -653,6 +653,8 @@ function PostPage({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [editingThing, setEditingThing] = useState<Thing | null>(null)
+  const [backlinks, setBacklinks] = useState<Thing[]>([])
+  const [backlinksLoading, setBacklinksLoading] = useState(false)
 
   useEffect(() => {
     fetchPost()
@@ -665,6 +667,7 @@ function PostPage({
       if (res.ok) {
         const data = await res.json()
         setThing(data)
+        await fetchBacklinks(data.id)
       } else {
         setError('Post not found')
       }
@@ -672,6 +675,21 @@ function PostPage({
       setError('Failed to load post')
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function fetchBacklinks(thingId: string) {
+    setBacklinksLoading(true)
+    try {
+      const res = await fetch(`/api/things/${thingId}/backlinks`, { credentials: 'include' })
+      if (res.ok) {
+        const data = await res.json()
+        setBacklinks(data.backlinks || [])
+      }
+    } catch (err) {
+      console.error('Failed to fetch backlinks:', err)
+    } finally {
+      setBacklinksLoading(false)
     }
   }
 
@@ -759,18 +777,43 @@ function PostPage({
       ) : error ? (
         <p style={{ textAlign: 'center', color: theme.error }}>{error}</p>
       ) : thing ? (
-        <ThingCard
-          thing={thing}
-          kind={kind}
-          onEdit={() => setEditingThing(thing)}
-          onDelete={() => {
-            onDelete(thing.id)
-            onBack()
-          }}
-          onUpdateThing={updateThing}
-          theme={theme}
-          isDetailView={true}
-        />
+        <>
+          <ThingCard
+            thing={thing}
+            kind={kind}
+            onEdit={() => setEditingThing(thing)}
+            onDelete={() => {
+              onDelete(thing.id)
+              onBack()
+            }}
+            onUpdateThing={updateThing}
+            theme={theme}
+            isDetailView={true}
+          />
+
+          {/* Backlinks Section */}
+          {!backlinksLoading && backlinks.length > 0 && (
+            <div style={{ marginTop: 32, paddingTop: 24, borderTop: `1px solid ${theme.border}` }}>
+              <h2 style={{ fontSize: 18, fontWeight: 600, marginTop: 0, marginBottom: 16, color: theme.text }}>
+                Backlinks ({backlinks.length})
+              </h2>
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(250px, 1fr))', gap: 12 }}>
+                {backlinks.map(backlink => (
+                  <ThingCard
+                    key={backlink.id}
+                    thing={backlink}
+                    kind={getKind(backlink.type)}
+                    onEdit={() => {}} // Not editing from backlinks view
+                    onDelete={() => {}} // Not deleting from backlinks view
+                    onUpdateThing={() => {}} // Not updating from backlinks view
+                    theme={theme}
+                    isDetailView={false}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </>
       ) : null}
 
       {/* Edit Modal */}
@@ -2043,6 +2086,10 @@ function ThingCard({
         {kind.attributes.map(attr => {
           const val = thing.metadata?.[attr.name]
           if (val === undefined || val === null || val === '') return null
+
+          // Handle link type attributes - skip them here, they're shown separately
+          if (attr.type === 'link') return null
+
           return (
             <span
               key={attr.name}
@@ -2070,6 +2117,55 @@ function ThingCard({
             </span>
           )
         })}
+      </div>
+    )
+  }
+
+  // Display linked Things
+  const LinkedThingsDisplay = () => {
+    if (!kind?.attributes) return null
+    const linkAttrs = kind.attributes.filter(a => a.type === 'link')
+    if (linkAttrs.length === 0) return null
+
+    const linkedThingIds = new Set<string>()
+    linkAttrs.forEach(attr => {
+      const val = thing.metadata?.[attr.name]
+      if (Array.isArray(val)) {
+        val.forEach((id: string) => linkedThingIds.add(id))
+      }
+    })
+
+    if (linkedThingIds.size === 0) return null
+
+    return (
+      <div style={{ marginTop: 12 }}>
+        <div style={{ fontSize: 12, color: theme.textMuted, marginBottom: 6, fontWeight: 500 }}>
+          Linked Things
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {Array.from(linkedThingIds).map(linkedId => (
+            <div
+              key={linkedId}
+              onClick={(e) => {
+                e.stopPropagation()
+                window.location.hash = `#/post/${linkedId}`
+              }}
+              style={{
+                padding: '4px 10px',
+                background: theme.link,
+                color: theme.bgCard,
+                borderRadius: 4,
+                fontSize: 12,
+                cursor: 'pointer',
+                transition: 'opacity 0.15s',
+              }}
+              onMouseEnter={e => (e.currentTarget.style.opacity = '0.8')}
+              onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
+            >
+              {linkedId.slice(0, 8)}...
+            </div>
+          ))}
+        </div>
       </div>
     )
   }
@@ -2611,11 +2707,163 @@ function ThingCard({
           </span>
           <Markdown content={thing.content} theme={theme} className="markdown-content" />
           <AttributesDisplay />
+          <LinkedThingsDisplay />
           <p style={{ fontSize: 12, color: theme.textSubtle, margin: '8px 0 0' }}>
             {new Date(thing.createdAt).toLocaleString()}
           </p>
         </div>
         <EditButton /><DeleteButton />
+      </div>
+    </div>
+  )
+}
+
+// Link Attribute Input Component
+function LinkAttributeInput({
+  attribute,
+  value,
+  onChange,
+  theme,
+}: {
+  attribute: Attribute
+  value: unknown
+  onChange: (val: unknown) => void
+  theme: Theme
+}) {
+  const [availableThings, setAvailableThings] = useState<Thing[]>([])
+  const [searchFilter, setSearchFilter] = useState('')
+  const [showDropdown, setShowDropdown] = useState(false)
+  const [loading, setLoading] = useState(true)
+
+  const linkedThingIds = Array.isArray(value) ? value : []
+
+  useEffect(() => {
+    const fetchThings = async () => {
+      try {
+        const res = await fetch('/api/things', { credentials: 'include' })
+        const data = await res.json()
+        setAvailableThings(data || [])
+      } catch (err) {
+        console.error('Failed to fetch things:', err)
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchThings()
+  }, [])
+
+  const filteredThings = availableThings.filter(
+    (t: Thing) => !linkedThingIds.includes(t.id) &&
+         (t.content?.toLowerCase().includes(searchFilter.toLowerCase()) ||
+          t.type?.toLowerCase().includes(searchFilter.toLowerCase()))
+  )
+
+  const linkedThings = availableThings.filter((t: Thing) => linkedThingIds.includes(t.id))
+
+  const labelStyle = { fontSize: 13, color: theme.textMuted, marginBottom: 4, display: 'block' }
+  const inputStyle = {
+    width: '100%',
+    padding: '8px 12px',
+    border: `1px solid ${theme.borderInput}`,
+    borderRadius: 6,
+    fontSize: 14,
+    boxSizing: 'border-box' as const,
+    background: theme.bgInput,
+    color: theme.text,
+  }
+
+  return (
+    <div>
+      <label style={labelStyle}>
+        {attribute.name} {attribute.required && <span style={{ color: theme.errorText }}>*</span>}
+      </label>
+
+      {/* Selected Things */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+        {linkedThings.map((thing: Thing) => (
+          <div
+            key={thing.id}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '6px 10px',
+              background: theme.bgMuted,
+              borderRadius: 6,
+              fontSize: 13,
+              color: theme.text,
+            }}
+          >
+            <span>{thing.content || thing.type}</span>
+            <button
+              onClick={() => onChange(linkedThingIds.filter(id => id !== thing.id))}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: theme.textMuted,
+                cursor: 'pointer',
+                fontSize: 16,
+                padding: 0,
+              }}
+            >
+              ×
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {/* Search and Dropdown */}
+      <div style={{ position: 'relative' }}>
+        <input
+          type="text"
+          placeholder={loading ? 'Loading...' : 'Search to add...'}
+          value={searchFilter}
+          onChange={e => setSearchFilter((e.target as HTMLInputElement).value)}
+          onFocus={() => setShowDropdown(true)}
+          disabled={loading}
+          style={inputStyle}
+        />
+
+        {/* Dropdown */}
+        {showDropdown && filteredThings.length > 0 && (
+          <div
+            style={{
+              position: 'absolute',
+              top: '100%',
+              left: 0,
+              right: 0,
+              background: theme.bgCard,
+              border: `1px solid ${theme.borderInput}`,
+              borderTop: 'none',
+              borderRadius: '0 0 6px 6px',
+              maxHeight: 200,
+              overflowY: 'auto',
+              zIndex: 1000,
+            }}
+          >
+            {filteredThings.map((thing: Thing) => (
+              <div
+                key={thing.id}
+                onClick={() => {
+                  onChange([...linkedThingIds, thing.id])
+                  setSearchFilter('')
+                  setShowDropdown(false)
+                }}
+                style={{
+                  padding: '10px 12px',
+                  cursor: 'pointer',
+                  borderBottom: `1px solid ${theme.border}`,
+                  fontSize: 14,
+                  color: theme.text,
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = theme.bgHover)}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+              >
+                {thing.content || thing.type}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )
@@ -2711,6 +2959,8 @@ function AttributeInput({
           />
         </div>
       )
+    case 'link':
+      return <LinkAttributeInput attribute={attribute} value={value} onChange={onChange} theme={theme} />
     default:
       return (
         <div>

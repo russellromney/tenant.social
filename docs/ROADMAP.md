@@ -6,10 +6,25 @@
 - [x] Server admin role (first user is admin)
 - [x] Admin can lock/unlock users
 - [x] Admin can delete users
+- [x] API Key System (CRUD, scopes, auth middleware, UI)
+- [x] Query API Enhancements (filtering, sorting, pagination, metadata queries)
+- [x] Bulk Operations (create, update, delete up to 100 items)
+- [x] Thing Version History (automatic versioning, view history, revert to version)
 
 ## In Progress
 
-### API Key System
+### Thing Linking (Unidirectional)
+Things can link to other Things as attributes. A Thing stores IDs of Things it links to. When viewing a Thing, see what links to it via backlinks query.
+
+**Current scope:**
+- Add "link" attribute type (stores Thing ID in metadata)
+- Backlinks endpoint: `GET /api/things/{id}/backlinks`
+- UI: dropdown/search to select Things to link to
+- Display linked Things in view
+
+**Unidirectional design:** Only the linking Thing stores the reference. To find backlinks, query all Things and check their attributes.
+
+### API Key System (Reference)
 Programmatic access for integrations (personal website, scripts, apps):
 
 **API Key Model:**
@@ -96,6 +111,14 @@ type ThingVersion struct {
 - Deletes are soft-deletes (can be restored)
 
 ## Next Up
+
+### Thing Linking (Unidirectional)
+Things can link to other Things via a "link" attribute type:
+1. **Link attribute**: New attribute type `link` stores a Thing ID
+2. **Backlinks endpoint**: `GET /api/things/{id}/backlinks` - find what links to this Thing
+3. **Link UI**: Search/select dropdown to link to other Things
+4. **Display**: Show linked Things in Thing view with preview
+5. **Future**: Add bidirectional support (maintains consistency on both sides, higher complexity)
 
 ### Recovery Phrase System
 Users need a recovery phrase for account recovery and data export:

@@ -750,6 +750,93 @@ func (s *Store) GetThingVersion(thingID, userID string, version int) (*models.Th
 	return &v, nil
 }
 
+// GetBacklinks returns all Things that link to the given Thing via link-type attributes
+func (s *Store) GetBacklinks(userID, targetID string) ([]models.Thing, error) {
+	// Get all non-deleted things for the user
+	rows, err := s.db.Query(
+		`SELECT id, user_id, type, content, metadata, visibility, version, deleted_at, created_at, updated_at
+		FROM things WHERE user_id = ? AND deleted_at IS NULL ORDER BY created_at DESC`,
+		userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var backlinks []models.Thing
+	seen := make(map[string]bool) // Prevent duplicates if multiple attributes link
+
+	for rows.Next() {
+		var t models.Thing
+		var metadata string
+		var deletedAt sql.NullTime
+		var visibility sql.NullString
+
+		err := rows.Scan(&t.ID, &t.UserID, &t.Type, &t.Content, &metadata, &visibility, &t.Version, &deletedAt, &t.CreatedAt, &t.UpdatedAt)
+		if err != nil {
+			return nil, err
+		}
+
+		if deletedAt.Valid {
+			t.DeletedAt = &deletedAt.Time
+		}
+		if visibility.Valid {
+			t.Visibility = visibility.String
+		} else {
+			t.Visibility = "private"
+		}
+
+		// Unmarshal metadata to check for link attributes
+		if err := json.Unmarshal([]byte(metadata), &t.Metadata); err != nil {
+			t.Metadata = make(map[string]interface{})
+		}
+
+		// Check if this thing has any link attributes pointing to targetID
+		if s.hasLinkTo(t.Metadata, targetID) && !seen[t.ID] {
+			backlinks = append(backlinks, t)
+			seen[t.ID] = true
+		}
+	}
+
+	return backlinks, rows.Err()
+}
+
+// hasLinkTo checks if a thing's metadata contains any link attributes pointing to targetID
+func (s *Store) hasLinkTo(metadata map[string]interface{}, targetID string) bool {
+	// Look for "attributes" in metadata which contains the attribute list
+	if attrs, ok := metadata["attributes"].([]interface{}); ok {
+		for _, attrRaw := range attrs {
+			attr, ok := attrRaw.(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			// Check if this is a link-type attribute
+			attrType, ok := attr["type"].(string)
+			if !ok || attrType != "link" {
+				continue
+			}
+
+			// Check the value field
+			if value, ok := attr["value"]; ok {
+				// Value could be a single ID or array of IDs
+				if str, ok := value.(string); ok && str == targetID {
+					return true
+				}
+				if arr, ok := value.([]interface{}); ok {
+					for _, v := range arr {
+						if vStr, ok := v.(string); ok && vStr == targetID {
+							return true
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return false
+}
+
 // Kind operations
 
 func (s *Store) CreateKind(k *models.Kind) error {
