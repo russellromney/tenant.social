@@ -716,10 +716,9 @@ function PostPage({
   }
 
   const kind = thing ? getKind(thing.type) : undefined
-  const isPhotoPost = kind?.template === 'photo' && thing?.photos && thing.photos.length > 0
 
   return (
-    <div style={{ maxWidth: (!isMobile && isPhotoPost) ? 1200 : 700, margin: '0 auto', padding: isMobile ? 12 : 20, fontFamily: 'system-ui, sans-serif', background: theme.bg, minHeight: '100vh', color: theme.text }}>
+    <div style={{ maxWidth: 700, margin: '0 auto', padding: isMobile ? 12 : 20, fontFamily: 'system-ui, sans-serif', background: theme.bg, minHeight: '100vh', color: theme.text }}>
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: isMobile ? 16 : 24, gap: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -790,7 +789,6 @@ function PostPage({
             onUpdateThing={updateThing}
             theme={theme}
             isDetailView={true}
-            twoColumnLayout={isPhotoPost && !isMobile}
           />
 
           {/* Backlinks Section */}
@@ -2012,12 +2010,10 @@ function ThingCard({
   onUpdateThing,
   theme,
   isDetailView = false,
-  twoColumnLayout = false,
 }: {
   thing: Thing
   kind: Kind | undefined
   isDetailView?: boolean
-  twoColumnLayout?: boolean
   onEdit: () => void
   onDelete: () => void
   onUpdateThing: (thing: Thing) => void
@@ -2481,52 +2477,68 @@ function ThingCard({
       }
 
       // Two-column layout for desktop detail view
-      if (twoColumnLayout && isDetailView) {
+      // Two-column layout for photo viewer modal
+      if (viewerOpen && window.innerWidth > 768) {
         return (
           <>
-            <PhotoViewer />
+            {/* Modal backdrop */}
             <div
+              onClick={() => setViewerOpen(false)}
               style={{
-                display: 'grid',
-                gridTemplateColumns: '1fr 400px',
-                gap: 24,
-                background: theme.bgCard,
-                borderRadius: 12,
-                border: `1px solid ${theme.border}`,
-                overflow: 'hidden',
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                background: 'rgba(0, 0, 0, 0.9)',
+                zIndex: 9999,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 40,
               }}
             >
+              <div
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 400px',
+                  gap: 0,
+                  background: theme.bgCard,
+                  borderRadius: 12,
+                  border: `1px solid ${theme.border}`,
+                  overflow: 'hidden',
+                  maxWidth: 1400,
+                  maxHeight: '90vh',
+                  width: '100%',
+                }}
+              >
               {/* Left column: Photo gallery (sticky) */}
-              <div style={{ position: 'relative', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 500 }}>
+              <div style={{ position: 'relative', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 500, maxHeight: '80vh' }}>
                 {isVideo ? (
                   <video
                     src={`/api/photos/${currentPhoto.id}?size=full`}
                     controls
                     style={{
-                      width: '100%',
-                      height: '100%',
+                      maxWidth: '100%',
+                      maxHeight: '80vh',
+                      width: 'auto',
+                      height: 'auto',
                       objectFit: 'contain',
                       display: 'block',
-                    }}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setViewerOpen(true)
                     }}
                   />
                 ) : (
                   <img
                     src={`/api/photos/${currentPhoto.id}?size=full`}
                     alt={currentPhoto.caption || 'Photo'}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setViewerOpen(true)
-                    }}
                     style={{
-                      width: '100%',
-                      height: '100%',
+                      maxWidth: '100%',
+                      maxHeight: '80vh',
+                      width: 'auto',
+                      height: 'auto',
                       objectFit: 'contain',
                       display: 'block',
-                      cursor: 'zoom-in',
                     }}
                   />
                 )}
@@ -2575,7 +2587,7 @@ function ThingCard({
                     <div
                       style={{
                         position: 'absolute',
-                        bottom: 16,
+                        bottom: currentPhoto.caption ? 56 : 16,
                         left: '50%',
                         transform: 'translateX(-50%)',
                         background: 'rgba(0, 0, 0, 0.7)',
@@ -2588,6 +2600,24 @@ function ThingCard({
                       {currentPhotoIndex + 1} / {thing.photos.length}
                     </div>
                   </>
+                )}
+
+                {/* Photo caption at bottom */}
+                {currentPhoto.caption && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      bottom: 0,
+                      left: 0,
+                      right: 0,
+                      background: 'rgba(0, 0, 0, 0.8)',
+                      color: '#fff',
+                      padding: '12px 16px',
+                      fontSize: 14,
+                    }}
+                  >
+                    {currentPhoto.caption}
+                  </div>
                 )}
               </div>
 
@@ -2605,15 +2635,6 @@ function ThingCard({
                   </div>
                 </div>
 
-                {/* Photo caption */}
-                {currentPhoto.caption && (
-                  <div style={{ paddingBottom: 12, borderBottom: `1px solid ${theme.border}` }}>
-                    <p style={{ margin: 0, fontSize: 15, color: theme.text, fontWeight: 500 }}>
-                      {currentPhoto.caption}
-                    </p>
-                  </div>
-                )}
-
                 {/* Post content */}
                 {thing.content && (
                   <div style={{ paddingBottom: 12, borderBottom: `1px solid ${theme.border}` }}>
@@ -2627,6 +2648,7 @@ function ThingCard({
                     {new Date(thing.createdAt).toLocaleString()}
                   </p>
                 </div>
+              </div>
               </div>
             </div>
           </>
