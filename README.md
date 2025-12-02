@@ -101,6 +101,25 @@ make test         # Run tests
 make build        # Build production binary
 ```
 
+### ⚠️ Important: Embedded Frontend Files
+
+The Go binary **embeds** the frontend files at compile time using `embed.FS`. This means:
+
+- When you change frontend code, you **must rebuild the entire binary** with `make build`
+- Running `npm run build` alone is **not sufficient** - the running server will still serve old embedded files
+- Symptom: After frontend changes, browser requests new bundle files but server hangs because it doesn't have them embedded
+
+**Correct workflow:**
+```bash
+# ✅ After making frontend changes:
+make build        # Rebuilds frontend AND Go binary with new embedded files
+./tenant          # Restart with the newly compiled binary
+
+# ❌ This will cause hangs:
+cd web && npm run build  # Builds new files to disk
+./tenant                 # But running server still has old files embedded!
+```
+
 ## License
 
 MIT

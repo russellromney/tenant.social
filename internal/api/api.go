@@ -12,6 +12,7 @@ import (
 	_ "image/png"
 	_ "image/gif"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -1140,55 +1141,85 @@ func (a *API) uploadPhoto(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Process each file
-	var photos []models.Photo
+	// Process files in parallel for better performance
+	type photoResult struct {
+		photo *models.Photo
+		err   error
+		index int
+	}
+
+	resultChan := make(chan photoResult, len(files))
+
+	// Process each file in parallel
 	for i, fileHeader := range files {
-		file, err := fileHeader.Open()
-		if err != nil {
-			respondError(w, http.StatusInternalServerError, "Failed to open file: "+err.Error())
-			return
-		}
-		defer file.Close()
+		go func(index int, fh *multipart.FileHeader) {
+			file, err := fh.Open()
+			if err != nil {
+				resultChan <- photoResult{err: err, index: index}
+				return
+			}
+			defer file.Close()
 
-		// Validate file type
-		contentType := fileHeader.Header.Get("Content-Type")
-		if !strings.HasPrefix(contentType, "image/") && !strings.HasPrefix(contentType, "video/") {
-			respondError(w, http.StatusBadRequest, "Only images and videos are allowed")
-			return
-		}
+			// Validate file type
+			contentType := fh.Header.Get("Content-Type")
+			if !strings.HasPrefix(contentType, "image/") && !strings.HasPrefix(contentType, "video/") {
+				resultChan <- photoResult{err: fmt.Errorf("invalid file type: %s", contentType), index: index}
+				return
+			}
 
-		// Read file data into memory
-		data, err := io.ReadAll(file)
-		if err != nil {
-			respondError(w, http.StatusInternalServerError, "Failed to read file")
-			return
-		}
+			// Read file data into memory
+			data, err := io.ReadAll(file)
+			if err != nil {
+				resultChan <- photoResult{err: err, index: index}
+				return
+			}
 
-		// Get caption for this photo (if provided)
-		caption := ""
-		if i < len(captions) {
-			caption = captions[i]
-		}
+			// Get caption for this photo (if provided)
+			caption := ""
+			if index < len(captions) {
+				caption = captions[index]
+			}
 
-		// Create Photo blob linked to the gallery Thing
-		photo := &models.Photo{
-			ThingID:     t.ID,
-			Caption:     caption,
-			OrderIndex:  i,
-			Data:        data,
-			ContentType: contentType,
-			Filename:    fileHeader.Filename,
-			Size:        int64(len(data)),
-		}
+			// Create Photo blob linked to the gallery Thing
+			photo := &models.Photo{
+				ThingID:     t.ID,
+				Caption:     caption,
+				OrderIndex:  index,
+				Data:        data,
+				ContentType: contentType,
+				Filename:    fh.Filename,
+				Size:        int64(len(data)),
+			}
 
-		if err := a.store.CreatePhoto(photo); err != nil {
-			// Clean up the Thing if any photo creation fails
+			resultChan <- photoResult{photo: photo, index: index}
+		}(i, fileHeader)
+	}
+
+	// Collect results in order
+	photoPointers := make([]*models.Photo, len(files))
+	for i := 0; i < len(files); i++ {
+		result := <-resultChan
+		if result.err != nil {
+			// Clean up the Thing if any photo processing fails
 			a.store.DeleteThing(t.ID, user.ID)
-			respondError(w, http.StatusInternalServerError, "Failed to save photo: "+err.Error())
+			respondError(w, http.StatusInternalServerError, "Failed to process file: "+result.err.Error())
 			return
 		}
+		photoPointers[result.index] = result.photo
+	}
 
-		photos = append(photos, *photo)
+	// Bulk insert all photos in a single transaction
+	if err := a.store.BulkCreatePhotos(photoPointers); err != nil {
+		// Clean up the Thing if bulk photo creation fails
+		a.store.DeleteThing(t.ID, user.ID)
+		respondError(w, http.StatusInternalServerError, "Failed to save photos: "+err.Error())
+		return
+	}
+
+	// Convert pointers to values for response
+	var photos []models.Photo
+	for _, p := range photoPointers {
+		photos = append(photos, *p)
 	}
 
 	// Reload the Thing with photos included

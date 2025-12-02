@@ -1049,6 +1049,40 @@ func (s *Store) CreatePhoto(p *models.Photo) error {
 	return err
 }
 
+func (s *Store) BulkCreatePhotos(photos []*models.Photo) error {
+	if len(photos) == 0 {
+		return nil
+	}
+
+	// Start a transaction for bulk insert
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare(
+		`INSERT INTO photos (id, thing_id, caption, order_index, data, content_type, filename, size, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	now := time.Now()
+	for _, p := range photos {
+		p.ID = uuid.New().String()
+		p.CreatedAt = now
+
+		_, err := stmt.Exec(p.ID, p.ThingID, p.Caption, p.OrderIndex, p.Data, p.ContentType, p.Filename, p.Size, p.CreatedAt)
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
 func (s *Store) GetPhoto(id string) (*models.Photo, error) {
 	var p models.Photo
 

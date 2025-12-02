@@ -716,9 +716,10 @@ function PostPage({
   }
 
   const kind = thing ? getKind(thing.type) : undefined
+  const isPhotoPost = kind?.template === 'photo' && thing?.photos && thing.photos.length > 0
 
   return (
-    <div style={{ maxWidth: 700, margin: '0 auto', padding: isMobile ? 12 : 20, fontFamily: 'system-ui, sans-serif', background: theme.bg, minHeight: '100vh', color: theme.text }}>
+    <div style={{ maxWidth: (!isMobile && isPhotoPost) ? 1200 : 700, margin: '0 auto', padding: isMobile ? 12 : 20, fontFamily: 'system-ui, sans-serif', background: theme.bg, minHeight: '100vh', color: theme.text }}>
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: isMobile ? 16 : 24, gap: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -789,6 +790,7 @@ function PostPage({
             onUpdateThing={updateThing}
             theme={theme}
             isDetailView={true}
+            twoColumnLayout={isPhotoPost && !isMobile}
           />
 
           {/* Backlinks Section */}
@@ -2010,10 +2012,12 @@ function ThingCard({
   onUpdateThing,
   theme,
   isDetailView = false,
+  twoColumnLayout = false,
 }: {
   thing: Thing
   kind: Kind | undefined
   isDetailView?: boolean
+  twoColumnLayout?: boolean
   onEdit: () => void
   onDelete: () => void
   onUpdateThing: (thing: Thing) => void
@@ -2021,6 +2025,26 @@ function ThingCard({
 }) {
   const template = kind?.template || 'default'
   const icon = kind?.icon || '•'
+
+  // Photo template hooks - MUST be at top level, always called regardless of template
+  const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0)
+  const [viewerOpen, setViewerOpen] = useState(false)
+
+  // Photo Viewer Modal - keyboard navigation
+  useEffect(() => {
+    if (!viewerOpen || template !== 'photo' || !thing.photos) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setViewerOpen(false)
+      } else if (e.key === 'ArrowLeft') {
+        setCurrentPhotoIndex((prev) => (prev === 0 ? thing.photos!.length - 1 : prev - 1))
+      } else if (e.key === 'ArrowRight') {
+        setCurrentPhotoIndex((prev) => (prev === thing.photos!.length - 1 ? 0 : prev + 1))
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [viewerOpen, thing.photos, template])
 
   // Delete button (shared across templates)
   const DeleteButton = () => (
@@ -2342,26 +2366,8 @@ function ThingCard({
   if (template === 'photo') {
     // Handle gallery with multiple photos
     if (thing.photos && thing.photos.length > 0) {
-      const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0)
-      const [viewerOpen, setViewerOpen] = useState(false)
       const currentPhoto = thing.photos[currentPhotoIndex]
       const isVideo = currentPhoto.contentType?.startsWith('video/')
-
-      // Photo Viewer Modal - keyboard navigation
-      useEffect(() => {
-        if (!viewerOpen) return
-        const handleKeyDown = (e: KeyboardEvent) => {
-          if (e.key === 'Escape') {
-            setViewerOpen(false)
-          } else if (e.key === 'ArrowLeft') {
-            setCurrentPhotoIndex((prev) => (prev === 0 ? thing.photos!.length - 1 : prev - 1))
-          } else if (e.key === 'ArrowRight') {
-            setCurrentPhotoIndex((prev) => (prev === thing.photos!.length - 1 ? 0 : prev + 1))
-          }
-        }
-        window.addEventListener('keydown', handleKeyDown)
-        return () => window.removeEventListener('keydown', handleKeyDown)
-      }, [viewerOpen, thing.photos])
 
       const PhotoViewer = () => {
         if (!viewerOpen) return null
@@ -2474,6 +2480,160 @@ function ThingCard({
         )
       }
 
+      // Two-column layout for desktop detail view
+      if (twoColumnLayout && isDetailView) {
+        return (
+          <>
+            <PhotoViewer />
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 400px',
+                gap: 24,
+                background: theme.bgCard,
+                borderRadius: 12,
+                border: `1px solid ${theme.border}`,
+                overflow: 'hidden',
+              }}
+            >
+              {/* Left column: Photo gallery (sticky) */}
+              <div style={{ position: 'relative', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 500 }}>
+                {isVideo ? (
+                  <video
+                    src={`/api/photos/${currentPhoto.id}?size=full`}
+                    controls
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'contain',
+                      display: 'block',
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setViewerOpen(true)
+                    }}
+                  />
+                ) : (
+                  <img
+                    src={`/api/photos/${currentPhoto.id}?size=full`}
+                    alt={currentPhoto.caption || 'Photo'}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setViewerOpen(true)
+                    }}
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'contain',
+                      display: 'block',
+                      cursor: 'zoom-in',
+                    }}
+                  />
+                )}
+
+                {/* Carousel Navigation */}
+                {thing.photos!.length > 1 && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setCurrentPhotoIndex((prev) => (prev === 0 ? thing.photos!.length - 1 : prev - 1)) }}
+                      style={{
+                        position: 'absolute',
+                        left: 16,
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'rgba(0, 0, 0, 0.5)',
+                        color: '#fff',
+                        border: 'none',
+                        padding: '12px 20px',
+                        borderRadius: 8,
+                        cursor: 'pointer',
+                        fontSize: 24,
+                      }}
+                    >
+                      ‹
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setCurrentPhotoIndex((prev) => (prev === thing.photos!.length - 1 ? 0 : prev + 1)) }}
+                      style={{
+                        position: 'absolute',
+                        right: 16,
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'rgba(0, 0, 0, 0.5)',
+                        color: '#fff',
+                        border: 'none',
+                        padding: '12px 20px',
+                        borderRadius: 8,
+                        cursor: 'pointer',
+                        fontSize: 24,
+                      }}
+                    >
+                      ›
+                    </button>
+                    <div
+                      style={{
+                        position: 'absolute',
+                        bottom: 16,
+                        left: '50%',
+                        transform: 'translateX(-50%)',
+                        background: 'rgba(0, 0, 0, 0.7)',
+                        color: '#fff',
+                        padding: '6px 12px',
+                        borderRadius: 6,
+                        fontSize: 13,
+                      }}
+                    >
+                      {currentPhotoIndex + 1} / {thing.photos.length}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Right column: Content */}
+              <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
+                {/* Header with icon and delete button */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 20 }}>{icon}</span>
+                    <span style={{ fontSize: 13, color: theme.textMuted }}>{kind?.name || 'Photo'}</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    <EditButton />
+                    <DeleteButton />
+                  </div>
+                </div>
+
+                {/* Photo caption */}
+                {currentPhoto.caption && (
+                  <div style={{ paddingBottom: 12, borderBottom: `1px solid ${theme.border}` }}>
+                    <p style={{ margin: 0, fontSize: 15, color: theme.text, fontWeight: 500 }}>
+                      {currentPhoto.caption}
+                    </p>
+                  </div>
+                )}
+
+                {/* Post content */}
+                {thing.content && (
+                  <div style={{ paddingBottom: 12, borderBottom: `1px solid ${theme.border}` }}>
+                    <Markdown content={thing.content} theme={theme} className="markdown-content" />
+                  </div>
+                )}
+
+                {/* Metadata */}
+                <div style={{ marginTop: 'auto' }}>
+                  <p style={{ fontSize: 11, color: theme.textSubtle, margin: 0 }}>
+                    {new Date(thing.createdAt).toLocaleString()}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </>
+        )
+      }
+
+      // Single-column layout (feed view or mobile)
       return (
         <div
           onClick={handleCardClick}
