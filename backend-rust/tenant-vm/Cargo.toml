@@ -1,0 +1,41 @@
+[package]
+name = "tenant-vm"
+version = "0.1.0"
+edition = "2021"
+description = "Ultra-lightweight tenant API server"
+
+[dependencies]
+# Web framework - actix-web is fast and memory efficient
+actix-web = "4"
+actix-rt = "2"
+actix-cors = "0.7"
+
+# Database - rusqlite with bundled SQLite
+rusqlite = { version = "0.31", features = ["bundled"] }
+
+# Async runtime - minimal features
+tokio = { version = "1", features = ["rt", "macros"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Authentication
+bcrypt = "0.15"
+jsonwebtoken = "9"
+
+# Utilities
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "1"
+env_logger = "0.11"
+log = "0.4"
+dotenvy = "0.15"
+
+[profile.release]
+# Optimize for size over speed
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
