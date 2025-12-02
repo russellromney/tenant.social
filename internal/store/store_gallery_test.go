@@ -284,3 +284,95 @@ func TestUpdateThingVisibility(t *testing.T) {
 		t.Errorf("Expected visibility 'public' after update, got '%s'", retrieved.Visibility)
 	}
 }
+
+// TestBulkCreatePhotos verifies bulk photo insertion in a single transaction
+func TestBulkCreatePhotos(t *testing.T) {
+	store, cleanup := setupLocalTestStore(t)
+	defer cleanup()
+
+	// Create a gallery Thing
+	gallery := &models.Thing{
+		UserID:     testUserID,
+		Type:       "gallery",
+		Content:    "Bulk upload test",
+		Visibility: "public",
+	}
+
+	if err := store.CreateThing(gallery); err != nil {
+		t.Fatalf("Failed to create gallery: %v", err)
+	}
+
+	// Create multiple photos for bulk insert
+	photos := []*models.Photo{
+		{
+			ThingID:     gallery.ID,
+			Caption:     "Photo 1",
+			OrderIndex:  0,
+			Data:        []byte("bulk image data 1"),
+			ContentType: "image/jpeg",
+			Filename:    "photo1.jpg",
+			Size:        17,
+		},
+		{
+			ThingID:     gallery.ID,
+			Caption:     "Photo 2",
+			OrderIndex:  1,
+			Data:        []byte("bulk image data 2"),
+			ContentType: "image/png",
+			Filename:    "photo2.png",
+			Size:        17,
+		},
+		{
+			ThingID:     gallery.ID,
+			Caption:     "Photo 3",
+			OrderIndex:  2,
+			Data:        []byte("bulk image data 3"),
+			ContentType: "image/jpeg",
+			Filename:    "photo3.jpg",
+			Size:        17,
+		},
+	}
+
+	// Bulk insert all photos
+	if err := store.BulkCreatePhotos(photos); err != nil {
+		t.Fatalf("Failed to bulk create photos: %v", err)
+	}
+
+	// Verify all photos were created
+	retrievedPhotos, err := store.GetPhotosByThingID(gallery.ID)
+	if err != nil {
+		t.Fatalf("Failed to retrieve photos: %v", err)
+	}
+
+	if len(retrievedPhotos) != 3 {
+		t.Fatalf("Expected 3 photos, got %d", len(retrievedPhotos))
+	}
+
+	// Verify each photo has correct data
+	for i, photo := range retrievedPhotos {
+		if photo.ThingID != gallery.ID {
+			t.Errorf("Photo %d: expected ThingID %s, got %s", i, gallery.ID, photo.ThingID)
+		}
+		if photo.OrderIndex != i {
+			t.Errorf("Photo %d: expected OrderIndex %d, got %d", i, i, photo.OrderIndex)
+		}
+		if photo.ID == "" {
+			t.Errorf("Photo %d: ID should be populated", i)
+		}
+		if photo.CreatedAt.IsZero() {
+			t.Errorf("Photo %d: CreatedAt should be populated", i)
+		}
+	}
+}
+
+// TestBulkCreatePhotosEmptySlice verifies BulkCreatePhotos handles empty input
+func TestBulkCreatePhotosEmptySlice(t *testing.T) {
+	store, cleanup := setupLocalTestStore(t)
+	defer cleanup()
+
+	// Should not error on empty slice
+	err := store.BulkCreatePhotos([]*models.Photo{})
+	if err != nil {
+		t.Errorf("BulkCreatePhotos should handle empty slice without error, got: %v", err)
+	}
+}
