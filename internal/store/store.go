@@ -587,13 +587,19 @@ func (s *Store) ListThings(userID, thingType string, limit, offset int) ([]model
 		if err := json.Unmarshal([]byte(metadata), &t.Metadata); err != nil {
 			t.Metadata = make(map[string]interface{})
 		}
-		// Load photos for gallery Things
-		if t.Type == "gallery" {
-			if photos, err := s.GetPhotosByThingID(t.ID); err == nil {
-				t.Photos = photos
+		things = append(things, t)
+	}
+
+	// Close rows before loading photos to avoid SQLite connection deadlock
+	rows.Close()
+
+	// Now load photos for gallery Things
+	for i := range things {
+		if things[i].Type == "gallery" {
+			if photos, err := s.GetPhotosByThingID(things[i].ID); err == nil {
+				things[i].Photos = photos
 			}
 		}
-		things = append(things, t)
 	}
 
 	return things, nil
