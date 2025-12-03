@@ -2587,8 +2587,7 @@ function ThingCard({
               background: 'rgba(0, 0, 0, 0.95)',
               zIndex: 10000,
               display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
+              flexDirection: 'column',
               cursor: 'zoom-out',
             }}
           >
@@ -2606,82 +2605,102 @@ function ThingCard({
                 padding: '8px 16px',
                 borderRadius: 8,
                 cursor: 'pointer',
+                zIndex: 10001,
               }}
             >
               ×
             </button>
 
-            {/* Navigation arrows */}
-            {thing.photos!.length > 1 && (
-              <>
-                <button
-                  onClick={(e) => { e.stopPropagation(); setCurrentPhotoIndex((prev) => (prev === 0 ? thing.photos!.length - 1 : prev - 1)) }}
-                  style={{
-                    position: 'absolute',
-                    left: 16,
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    background: 'rgba(255, 255, 255, 0.1)',
-                    color: '#fff',
-                    border: 'none',
-                    padding: '16px 24px',
-                    borderRadius: 8,
-                    cursor: 'pointer',
-                    fontSize: 24,
-                  }}
-                >
-                  ‹
-                </button>
-                <button
-                  onClick={(e) => { e.stopPropagation(); setCurrentPhotoIndex((prev) => (prev === thing.photos!.length - 1 ? 0 : prev + 1)) }}
-                  style={{
-                    position: 'absolute',
-                    right: 16,
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    background: 'rgba(255, 255, 255, 0.1)',
-                    color: '#fff',
-                    border: 'none',
-                    padding: '16px 24px',
-                    borderRadius: 8,
-                    cursor: 'pointer',
-                    fontSize: 24,
-                  }}
-                >
-                  ›
-                </button>
-              </>
-            )}
-
-            {/* Full-size image */}
-            <div onClick={(e) => e.stopPropagation()} style={{ maxWidth: '90vw', maxHeight: '90vh', cursor: 'default', position: 'relative' }}>
-              {isVideo ? (
-                <video
-                  src={`/api/photos/${currentPhoto.id}?size=full`}
-                  controls
-                  autoPlay
-                  style={{ maxWidth: '90vw', maxHeight: '90vh', objectFit: 'contain' }}
-                />
-              ) : (
-                <img
-                  src={`/api/photos/${currentPhoto.id}?size=full`}
-                  alt={currentPhoto.caption || 'Photo'}
-                  style={{ maxWidth: '90vw', maxHeight: '90vh', objectFit: 'contain' }}
-                />
+            {/* Photo area - takes remaining space */}
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', minHeight: 0 }}>
+              {/* Navigation arrows */}
+              {thing.photos!.length > 1 && (
+                <>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setCurrentPhotoIndex((prev) => (prev === 0 ? thing.photos!.length - 1 : prev - 1)) }}
+                    style={{
+                      position: 'absolute',
+                      left: 16,
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      background: 'rgba(255, 255, 255, 0.1)',
+                      color: '#fff',
+                      border: 'none',
+                      padding: '16px 24px',
+                      borderRadius: 8,
+                      cursor: 'pointer',
+                      fontSize: 24,
+                      zIndex: 10001,
+                    }}
+                  >
+                    ‹
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setCurrentPhotoIndex((prev) => (prev === thing.photos!.length - 1 ? 0 : prev + 1)) }}
+                    style={{
+                      position: 'absolute',
+                      right: 16,
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      background: 'rgba(255, 255, 255, 0.1)',
+                      color: '#fff',
+                      border: 'none',
+                      padding: '16px 24px',
+                      borderRadius: 8,
+                      cursor: 'pointer',
+                      fontSize: 24,
+                      zIndex: 10001,
+                    }}
+                  >
+                    ›
+                  </button>
+                </>
               )}
+
+              {/* Full-size image */}
+              <div onClick={(e) => e.stopPropagation()} style={{ maxWidth: '100%', maxHeight: '100%', cursor: 'default', position: 'relative' }}>
+                {isVideo ? (
+                  <video
+                    src={`/api/photos/${currentPhoto.id}?size=full`}
+                    controls
+                    autoPlay
+                    style={{ maxWidth: '100vw', maxHeight: '60vh', objectFit: 'contain' }}
+                  />
+                ) : (
+                  <img
+                    src={`/api/photos/${currentPhoto.id}?size=full`}
+                    alt={currentPhoto.caption || 'Photo'}
+                    style={{ maxWidth: '100vw', maxHeight: '60vh', objectFit: 'contain' }}
+                  />
+                )}
+                {thing.photos!.length > 1 && (
+                  <p style={{ color: 'rgba(255,255,255,0.6)', textAlign: 'center', marginTop: 8, fontSize: 12 }}>
+                    {currentPhotoIndex + 1} / {thing.photos!.length}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Bottom section - caption and comments stub */}
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                background: theme.bgCard,
+                borderTop: `1px solid ${theme.border}`,
+                padding: 16,
+                cursor: 'default',
+                maxHeight: '40vh',
+                overflowY: 'auto',
+              }}
+            >
+              {/* Caption */}
               {currentPhoto.caption && (
                 <div
                   onClick={(e) => { e.stopPropagation(); setCaptionExpanded(!captionExpanded) }}
                   style={{
-                    position: 'absolute',
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    background: 'rgba(0, 0, 0, 0.7)',
-                    color: '#fff',
-                    textAlign: 'center',
-                    padding: '12px 16px',
+                    color: theme.text,
                     fontSize: 14,
+                    marginBottom: 12,
                     cursor: 'pointer',
                     ...(captionExpanded ? {} : {
                       maxHeight: '4.5em',
@@ -2696,11 +2715,18 @@ function ThingCard({
                   {currentPhoto.caption}
                 </div>
               )}
-              {thing.photos!.length > 1 && (
-                <p style={{ color: 'rgba(255,255,255,0.6)', textAlign: 'center', marginTop: 8, fontSize: 12 }}>
-                  {currentPhotoIndex + 1} / {thing.photos!.length}
-                </p>
+
+              {/* Post content */}
+              {thing.content && (
+                <div style={{ color: theme.text, fontSize: 14, marginBottom: 12, paddingBottom: 12, borderBottom: `1px solid ${theme.border}` }}>
+                  <Markdown content={thing.content} theme={theme} className="markdown-content" />
+                </div>
               )}
+
+              {/* Comments stub */}
+              <div style={{ color: theme.textMuted, fontSize: 13, paddingTop: 8 }}>
+                <p style={{ margin: 0 }}>Comments coming soon...</p>
+              </div>
             </div>
           </div>
         )

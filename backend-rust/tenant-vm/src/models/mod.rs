@@ -286,6 +286,23 @@ pub struct UpdateThingRequest {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct CreateKindRequest {
+    pub name: String,
+    pub icon: String,
+    pub template: String,
+    #[serde(default)]
+    pub attributes: Vec<Attribute>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateKindRequest {
+    pub name: Option<String>,
+    pub icon: Option<String>,
+    pub template: Option<String>,
+    pub attributes: Option<Vec<Attribute>>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct LoginRequest {
     pub username: String,
     pub password: String,

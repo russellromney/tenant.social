@@ -9,6 +9,8 @@ description = "Ultra-lightweight tenant API server"
 actix-web = "4"
 actix-rt = "2"
 actix-cors = "0.7"
+actix-multipart = "0.7"
+futures-util = "0.3"
 
 # Database - rusqlite with bundled SQLite
 rusqlite = { version = "0.31", features = ["bundled"] }

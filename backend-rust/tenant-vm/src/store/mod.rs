@@ -485,6 +485,71 @@ impl Store {
         Ok(things)
     }
 
+    /// Get all Things that link to the given Thing via link-type attributes in metadata
+    pub fn get_backlinks(&self, user_id: &str, target_id: &str) -> StoreResult<Vec<Thing>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            r#"SELECT * FROM things WHERE user_id = ?1 AND deleted_at IS NULL ORDER BY created_at DESC"#
+        )?;
+
+        let rows = stmt.query_map(params![user_id], |row| self.row_to_thing(row))?;
+
+        let mut backlinks = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+
+        for row in rows {
+            let thing = row?;
+            if self.has_link_to(&thing.metadata, target_id) && !seen.contains(&thing.id) {
+                seen.insert(thing.id.clone());
+                backlinks.push(thing);
+            }
+        }
+
+        Ok(backlinks)
+    }
+
+    /// Check if a thing's metadata contains any link attributes pointing to target_id
+    fn has_link_to(&self, metadata: &HashMap<String, serde_json::Value>, target_id: &str) -> bool {
+        // Look for "attributes" in metadata which contains the attribute list
+        if let Some(attrs) = metadata.get("attributes") {
+            if let Some(attrs_array) = attrs.as_array() {
+                for attr in attrs_array {
+                    if let Some(attr_obj) = attr.as_object() {
+                        // Check if this is a link-type attribute
+                        if let Some(attr_type) = attr_obj.get("type") {
+                            if attr_type.as_str() != Some("link") {
+                                continue;
+                            }
+                        } else {
+                            continue;
+                        }
+
+                        // Check the value field
+                        if let Some(value) = attr_obj.get("value") {
+                            // Value could be a single ID string
+                            if let Some(id_str) = value.as_str() {
+                                if id_str == target_id {
+                                    return true;
+                                }
+                            }
+                            // Or an array of IDs
+                            if let Some(id_array) = value.as_array() {
+                                for v in id_array {
+                                    if let Some(id_str) = v.as_str() {
+                                        if id_str == target_id {
+                                            return true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
+
     fn row_to_thing(&self, row: &rusqlite::Row) -> rusqlite::Result<Thing> {
         let metadata_str: String = row.get("metadata")?;
         let metadata: HashMap<String, serde_json::Value> =
@@ -728,6 +793,95 @@ impl Store {
             |row| row.get(0),
         )?;
         Ok(count)
+    }
+
+    pub fn list_kinds(&self, user_id: &str) -> StoreResult<Vec<Kind>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            r#"SELECT id, user_id, name, icon, template, attributes, created_at, updated_at
+               FROM kinds WHERE user_id = ?1 ORDER BY name ASC"#,
+        )?;
+
+        let kinds = stmt
+            .query_map(params![user_id], |row| {
+                let attributes_json: String = row.get("attributes")?;
+                let attributes: Vec<Attribute> = serde_json::from_str(&attributes_json).unwrap_or_default();
+
+                Ok(Kind {
+                    id: row.get("id")?,
+                    user_id: row.get("user_id")?,
+                    name: row.get("name")?,
+                    icon: row.get("icon")?,
+                    template: row.get("template")?,
+                    attributes,
+                    created_at: parse_datetime(row.get::<_, String>("created_at")?),
+                    updated_at: parse_datetime(row.get::<_, String>("updated_at")?),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(kinds)
+    }
+
+    pub fn get_kind(&self, id: &str) -> StoreResult<Kind> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            r#"SELECT id, user_id, name, icon, template, attributes, created_at, updated_at
+               FROM kinds WHERE id = ?1"#,
+        )?;
+
+        stmt.query_row(params![id], |row| {
+            let attributes_json: String = row.get("attributes")?;
+            let attributes: Vec<Attribute> = serde_json::from_str(&attributes_json).unwrap_or_default();
+
+            Ok(Kind {
+                id: row.get("id")?,
+                user_id: row.get("user_id")?,
+                name: row.get("name")?,
+                icon: row.get("icon")?,
+                template: row.get("template")?,
+                attributes,
+                created_at: parse_datetime(row.get::<_, String>("created_at")?),
+                updated_at: parse_datetime(row.get::<_, String>("updated_at")?),
+            })
+        })
+        .map_err(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => StoreError::NotFound("Kind not found".to_string()),
+            _ => StoreError::Database(e),
+        })
+    }
+
+    pub fn update_kind(&self, kind: &mut Kind) -> StoreResult<()> {
+        let conn = self.conn.lock().unwrap();
+        kind.updated_at = Utc::now();
+        let attributes_json = serde_json::to_string(&kind.attributes).unwrap_or_else(|_| "[]".to_string());
+
+        let rows = conn.execute(
+            r#"UPDATE kinds SET name = ?1, icon = ?2, template = ?3, attributes = ?4, updated_at = ?5
+               WHERE id = ?6"#,
+            params![
+                &kind.name,
+                &kind.icon,
+                &kind.template,
+                &attributes_json,
+                kind.updated_at.to_rfc3339(),
+                &kind.id,
+            ],
+        )?;
+
+        if rows == 0 {
+            return Err(StoreError::NotFound("Kind not found".to_string()));
+        }
+        Ok(())
+    }
+
+    pub fn delete_kind(&self, id: &str) -> StoreResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let rows = conn.execute("DELETE FROM kinds WHERE id = ?1", params![id])?;
+        if rows == 0 {
+            return Err(StoreError::NotFound("Kind not found".to_string()));
+        }
+        Ok(())
     }
 }
 

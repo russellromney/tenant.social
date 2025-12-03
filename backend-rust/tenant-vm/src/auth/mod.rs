@@ -1,9 +1,13 @@
-use actix_web::{dev::ServiceRequest, Error};
+use actix_web::{dev::ServiceRequest, web, Error, FromRequest, HttpRequest};
+use actix_web::dev::Payload;
 use actix_web::error::ErrorUnauthorized;
 use chrono::{Duration, Utc};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
+use std::env;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::future::Future;
 
 use crate::store::Store;
 
@@ -34,10 +38,10 @@ impl AuthService {
         bcrypt::verify(password, hash)
     }
 
-    /// Generate a JWT token for a user
+    /// Generate a JWT token for a user (6 month expiration)
     pub fn generate_token(&self, user_id: &str) -> Result<String, jsonwebtoken::errors::Error> {
         let now = Utc::now();
-        let exp = now + Duration::days(7);
+        let exp = now + Duration::days(180); // 6 months
 
         let claims = Claims {
             sub: user_id.to_string(),
@@ -89,6 +93,91 @@ pub struct AuthUser {
     pub scopes: Vec<String>,
 }
 
+/// Implement FromRequest for AuthUser so it can be extracted directly in handlers
+impl FromRequest for AuthUser {
+    type Error = Error;
+    type Future = Pin<Box<dyn Future<Output = Result<Self, Self::Error>>>>;
+
+    fn from_request(req: &HttpRequest, _payload: &mut Payload) -> Self::Future {
+        let req = req.clone();
+
+        Box::pin(async move {
+            // Check if running as sandbox user (username is "sandbox")
+            let owner_username = env::var("OWNER_USERNAME").unwrap_or_default();
+            if owner_username == "sandbox" {
+                // In sandbox mode, create a default user with full access
+                return Ok(AuthUser {
+                    user_id: "sandbox".to_string(),
+                    is_api_key: false,
+                    scopes: vec!["*".to_string()],
+                });
+            }
+
+            // Get the Store and AuthService from request app_data
+            let store = req.app_data::<web::Data<Arc<Store>>>()
+                .ok_or_else(|| ErrorUnauthorized("Server configuration error"))?;
+            let auth_service = req.app_data::<web::Data<Arc<AuthService>>>()
+                .ok_or_else(|| ErrorUnauthorized("Server configuration error"))?;
+
+            // Extract token from Authorization header or cookie
+            let auth_header = req
+                .headers()
+                .get("Authorization")
+                .and_then(|h| h.to_str().ok());
+
+            // Try Authorization header first, then cookie
+            let token = if let Some(header) = auth_header {
+                header.strip_prefix("Bearer ").map(|t| t.to_string())
+            } else {
+                // Check for tenant_auth cookie
+                req.cookie("tenant_auth").map(|c| c.value().to_string())
+            };
+
+            let token = token.ok_or_else(|| ErrorUnauthorized("Missing Authorization header or cookie"))?;
+
+            // Check if it's an API key (starts with ts_)
+            if token.starts_with("ts_") {
+                let prefix = AuthService::get_api_key_prefix(&token);
+                let api_key = store
+                    .get_api_key_by_prefix(&prefix)
+                    .map_err(|_| ErrorUnauthorized("Invalid API key"))?;
+
+                // Verify the full key
+                if !auth_service
+                    .verify_password(&token, &api_key.key_hash)
+                    .unwrap_or(false)
+                {
+                    return Err(ErrorUnauthorized("Invalid API key").into());
+                }
+
+                // Check expiration
+                if let Some(expires_at) = api_key.expires_at {
+                    if expires_at < Utc::now() {
+                        return Err(ErrorUnauthorized("API key expired").into());
+                    }
+                }
+
+                return Ok(AuthUser {
+                    user_id: api_key.user_id,
+                    is_api_key: true,
+                    scopes: api_key.scopes,
+                });
+            }
+
+            // It's a JWT token
+            let claims = auth_service
+                .validate_token(&token)
+                .map_err(|_| ErrorUnauthorized("Invalid token"))?;
+
+            Ok(AuthUser {
+                user_id: claims.sub,
+                is_api_key: false,
+                scopes: vec!["*".to_string()], // Session has all permissions
+            })
+        })
+    }
+}
+
 /// Extract auth info from request
 pub async fn extract_auth(
     req: &ServiceRequest,
@@ -129,6 +218,40 @@ pub async fn extract_auth(
                 is_api_key: true,
                 scopes: api_key.scopes,
             });
+        }
+
+        // It's a JWT token
+        let claims = auth_service
+            .validate_token(token)
+            .map_err(|_| ErrorUnauthorized("Invalid token"))?;
+
+        return Ok(AuthUser {
+            user_id: claims.sub,
+            is_api_key: false,
+            scopes: vec!["*".to_string()], // Session has all permissions
+        });
+    }
+
+    Err(ErrorUnauthorized("Invalid Authorization header format"))
+}
+
+/// Extract AuthUser from an HTTP request using AppState
+pub fn extract_auth_from_request(
+    req: &HttpRequest,
+    auth_service: &AuthService,
+) -> Result<AuthUser, actix_web::Error> {
+    let auth_header = req
+        .headers()
+        .get("Authorization")
+        .and_then(|h| h.to_str().ok())
+        .ok_or_else(|| ErrorUnauthorized("Missing Authorization header"))?;
+
+    if let Some(token) = auth_header.strip_prefix("Bearer ") {
+        // Check if it's an API key (starts with ts_)
+        if token.starts_with("ts_") {
+            // For now, we don't support API key auth without store access
+            // This would need to be refactored to pass store through
+            return Err(ErrorUnauthorized("API key auth not implemented in this path"));
         }
 
         // It's a JWT token

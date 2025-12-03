@@ -8,6 +8,8 @@ use actix_web::{middleware, web, App, HttpServer};
 use chrono::Utc;
 use std::env;
 use std::sync::Arc;
+#[cfg(unix)]
+use std::os::unix::net::UnixListener as StdUnixListener;
 
 use api::AppState;
 use auth::AuthService;
@@ -91,11 +93,13 @@ async fn main() -> std::io::Result<()> {
         }
     }
 
-    log::info!("Starting tenant-vm server on port {}", port);
     log::info!("Database: {}", db_path);
 
-    // Start HTTP server
-    HttpServer::new(move || {
+    // Check if we should use Unix socket
+    let socket_path = env::var("SOCKET_PATH").ok();
+
+    // Create the server
+    let server = HttpServer::new(move || {
         let cors = Cors::default()
             .allow_any_origin()
             .allow_any_method()
@@ -105,16 +109,35 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .wrap(middleware::Logger::default())
             .wrap(cors)
+            // Register Store and AuthService individually for auth extractor
+            .app_data(web::Data::new(store.clone()))
+            .app_data(web::Data::new(auth_service.clone()))
+            // Also keep AppState for handlers that need both
             .app_data(web::Data::new(AppState {
                 store: store.clone(),
                 auth_service: auth_service.clone(),
             }))
             .configure(api::configure_routes)
     })
-    .bind(("0.0.0.0", port))?
-    .workers(1) // Single worker for minimal memory
-    .run()
-    .await
+    .workers(1); // Single worker for minimal memory
+
+    // Bind to Unix socket or TCP port
+    #[cfg(unix)]
+    if let Some(ref socket) = socket_path {
+        // Remove existing socket file if it exists
+        if std::path::Path::new(socket).exists() {
+            std::fs::remove_file(socket)?;
+        }
+
+        log::info!("Starting tenant-vm server on Unix socket: {}", socket);
+
+        // Create a standard Unix listener and convert it
+        let listener = StdUnixListener::bind(socket)?;
+        return server.listen_uds(listener)?.run().await;
+    }
+
+    log::info!("Starting tenant-vm server on port {}", port);
+    server.bind(("0.0.0.0", port))?.run().await
 }
 
 /// Create default Kinds for a user
@@ -125,7 +148,7 @@ fn create_default_kinds(store: &Arc<Store>, user_id: &str) {
             id: String::new(),
             user_id: user_id.to_string(),
             name: "note".to_string(),
-            icon: "pencil".to_string(),
+            icon: "📝".to_string(),
             template: "default".to_string(),
             attributes: vec![],
             created_at: Utc::now(),
@@ -135,7 +158,7 @@ fn create_default_kinds(store: &Arc<Store>, user_id: &str) {
             id: String::new(),
             user_id: user_id.to_string(),
             name: "link".to_string(),
-            icon: "link".to_string(),
+            icon: "🔗".to_string(),
             template: "link".to_string(),
             attributes: vec![Attribute {
                 name: "url".to_string(),
@@ -150,7 +173,7 @@ fn create_default_kinds(store: &Arc<Store>, user_id: &str) {
             id: String::new(),
             user_id: user_id.to_string(),
             name: "task".to_string(),
-            icon: "check".to_string(),
+            icon: "✅".to_string(),
             template: "checklist".to_string(),
             attributes: vec![Attribute {
                 name: "done".to_string(),
@@ -165,7 +188,7 @@ fn create_default_kinds(store: &Arc<Store>, user_id: &str) {
             id: String::new(),
             user_id: user_id.to_string(),
             name: "gallery".to_string(),
-            icon: "image".to_string(),
+            icon: "🖼️".to_string(),
             template: "photo".to_string(),
             attributes: vec![],
             created_at: Utc::now(),
