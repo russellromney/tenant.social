@@ -2,6 +2,7 @@ import { useState, useEffect } from 'preact/hooks'
 import { EMOJI_CATEGORIES, ALL_EMOJIS } from './emojis'
 import { useTheme, Theme } from './theme.tsx'
 import { Markdown } from './Markdown.tsx'
+import { PublicHomePage } from './PublicHomePage.tsx'
 
 // Types
 interface Attribute {
@@ -17,8 +18,8 @@ interface Kind {
   icon: string  // Emoji
   template: 'default' | 'compact' | 'card' | 'checklist' | 'link' | 'photo'
   attributes: Attribute[]
-  createdAt: string
-  updatedAt: string
+  created_at: string
+  updated_at: string
   isDefault?: boolean // for UI-only default kinds
 }
 
@@ -34,13 +35,13 @@ const TEMPLATES = [
 
 interface Photo {
   id: string
-  thingId: string
+  thing_id: string
   caption: string
-  orderIndex: number
-  contentType: string
+  order_index: number
+  content_type: string
   filename: string
   size: number
-  createdAt: string
+  created_at: string
 }
 
 interface Thing {
@@ -48,13 +49,14 @@ interface Thing {
   type: string
   content: string
   metadata: Record<string, unknown>
-  createdAt: string
-  updatedAt: string
+  visibility: 'private' | 'friends' | 'public'
+  created_at: string
+  updated_at: string
   photos?: Photo[]
 }
 
 // Default kinds - will be created in DB on first load
-const DEFAULT_KINDS: Omit<Kind, 'createdAt' | 'updatedAt'>[] = [
+const DEFAULT_KINDS: Omit<Kind, 'created_at' | 'updated_at'>[] = [
   { id: 'default-note', name: 'note', icon: '📝', template: 'default', attributes: [], isDefault: true },
   { id: 'default-link', name: 'link', icon: '🔗', template: 'link', attributes: [{ name: 'url', type: 'url', required: true, options: '' }], isDefault: true },
   { id: 'default-task', name: 'task', icon: '✅', template: 'checklist', attributes: [{ name: 'done', type: 'checkbox', required: false, options: '' }], isDefault: true },
@@ -111,9 +113,9 @@ function Footer({ theme }: { theme: Theme }) {
         Your personal social data platform
       </div>
       <div style={{ marginBottom: 12 }}>
-        <a href="#/about" style={{ color: theme.textMuted, textDecoration: 'none', margin: '0 12px' }}>About</a>
-        <a href="#/docs" style={{ color: theme.textMuted, textDecoration: 'none', margin: '0 12px' }}>Docs</a>
-        <a href="#/guides" style={{ color: theme.textMuted, textDecoration: 'none', margin: '0 12px' }}>Guides</a>
+        <a href="#/docs" style={{ color: theme.textMuted, textDecoration: 'none', margin: '0 12px' }}>About</a>
+        <a href="#/docs/api" style={{ color: theme.textMuted, textDecoration: 'none', margin: '0 12px' }}>API</a>
+        <a href="#/docs/deployment" style={{ color: theme.textMuted, textDecoration: 'none', margin: '0 12px' }}>Deploy</a>
         <a href="https://github.com/russellromney/tenant.social" target="_blank" rel="noopener noreferrer" style={{ color: theme.textMuted, textDecoration: 'none', margin: '0 12px' }}>GitHub</a>
       </div>
       Made with ❤️ in NYC by <a href="https://russellromney.com" target="_blank" rel="noopener noreferrer" style={{ color: theme.link, textDecoration: 'none' }}>me</a>
@@ -121,134 +123,133 @@ function Footer({ theme }: { theme: Theme }) {
   )
 }
 
-// Page wrapper for static pages
-function PageWrapper({ children, title }: { children: preact.ComponentChildren, title: string }) {
-  const { theme } = useTheme()
+// Content components for each documentation section
+function AboutContent({ theme }: { theme: any }) {
   return (
-    <div style={{ maxWidth: 700, margin: '0 auto', padding: 20, fontFamily: 'system-ui, sans-serif', background: theme.bg, minHeight: '100vh', color: theme.text }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <a href="#/" style={{ textDecoration: 'none', color: theme.text }}>
-          <h1 style={{ fontSize: 28, fontWeight: 700, margin: 0 }}>tenant</h1>
-        </a>
-        <a
-          href="#/"
-          style={{
-            padding: '8px 16px',
-            background: theme.bgHover,
-            color: theme.textSecondary,
-            borderRadius: 6,
-            fontSize: 14,
-            textDecoration: 'none',
-          }}
-        >
-          ← Back
-        </a>
-      </div>
-      <h2 style={{ fontSize: 24, fontWeight: 600, marginBottom: 24 }}>{title}</h2>
-      {children}
-      <Footer theme={theme} />
+    <div style={{ lineHeight: 1.7, color: theme.textSecondary }}>
+      <p style={{ fontSize: 18, marginBottom: 24 }}>
+        <strong>Tenant</strong> is your personal social data platform. Own your data, your way.
+      </p>
+
+      <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>What is Tenant?</h3>
+      <p>
+        Tenant combines the best parts of Twitter and Notion—without the creepy parts.
+        It's open source, highly extensible, and puts you in control.
+      </p>
+
+      <ul style={{ marginTop: 16, paddingLeft: 24 }}>
+        <li><strong>Store anything</strong> — Notes, links, tasks, bookmarks, photos, anything</li>
+        <li><strong>Your own schema</strong> — Define custom types (Kinds) with your own attributes</li>
+        <li><strong>Multiple views</strong> — See the same data as a feed, table, board, or calendar</li>
+        <li><strong>API-first</strong> — Full REST API with granular scopes for integrations</li>
+        <li><strong>Version history</strong> — Never lose data, track every change</li>
+        <li><strong>Cheap to run</strong> — Single binary, SQLite or Turso, minimal resources</li>
+      </ul>
+
+      <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>Philosophy</h3>
+      <p>
+        Social platforms have become creepy data extractors. Notion-like tools are great but don't feel social.
+        Tenant is different:
+      </p>
+      <ul style={{ marginTop: 16, paddingLeft: 24 }}>
+        <li><strong>Single tenant</strong> — One owner per instance. Your data, your server.</li>
+        <li><strong>Open source</strong> — See exactly what's running. Modify it how you like.</li>
+        <li><strong>Extensible</strong> — API keys with granular scopes let you build integrations</li>
+        <li><strong>Not creepy</strong> — No ads, no tracking, no selling your data</li>
+      </ul>
+
+      <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>Links</h3>
+      <ul style={{ paddingLeft: 24 }}>
+        <li><a href="https://github.com/russellromney/tenant.social" style={{ color: theme.link }}>GitHub Repository</a></li>
+        <li><a href="https://tenant.social" style={{ color: theme.link }}>Sandbox (try it out)</a></li>
+      </ul>
     </div>
   )
 }
 
-// About Page
-function AboutPage() {
-  const { theme } = useTheme()
+function APIDocsContent({ theme }: { theme: any }) {
   return (
-    <PageWrapper title="About Tenant">
-      <div style={{ lineHeight: 1.7, color: theme.textSecondary }}>
-        <p style={{ fontSize: 18, marginBottom: 24 }}>
-          <strong>Tenant</strong> is your personal social data platform. Own your data, your way.
-        </p>
+    <div style={{ lineHeight: 1.7, color: theme.textSecondary }}>
+      <p style={{ marginBottom: 24 }}>
+        Tenant has a full REST API for building integrations. Create an API key in the settings to get started.
+      </p>
 
-        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>What is Tenant?</h3>
-        <p>
-          Tenant combines the best parts of Twitter and Notion—without the creepy parts.
-          It's open source, highly extensible, and puts you in control.
-        </p>
-
-        <ul style={{ marginTop: 16, paddingLeft: 24 }}>
-          <li><strong>Store anything</strong> — Notes, links, tasks, bookmarks, photos, anything</li>
-          <li><strong>Your own schema</strong> — Define custom types (Kinds) with your own attributes</li>
-          <li><strong>Multiple views</strong> — See the same data as a feed, table, board, or calendar</li>
-          <li><strong>API-first</strong> — Full REST API with granular scopes for integrations</li>
-          <li><strong>Version history</strong> — Never lose data, track every change</li>
-          <li><strong>Cheap to run</strong> — Single binary, SQLite or Turso, minimal resources</li>
-        </ul>
-
-        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>Philosophy</h3>
-        <p>
-          Social platforms have become creepy data extractors. Notion-like tools are great but don't feel social.
-          Tenant is different:
-        </p>
-        <ul style={{ marginTop: 16, paddingLeft: 24 }}>
-          <li><strong>Single tenant</strong> — One owner per instance. Your data, your server.</li>
-          <li><strong>Open source</strong> — See exactly what's running. Modify it how you like.</li>
-          <li><strong>Extensible</strong> — API keys with granular scopes let you build integrations</li>
-          <li><strong>Not creepy</strong> — No ads, no tracking, no selling your data</li>
-        </ul>
-
-        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>Links</h3>
-        <ul style={{ paddingLeft: 24 }}>
-          <li><a href="https://github.com/russellromney/tenant.social" style={{ color: theme.link }}>GitHub Repository</a></li>
-          <li><a href="https://tenant.social" style={{ color: theme.link }}>Sandbox (try it out)</a></li>
-        </ul>
-      </div>
-    </PageWrapper>
-  )
-}
-
-// Docs Page
-function DocsPage() {
-  const { theme } = useTheme()
-  return (
-    <PageWrapper title="API Documentation">
-      <div style={{ lineHeight: 1.7, color: theme.textSecondary }}>
-        <p style={{ marginBottom: 24 }}>
-          Tenant has a full REST API for building integrations. Create an API key in the settings to get started.
-        </p>
-
-        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>Authentication</h3>
-        <p>Use your API key in the Authorization header:</p>
-        <pre style={{ background: theme.bgMuted, padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13, color: theme.text }}>
+      <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>Authentication</h3>
+      <p>Use your API key in the Authorization header:</p>
+      <pre style={{ background: theme.bgMuted, padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13, color: theme.text }}>
 {`curl https://your-tenant.fly.dev/api/things \\
   -H "Authorization: Bearer ts_your_api_key"`}
-        </pre>
+      </pre>
 
-        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>API Scopes</h3>
-        <ul style={{ paddingLeft: 24 }}>
-          <li><code style={{ background: theme.bgMuted, padding: '2px 6px', borderRadius: 4 }}>things:read</code> — Read things</li>
-          <li><code style={{ background: theme.bgMuted, padding: '2px 6px', borderRadius: 4 }}>things:write</code> — Create and update things</li>
-          <li><code style={{ background: theme.bgMuted, padding: '2px 6px', borderRadius: 4 }}>things:delete</code> — Delete things</li>
-          <li><code style={{ background: theme.bgMuted, padding: '2px 6px', borderRadius: 4 }}>kinds:read</code> — Read kinds</li>
-          <li><code style={{ background: theme.bgMuted, padding: '2px 6px', borderRadius: 4 }}>kinds:write</code> — Create and update kinds</li>
-          <li><code style={{ background: theme.bgMuted, padding: '2px 6px', borderRadius: 4 }}>kinds:delete</code> — Delete kinds</li>
-          <li><code style={{ background: theme.bgMuted, padding: '2px 6px', borderRadius: 4 }}>keys:manage</code> — Manage API keys</li>
-        </ul>
+      <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>API Scopes</h3>
+      <ul style={{ paddingLeft: 24 }}>
+        <li><code style={{ background: theme.bgMuted, padding: '2px 6px', borderRadius: 4 }}>things:read</code> — Read things</li>
+        <li><code style={{ background: theme.bgMuted, padding: '2px 6px', borderRadius: 4 }}>things:write</code> — Create and update things</li>
+        <li><code style={{ background: theme.bgMuted, padding: '2px 6px', borderRadius: 4 }}>things:delete</code> — Delete things</li>
+        <li><code style={{ background: theme.bgMuted, padding: '2px 6px', borderRadius: 4 }}>kinds:read</code> — Read kinds</li>
+        <li><code style={{ background: theme.bgMuted, padding: '2px 6px', borderRadius: 4 }}>kinds:write</code> — Create and update kinds</li>
+        <li><code style={{ background: theme.bgMuted, padding: '2px 6px', borderRadius: 4 }}>kinds:delete</code> — Delete kinds</li>
+        <li><code style={{ background: theme.bgMuted, padding: '2px 6px', borderRadius: 4 }}>keys:manage</code> — Manage API keys</li>
+      </ul>
 
-        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>Endpoints</h3>
+      <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>Endpoints</h3>
 
-        <h4 style={{ fontSize: 16, marginTop: 24, marginBottom: 8, color: theme.text }}>Things</h4>
-        <pre style={{ background: theme.bgMuted, padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13, color: theme.text }}>
-{`GET    /api/things          # List all things
-GET    /api/things/:id       # Get a thing
-POST   /api/things           # Create a thing
-PUT    /api/things/:id       # Update a thing
-DELETE /api/things/:id       # Delete a thing
-GET    /api/things/search?q= # Search things`}
-        </pre>
+      <h4 style={{ fontSize: 16, marginTop: 24, marginBottom: 8, color: theme.text }}>API Keys</h4>
+      <pre style={{ background: theme.bgMuted, padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13, color: theme.text }}>
+{`GET    /api/keys           # List your API keys
+POST   /api/keys            # Create new API key
+GET    /api/keys/:id        # Get specific key
+PUT    /api/keys/:id        # Update key (name, scopes)
+DELETE /api/keys/:id        # Revoke API key`}
+      </pre>
 
-        <h4 style={{ fontSize: 16, marginTop: 24, marginBottom: 8, color: theme.text }}>Kinds</h4>
-        <pre style={{ background: theme.bgMuted, padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13, color: theme.text }}>
+      <h4 style={{ fontSize: 16, marginTop: 24, marginBottom: 8, color: theme.text }}>Things</h4>
+      <pre style={{ background: theme.bgMuted, padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13, color: theme.text }}>
+{`GET    /api/things                      # List things (supports ?limit=50&offset=0&type=note)
+GET    /api/things/:id                   # Get a specific thing
+POST   /api/things                       # Create a thing
+PUT    /api/things/:id                   # Update a thing
+DELETE /api/things/:id                   # Delete a thing
+POST   /api/things/:id/restore           # Restore soft-deleted thing
+GET    /api/things/search?q=query        # Search things by content
+GET    /api/things/:id/versions          # List all versions of a thing
+GET    /api/things/:id/versions/:version # Get specific version
+POST   /api/things/:id/versions/:version/revert # Revert to version
+GET    /api/things/:id/backlinks         # Get things that link to this thing
+POST   /api/things/bulk                  # Bulk create things
+PUT    /api/things/bulk                  # Bulk update things
+DELETE /api/things/bulk                  # Bulk delete things`}
+      </pre>
+
+      <h4 style={{ fontSize: 16, marginTop: 24, marginBottom: 8, color: theme.text }}>Photos</h4>
+      <pre style={{ background: theme.bgMuted, padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13, color: theme.text }}>
+{`POST   /api/upload          # Upload photo to gallery thing
+GET    /api/photos/:id       # Get photo data
+PUT    /api/photos/:id       # Update photo (caption, order_index)
+DELETE /api/photos/:id       # Delete photo`}
+      </pre>
+
+      <h4 style={{ fontSize: 16, marginTop: 24, marginBottom: 8, color: theme.text }}>Kinds</h4>
+      <pre style={{ background: theme.bgMuted, padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13, color: theme.text }}>
 {`GET    /api/kinds           # List all kinds
 GET    /api/kinds/:id        # Get a kind
 POST   /api/kinds            # Create a kind
 PUT    /api/kinds/:id        # Update a kind
 DELETE /api/kinds/:id        # Delete a kind`}
-        </pre>
+      </pre>
 
-        <h4 style={{ fontSize: 16, marginTop: 24, marginBottom: 8, color: theme.text }}>Example: Create a Thing</h4>
-        <pre style={{ background: theme.bgMuted, padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13, color: theme.text }}>
+      <h4 style={{ fontSize: 16, marginTop: 24, marginBottom: 8, color: theme.text }}>Tags, Views, Export/Import</h4>
+      <pre style={{ background: theme.bgMuted, padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13, color: theme.text }}>
+{`GET    /api/tags            # List tags
+POST   /api/tags             # Create tag
+GET    /api/views            # List views
+POST   /api/views            # Create view
+GET    /api/export           # Export all your data as JSON
+POST   /api/import           # Import data from JSON`}
+      </pre>
+
+      <h4 style={{ fontSize: 16, marginTop: 24, marginBottom: 8, color: theme.text }}>Example: Create a Thing</h4>
+      <pre style={{ background: theme.bgMuted, padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13, color: theme.text }}>
 {`curl -X POST https://your-tenant.fly.dev/api/things \\
   -H "Authorization: Bearer ts_your_api_key" \\
   -H "Content-Type: application/json" \\
@@ -257,25 +258,21 @@ DELETE /api/kinds/:id        # Delete a kind`}
     "content": "Hello from the API!",
     "metadata": {}
   }'`}
-        </pre>
-      </div>
-    </PageWrapper>
+      </pre>
+    </div>
   )
 }
 
-// Guides Page
-function GuidesPage() {
-  const { theme } = useTheme()
+function DeploymentContent({ theme }: { theme: any }) {
   return (
-    <PageWrapper title="Deployment Guides">
-      <div style={{ lineHeight: 1.7, color: theme.textSecondary }}>
-        <p style={{ marginBottom: 24 }}>
-          Deploy your own Tenant instance in minutes. Choose your preferred platform:
-        </p>
+    <div style={{ lineHeight: 1.7, color: theme.textSecondary }}>
+      <p style={{ marginBottom: 24 }}>
+        Deploy your own Tenant instance in minutes. Choose your preferred platform:
+      </p>
 
-        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>Fly.io (Recommended)</h3>
-        <p>Easiest deployment with automatic HTTPS and global edge network.</p>
-        <pre style={{ background: theme.bgMuted, padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13, color: theme.text }}>
+      <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>Fly.io (Recommended)</h3>
+      <p>Easiest deployment with automatic HTTPS and global edge network.</p>
+      <pre style={{ background: theme.bgMuted, padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13, color: theme.text }}>
 {`# Install Fly CLI
 curl -L https://fly.io/install.sh | sh
 
@@ -291,11 +288,11 @@ fly volumes create tenant_data --size 1 --region ewr
 fly deploy
 
 # Visit https://my-tenant.fly.dev`}
-        </pre>
+      </pre>
 
-        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>Docker</h3>
-        <p>Run anywhere Docker runs.</p>
-        <pre style={{ background: theme.bgMuted, padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13, color: theme.text }}>
+      <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>Docker</h3>
+      <p>Run anywhere Docker runs.</p>
+      <pre style={{ background: theme.bgMuted, padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13, color: theme.text }}>
 {`# Build
 docker build -t tenant .
 
@@ -307,11 +304,11 @@ docker run -d \\
   -e DB_BACKEND=sqlite \\
   -e SQLITE_PATH=/data/tenant.db \\
   tenant`}
-        </pre>
+      </pre>
 
-        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>Run Locally</h3>
-        <p>For development or personal use on your machine.</p>
-        <pre style={{ background: theme.bgMuted, padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13, color: theme.text }}>
+      <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>Run Locally</h3>
+      <p>For development or personal use on your machine.</p>
+      <pre style={{ background: theme.bgMuted, padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13, color: theme.text }}>
 {`# Clone
 git clone https://github.com/russellromney/tenant.social.git
 cd tenant.social
@@ -323,11 +320,11 @@ cd web && npm install && cd ..
 make dev
 
 # Visit http://localhost:3069`}
-        </pre>
+      </pre>
 
-        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>Turso (Cloud Database)</h3>
-        <p>Use Turso for edge-replicated SQLite in the cloud.</p>
-        <pre style={{ background: theme.bgMuted, padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13, color: theme.text }}>
+      <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>Turso (Cloud Database)</h3>
+      <p>Use Turso for edge-replicated SQLite in the cloud.</p>
+      <pre style={{ background: theme.bgMuted, padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13, color: theme.text }}>
 {`# Create Turso database
 turso db create tenant
 
@@ -339,45 +336,256 @@ turso db tokens create tenant
 DB_BACKEND=turso
 TURSO_DATABASE_URL=libsql://tenant-xxx.turso.io
 TURSO_AUTH_TOKEN=your-token`}
-        </pre>
+      </pre>
 
-        <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>Environment Variables</h3>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
-          <thead>
-            <tr style={{ borderBottom: `2px solid ${theme.borderInput}` }}>
-              <th style={{ textAlign: 'left', padding: '8px 0' }}>Variable</th>
-              <th style={{ textAlign: 'left', padding: '8px 0' }}>Description</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr style={{ borderBottom: `1px solid ${theme.border}` }}>
-              <td style={{ padding: '8px 0' }}><code>PORT</code></td>
-              <td style={{ padding: '8px 0' }}>Server port (default: 8069)</td>
-            </tr>
-            <tr style={{ borderBottom: `1px solid ${theme.border}` }}>
-              <td style={{ padding: '8px 0' }}><code>PRODUCTION</code></td>
-              <td style={{ padding: '8px 0' }}>Set to "true" for production mode</td>
-            </tr>
-            <tr style={{ borderBottom: `1px solid ${theme.border}` }}>
-              <td style={{ padding: '8px 0' }}><code>DB_BACKEND</code></td>
-              <td style={{ padding: '8px 0' }}>"sqlite" or "turso"</td>
-            </tr>
-            <tr style={{ borderBottom: `1px solid ${theme.border}` }}>
-              <td style={{ padding: '8px 0' }}><code>SQLITE_PATH</code></td>
-              <td style={{ padding: '8px 0' }}>Path to SQLite database file</td>
-            </tr>
-            <tr style={{ borderBottom: `1px solid ${theme.border}` }}>
-              <td style={{ padding: '8px 0' }}><code>TURSO_DATABASE_URL</code></td>
-              <td style={{ padding: '8px 0' }}>Turso database URL</td>
-            </tr>
-            <tr>
-              <td style={{ padding: '8px 0' }}><code>TURSO_AUTH_TOKEN</code></td>
-              <td style={{ padding: '8px 0' }}>Turso auth token</td>
-            </tr>
-          </tbody>
-        </table>
+      <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>Environment Variables</h3>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+        <thead>
+          <tr style={{ borderBottom: `2px solid ${theme.borderInput}` }}>
+            <th style={{ textAlign: 'left', padding: '8px 0' }}>Variable</th>
+            <th style={{ textAlign: 'left', padding: '8px 0' }}>Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style={{ borderBottom: `1px solid ${theme.border}` }}>
+            <td style={{ padding: '8px 0' }}><code>PORT</code></td>
+            <td style={{ padding: '8px 0' }}>Server port (default: 8069)</td>
+          </tr>
+          <tr style={{ borderBottom: `1px solid ${theme.border}` }}>
+            <td style={{ padding: '8px 0' }}><code>PRODUCTION</code></td>
+            <td style={{ padding: '8px 0' }}>Set to "true" for production mode</td>
+          </tr>
+          <tr style={{ borderBottom: `1px solid ${theme.border}` }}>
+            <td style={{ padding: '8px 0' }}><code>DB_BACKEND</code></td>
+            <td style={{ padding: '8px 0' }}>"sqlite" or "turso"</td>
+          </tr>
+          <tr style={{ borderBottom: `1px solid ${theme.border}` }}>
+            <td style={{ padding: '8px 0' }}><code>SQLITE_PATH</code></td>
+            <td style={{ padding: '8px 0' }}>Path to SQLite database file</td>
+          </tr>
+          <tr style={{ borderBottom: `1px solid ${theme.border}` }}>
+            <td style={{ padding: '8px 0' }}><code>TURSO_DATABASE_URL</code></td>
+            <td style={{ padding: '8px 0' }}>Turso database URL</td>
+          </tr>
+          <tr>
+            <td style={{ padding: '8px 0' }}><code>TURSO_AUTH_TOKEN</code></td>
+            <td style={{ padding: '8px 0' }}>Turso auth token</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function AIAgentsContent({ theme }: { theme: any }) {
+  return (
+    <div style={{ lineHeight: 1.7, color: theme.textSecondary }}>
+      <p style={{ marginBottom: 24 }}>
+        This guide helps AI agents interact with Tenant's API to manage data programmatically.
+      </p>
+
+      <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>Core Concepts</h3>
+      <p><strong>Things</strong> are the fundamental data unit in Tenant. Each Thing has:</p>
+      <ul style={{ marginTop: 16, paddingLeft: 24 }}>
+        <li><strong>type</strong> — String identifier (e.g., "note", "task", "bookmark", "gallery")</li>
+        <li><strong>content</strong> — Main text/markdown content</li>
+        <li><strong>visibility</strong> — "private", "friends", or "public" (defaults to "private")</li>
+        <li><strong>metadata</strong> — JSON object for custom fields</li>
+        <li><strong>photos</strong> — Array of photo objects (for galleries)</li>
+      </ul>
+
+      <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>Authentication</h3>
+      <p>Use API keys with Bearer token authentication. Users create keys in Settings with specific scopes.</p>
+      <pre style={{ background: theme.bgMuted, padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13, color: theme.text }}>
+{`Authorization: Bearer ts_your_api_key_here`}
+      </pre>
+
+      <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>Common Operations</h3>
+
+      <h4 style={{ fontSize: 16, marginTop: 24, marginBottom: 8, color: theme.text }}>Create a Note</h4>
+      <pre style={{ background: theme.bgMuted, padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13, color: theme.text }}>
+{`POST /api/things
+Content-Type: application/json
+
+{
+  "type": "note",
+  "content": "Meeting notes from today...",
+  "visibility": "private",
+  "metadata": {
+    "tags": ["work", "meeting"]
+  }
+}`}
+      </pre>
+
+      <h4 style={{ fontSize: 16, marginTop: 24, marginBottom: 8, color: theme.text }}>List Things</h4>
+      <pre style={{ background: theme.bgMuted, padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13, color: theme.text }}>
+{`GET /api/things?type=note&limit=20&offset=0`}
+      </pre>
+
+      <h4 style={{ fontSize: 16, marginTop: 24, marginBottom: 8, color: theme.text }}>Search Things</h4>
+      <pre style={{ background: theme.bgMuted, padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13, color: theme.text }}>
+{`GET /api/things/search?q=meeting+notes`}
+      </pre>
+
+      <h4 style={{ fontSize: 16, marginTop: 24, marginBottom: 8, color: theme.text }}>Update a Thing</h4>
+      <pre style={{ background: theme.bgMuted, padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13, color: theme.text }}>
+{`PUT /api/things/:id
+Content-Type: application/json
+
+{
+  "content": "Updated content...",
+  "visibility": "public"
+}`}
+      </pre>
+
+      <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>Working with Photos</h3>
+      <p>Galleries are Things with type="gallery" that contain photos. Photos are separate objects linked to the gallery Thing.</p>
+
+      <h4 style={{ fontSize: 16, marginTop: 24, marginBottom: 8, color: theme.text }}>Create a Gallery</h4>
+      <pre style={{ background: theme.bgMuted, padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13, color: theme.text }}>
+{`POST /api/things
+Content-Type: application/json
+
+{
+  "type": "gallery",
+  "content": "Summer vacation photos",
+  "visibility": "public",
+  "metadata": {
+    "photoCount": 3
+  }
+}`}
+      </pre>
+
+      <h4 style={{ fontSize: 16, marginTop: 24, marginBottom: 8, color: theme.text }}>Upload Photos to Gallery</h4>
+      <pre style={{ background: theme.bgMuted, padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13, color: theme.text }}>
+{`POST /api/things/:galleryId/photos
+Content-Type: multipart/form-data
+
+file: <binary image data>
+caption: "Beach sunset"
+order_index: 0`}
+      </pre>
+
+      <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>Best Practices</h3>
+      <ul style={{ paddingLeft: 24 }}>
+        <li><strong>Pagination</strong> — Use limit/offset params for large datasets</li>
+        <li><strong>Visibility</strong> — Always set explicit visibility; defaults to "private"</li>
+        <li><strong>Error Handling</strong> — Check HTTP status codes (200=success, 401=unauthorized, 404=not found)</li>
+        <li><strong>Rate Limits</strong> — Be respectful; the API is designed for personal use</li>
+        <li><strong>Metadata</strong> — Use for custom fields and tags; it's a flexible JSON object</li>
+      </ul>
+
+      <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>Response Format</h3>
+      <p>All Thing objects return with this structure:</p>
+      <pre style={{ background: theme.bgMuted, padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13, color: theme.text }}>
+{`{
+  "id": "abc123",
+  "userId": "user456",
+  "type": "note",
+  "content": "Hello world",
+  "visibility": "private",
+  "metadata": {},
+  "photos": [],
+  "createdAt": "2024-01-15T10:30:00Z",
+  "updatedAt": "2024-01-15T10:30:00Z"
+}`}
+      </pre>
+    </div>
+  )
+}
+
+// Unified Documentation Page with Sidebar Navigation
+function UnifiedDocsPage() {
+  const { theme } = useTheme()
+  const route = window.location.hash
+
+  // Determine which section to show based on route
+  let section = 'about' // default
+  if (route === '#/about' || route === '#/docs') section = 'about'
+  else if (route === '#/guides' || route.includes('/deployment')) section = 'deployment'
+  else if (route.includes('/ai-agents')) section = 'ai-agents'
+  else if (route.includes('/api')) section = 'api'
+
+  const sections = [
+    { id: 'about', label: 'About', route: '#/docs' },
+    { id: 'ai-agents', label: 'AI Agents', route: '#/docs/ai-agents' },
+    { id: 'api', label: 'API Reference', route: '#/docs/api' },
+    { id: 'deployment', label: 'Deployment', route: '#/docs/deployment' },
+  ]
+
+  const sectionTitles: Record<string, string> = {
+    'about': 'About Tenant',
+    'ai-agents': 'AI Agent Guide',
+    'api': 'API Documentation',
+    'deployment': 'Deployment Guides',
+  }
+
+  return (
+    <div style={{ display: 'flex', minHeight: '100vh', fontFamily: 'system-ui, sans-serif', background: theme.bg }}>
+      {/* Sidebar */}
+      <div style={{
+        width: 220,
+        background: theme.bgCard,
+        borderRight: `1px solid ${theme.border}`,
+        padding: '20px 0',
+        position: 'fixed',
+        height: '100vh',
+        overflowY: 'auto',
+      }}>
+        <a href="#/" style={{ textDecoration: 'none', color: theme.text, display: 'block', padding: '0 20px 20px' }}>
+          <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>tenant</h1>
+        </a>
+        <nav>
+          {sections.map(s => (
+            <a
+              key={s.id}
+              href={s.route}
+              style={{
+                display: 'block',
+                padding: '10px 20px',
+                color: section === s.id ? theme.accent : theme.textSecondary,
+                textDecoration: 'none',
+                background: section === s.id ? theme.bgMuted : 'transparent',
+                borderLeft: section === s.id ? `3px solid ${theme.accent}` : '3px solid transparent',
+                fontSize: 14,
+                fontWeight: section === s.id ? 600 : 400,
+              }}
+            >
+              {s.label}
+            </a>
+          ))}
+        </nav>
       </div>
-    </PageWrapper>
+
+      {/* Main content */}
+      <div style={{ marginLeft: 220, flex: 1 }}>
+        <div style={{ maxWidth: 800, margin: '0 auto', padding: 40 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
+            <h2 style={{ fontSize: 28, fontWeight: 600, margin: 0, color: theme.text }}>{sectionTitles[section]}</h2>
+            <a
+              href="#/"
+              style={{
+                padding: '8px 16px',
+                background: theme.bgHover,
+                color: theme.textSecondary,
+                borderRadius: 6,
+                fontSize: 14,
+                textDecoration: 'none',
+              }}
+            >
+              ← Back
+            </a>
+          </div>
+
+          {section === 'about' && <AboutContent theme={theme} />}
+          {section === 'ai-agents' && <AIAgentsContent theme={theme} />}
+          {section === 'api' && <APIDocsContent theme={theme} />}
+          {section === 'deployment' && <DeploymentContent theme={theme} />}
+
+          <Footer theme={theme} />
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -391,69 +599,15 @@ function AuthScreen({ onAuth, authStatus }: { onAuth: () => void, authStatus: Au
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  // Sandbox mode - just show enter button
+  console.log('[AuthScreen] authStatus:', authStatus)
+  console.log('[AuthScreen] authStatus?.sandboxMode:', authStatus?.sandboxMode)
+
+  // Sandbox mode - show public home page
   if (authStatus?.sandboxMode) {
-    return (
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        minHeight: '100vh',
-        fontFamily: 'system-ui, sans-serif',
-        background: theme.bg,
-        flexDirection: 'column',
-      }}>
-        <div style={{
-          background: theme.bgCard,
-          padding: 32,
-          borderRadius: 12,
-          boxShadow: `0 4px 12px ${theme.shadow}`,
-          width: '100%',
-          maxWidth: 380,
-          textAlign: 'center',
-        }}>
-          <h1 style={{ fontSize: 36, fontWeight: 700, margin: '0 0 8px', color: theme.text }}>tenant.social</h1>
-          <p style={{ color: theme.textMuted, fontSize: 14, margin: '0 0 20px' }}>
-            Your personal social data platform
-          </p>
-          <p style={{
-            background: theme.warning,
-            color: theme.warningText,
-            padding: '8px 12px',
-            borderRadius: 6,
-            fontSize: 13,
-            margin: '0 0 20px',
-          }}>
-            This is sandbox mode. Go wild!
-          </p>
-          <button
-            onClick={onAuth}
-            style={{
-              width: '100%',
-              padding: '12px 20px',
-              background: theme.accent,
-              color: theme.accentText,
-              border: 'none',
-              borderRadius: 6,
-              fontSize: 16,
-              fontWeight: 600,
-              cursor: 'pointer',
-            }}
-          >
-            Enter Sandbox
-          </button>
-        </div>
-        <Footer theme={theme} />
-      </div>
-    )
+    console.log('[AuthScreen] Rendering public home page for sandbox mode');
+    return <PublicHomePage theme={theme} onLogin={onAuth} />
   }
 
-  // Auto-switch to register mode if registration is enabled and no owner
-  useEffect(() => {
-    if (authStatus?.registrationEnabled && !authStatus?.hasOwner) {
-      setMode('register')
-    }
-  }, [authStatus])
 
   async function handleSubmit(e: Event) {
     e.preventDefault()
@@ -495,9 +649,8 @@ function AuthScreen({ onAuth, authStatus }: { onAuth: () => void, authStatus: Au
     ? username && email && password
     : username && password
 
-  // Show different UI based on whether this is a fresh instance
+  // Registration is only shown if explicitly enabled
   const showRegisterOption = authStatus?.registrationEnabled
-  const isFreshInstance = !authStatus?.hasOwner
 
   return (
     <div style={{
@@ -519,12 +672,10 @@ function AuthScreen({ onAuth, authStatus }: { onAuth: () => void, authStatus: Au
       }}>
         <h1 style={{ fontSize: 36, fontWeight: 700, margin: '0 0 8px', textAlign: 'center', color: theme.text }}>tenant.social</h1>
         <p style={{ color: theme.textMuted, fontSize: 14, margin: '0 0 20px', textAlign: 'center' }}>
-          Your personal social data platform
+          your corner of the internet
         </p>
         <p style={{ color: theme.textSecondary, fontSize: 14, margin: '0 0 16px', textAlign: 'center', fontWeight: 500 }}>
-          {isFreshInstance
-            ? 'Claim this instance'
-            : (mode === 'register' ? 'Create your account' : 'Sign in to continue')}
+          {mode === 'register' ? 'Create your account' : 'Sign in to continue'}
         </p>
         <form onSubmit={handleSubmit}>
           <input
@@ -602,11 +753,11 @@ function AuthScreen({ onAuth, authStatus }: { onAuth: () => void, authStatus: Au
           >
             {loading
               ? (mode === 'register' ? 'Creating account...' : 'Signing in...')
-              : (mode === 'register' ? (isFreshInstance ? 'Claim Instance' : 'Create account') : 'Sign in')}
+              : (mode === 'register' ? 'Create account' : 'Sign in')}
           </button>
         </form>
-        {/* Only show toggle if registration is enabled and there's already an owner */}
-        {showRegisterOption && !isFreshInstance && (
+        {/* Only show toggle if registration is enabled */}
+        {showRegisterOption && (
           <p style={{ textAlign: 'center', fontSize: 14, color: theme.textMuted, margin: 0 }}>
             {mode === 'register' ? (
               <>Already have an account? <button onClick={() => { setMode('login'); setError('') }} style={{ background: 'none', border: 'none', color: theme.link, cursor: 'pointer', fontSize: 14, padding: 0 }}>Sign in</button></>
@@ -615,8 +766,8 @@ function AuthScreen({ onAuth, authStatus }: { onAuth: () => void, authStatus: Au
             )}
           </p>
         )}
-        {/* For single-tenant instances with an owner, no registration option */}
-        {!showRegisterOption && authStatus?.hasOwner && mode === 'login' && (
+        {/* For single-tenant instances, no registration option */}
+        {!showRegisterOption && mode === 'login' && (
           <p style={{ textAlign: 'center', fontSize: 12, color: theme.textSubtle, margin: 0 }}>
             This is a private instance
           </p>
@@ -843,6 +994,7 @@ function App() {
   const [newContent, setNewContent] = useState('')
   const [newType, setNewType] = useState('note')
   const [newMetadata, setNewMetadata] = useState<Record<string, unknown>>({})
+  const [newVisibility, setNewVisibility] = useState<'private' | 'friends' | 'public'>('private')
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [filterKind, setFilterKind] = useState('')
@@ -879,25 +1031,46 @@ function App() {
     try {
       // First, check auth status to understand the instance state
       const statusRes = await fetch('/api/auth/status', { credentials: 'include' })
+      console.log('[checkAuth] /api/auth/status response:', statusRes.status)
       if (statusRes.ok) {
         const status: AuthStatus = await statusRes.json()
+        console.log('[checkAuth] Auth status:', status)
         setAuthStatus(status)
 
-        // In sandbox mode, show the welcome screen first (user clicks "Enter Sandbox")
+        // In sandbox mode, check if already authenticated (after clicking Enter Sandbox)
+        if (status.sandboxMode) {
+          console.log('[checkAuth] Sandbox mode detected, checking for existing session')
+          const res = await fetch('/api/auth/me', { credentials: 'include' })
+          if (res.ok) {
+            console.log('[checkAuth] Sandbox session found, setting isAuthenticated=true')
+            setIsAuthenticated(true)
+          } else {
+            console.log('[checkAuth] No sandbox session, showing Enter Sandbox button')
+            setIsAuthenticated(false)
+          }
+          return
+        }
+
+        // In auth-disabled mode, show the welcome screen first (user clicks "Enter Sandbox")
         if (status.authDisabled) {
+          console.log('[checkAuth] Auth disabled mode detected')
           setIsAuthenticated(false)
           return
         }
       }
 
       // Then check if we have a valid session
+      console.log('[checkAuth] Checking /api/auth/me for session')
       const res = await fetch('/api/auth/me', { credentials: 'include' })
       if (res.ok) {
+        console.log('[checkAuth] Valid session found, setting isAuthenticated=true')
         setIsAuthenticated(true)
       } else {
+        console.log('[checkAuth] No valid session, setting isAuthenticated=false')
         setIsAuthenticated(false)
       }
-    } catch {
+    } catch (err) {
+      console.error('[checkAuth] Error:', err)
       setIsAuthenticated(false)
     }
   }
@@ -972,8 +1145,13 @@ function App() {
               attributes: defaultKind.attributes,
             }),
           })
-          const newKind = await createRes.json()
-          existingKinds.push(newKind)
+          if (createRes.ok) {
+            const newKind = await createRes.json()
+            existingKinds.push(newKind)
+          } else {
+            const error = await createRes.text()
+            console.error(`Failed to create default kind ${defaultKind.name}:`, createRes.status, error)
+          }
         }
       }
 
@@ -1022,12 +1200,14 @@ function App() {
           type: newType,
           content: newContent,
           metadata: newMetadata,
+          visibility: newVisibility,
         }),
       })
       const thing = await res.json()
       setThings([thing, ...things])
       setNewContent('')
       setNewMetadata({})
+      setNewVisibility('private')
     } catch (err) {
       console.error('Failed to create thing:', err)
     }
@@ -1251,14 +1431,9 @@ function App() {
   const currentKind = getKind(newType)
 
   // Public pages - accessible without authentication
-  if (route === '#/about') {
-    return <AboutPage />
-  }
-  if (route === '#/docs') {
-    return <DocsPage />
-  }
-  if (route === '#/guides') {
-    return <GuidesPage />
+  // All documentation routes now use unified docs page with sidebar
+  if (route === '#/about' || route.startsWith('#/docs') || route === '#/guides') {
+    return <UnifiedDocsPage />
   }
 
   // Post detail page - requires authentication
@@ -1345,6 +1520,21 @@ function App() {
                 }}
               >
                 {isMobile ? '📋' : 'Kinds'}
+              </a>
+              <a
+                href="#/docs"
+                style={{
+                  padding: isMobile ? '6px 10px' : '8px 16px',
+                  background: theme.bgHover,
+                  color: theme.textSecondary,
+                  border: 'none',
+                  borderRadius: 6,
+                  fontSize: isMobile ? 13 : 14,
+                  cursor: 'pointer',
+                  textDecoration: 'none',
+                }}
+              >
+                {isMobile ? '📖' : 'Docs'}
               </a>
               <a
                 href="#/settings"
@@ -1503,7 +1693,7 @@ function App() {
                 )}
               </div>
 
-              {/* Bottom toolbar - Photo button and Post button */}
+              {/* Bottom toolbar - Photo button, Visibility selector, and Post button */}
               <div
                 style={{
                   display: 'flex',
@@ -1514,43 +1704,63 @@ function App() {
                   borderTop: `1px solid ${theme.bgMuted}`,
                 }}
               >
-                <button
-                  type="button"
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 4,
-                    padding: '6px 12px',
-                    background: 'transparent',
-                    border: 'none',
-                    borderRadius: 6,
-                    fontSize: 14,
-                    cursor: uploading ? 'wait' : 'pointer',
-                    color: theme.textMuted,
-                  }}
-                  onClick={() => setShowPhotoModal(true)}
-                  disabled={uploading}
-                >
-                  <span style={{ fontSize: 18 }}>📷</span>
-                  <span>{uploading ? 'Uploading...' : 'Photo'}</span>
-                  {selectedPhotos.length > 0 && (
-                    <span style={{
-                      background: theme.accent,
-                      color: theme.accentText,
-                      borderRadius: '50%',
-                      width: 20,
-                      height: 20,
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <button
+                    type="button"
+                    style={{
                       display: 'flex',
                       alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: 12,
-                      fontWeight: 600,
-                      marginLeft: 4,
-                    }}>
-                      {selectedPhotos.length}
-                    </span>
-                  )}
-                </button>
+                      gap: 4,
+                      padding: '6px 12px',
+                      background: 'transparent',
+                      border: 'none',
+                      borderRadius: 6,
+                      fontSize: 14,
+                      cursor: uploading ? 'wait' : 'pointer',
+                      color: theme.textMuted,
+                    }}
+                    onClick={() => setShowPhotoModal(true)}
+                    disabled={uploading}
+                  >
+                    <span style={{ fontSize: 18 }}>📷</span>
+                    <span>{uploading ? 'Uploading...' : 'Photo'}</span>
+                    {selectedPhotos.length > 0 && (
+                      <span style={{
+                        background: theme.accent,
+                        color: theme.accentText,
+                        borderRadius: '50%',
+                        width: 20,
+                        height: 20,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 12,
+                        fontWeight: 600,
+                        marginLeft: 4,
+                      }}>
+                        {selectedPhotos.length}
+                      </span>
+                    )}
+                  </button>
+                  <select
+                    value={newVisibility}
+                    onChange={e => setNewVisibility((e.target as HTMLSelectElement).value as 'private' | 'friends' | 'public')}
+                    style={{
+                      padding: '6px 10px',
+                      background: theme.bgMuted,
+                      border: `1px solid ${theme.border}`,
+                      borderRadius: 6,
+                      fontSize: 13,
+                      color: theme.text,
+                      cursor: 'pointer',
+                      fontFamily: 'inherit',
+                    }}
+                  >
+                    <option value="private">🔒 Private</option>
+                    <option value="friends">👥 Friends</option>
+                    <option value="public">🌐 Public</option>
+                  </select>
+                </div>
                 <button
                   type="submit"
                   disabled={!newContent.trim()}
@@ -2025,6 +2235,7 @@ function ThingCard({
   // Photo template hooks - MUST be at top level, always called regardless of template
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0)
   const [viewerOpen, setViewerOpen] = useState(false)
+  const [captionExpanded, setCaptionExpanded] = useState(false)
 
   // Photo Viewer Modal - keyboard navigation
   useEffect(() => {
@@ -2214,9 +2425,9 @@ function ThingCard({
           {thing.content}
         </span>
         <span style={{ fontSize: 11, color: theme.textSubtle, flexShrink: 0 }}>
-          {new Date(thing.createdAt).toLocaleDateString()}
+          {new Date(thing.created_at).toLocaleDateString()}
         </span>
-        <EditButton /><DeleteButton />
+        <EditButton />
       </div>
     )
   }
@@ -2262,9 +2473,9 @@ function ThingCard({
           <AttributesDisplay compact />
         </div>
         <span style={{ fontSize: 11, color: theme.textSubtle, flexShrink: 0 }}>
-          {new Date(thing.createdAt).toLocaleDateString()}
+          {new Date(thing.created_at).toLocaleDateString()}
         </span>
-        <EditButton /><DeleteButton />
+        <EditButton />
       </div>
     )
   }
@@ -2314,10 +2525,10 @@ function ThingCard({
               </a>
             )}
             <div style={{ fontSize: 11, color: theme.textSubtle, marginTop: 6 }}>
-              {new Date(thing.createdAt).toLocaleDateString()}
+              {new Date(thing.created_at).toLocaleDateString()}
             </div>
           </div>
-          <EditButton /><DeleteButton />
+          <EditButton />
         </div>
       </div>
     )
@@ -2345,13 +2556,13 @@ function ThingCard({
             {thing.type}
           </span>
           <div style={{ flex: 1 }} />
-          <EditButton /><DeleteButton />
+          <EditButton />
         </div>
         <div style={{ padding: 16 }}>
           <Markdown content={thing.content} theme={theme} className="markdown-content" />
           <AttributesDisplay />
           <p style={{ fontSize: 12, color: theme.textSubtle, margin: '12px 0 0' }}>
-            {new Date(thing.createdAt).toLocaleString()}
+            {new Date(thing.created_at).toLocaleString()}
           </p>
         </div>
       </div>
@@ -2363,7 +2574,7 @@ function ThingCard({
     // Handle gallery with multiple photos
     if (thing.photos && thing.photos.length > 0) {
       const currentPhoto = thing.photos[currentPhotoIndex]
-      const isVideo = currentPhoto.contentType?.startsWith('video/')
+      const isVideo = currentPhoto.content_type?.startsWith('video/')
 
       const PhotoViewer = () => {
         if (!viewerOpen) return null
@@ -2379,8 +2590,7 @@ function ThingCard({
               background: 'rgba(0, 0, 0, 0.95)',
               zIndex: 10000,
               display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
+              flexDirection: 'column',
               cursor: 'zoom-out',
             }}
           >
@@ -2398,79 +2608,128 @@ function ThingCard({
                 padding: '8px 16px',
                 borderRadius: 8,
                 cursor: 'pointer',
+                zIndex: 10001,
               }}
             >
               ×
             </button>
 
-            {/* Navigation arrows */}
-            {thing.photos!.length > 1 && (
-              <>
-                <button
-                  onClick={(e) => { e.stopPropagation(); setCurrentPhotoIndex((prev) => (prev === 0 ? thing.photos!.length - 1 : prev - 1)) }}
-                  style={{
-                    position: 'absolute',
-                    left: 16,
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    background: 'rgba(255, 255, 255, 0.1)',
-                    color: '#fff',
-                    border: 'none',
-                    padding: '16px 24px',
-                    borderRadius: 8,
-                    cursor: 'pointer',
-                    fontSize: 24,
-                  }}
-                >
-                  ‹
-                </button>
-                <button
-                  onClick={(e) => { e.stopPropagation(); setCurrentPhotoIndex((prev) => (prev === thing.photos!.length - 1 ? 0 : prev + 1)) }}
-                  style={{
-                    position: 'absolute',
-                    right: 16,
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    background: 'rgba(255, 255, 255, 0.1)',
-                    color: '#fff',
-                    border: 'none',
-                    padding: '16px 24px',
-                    borderRadius: 8,
-                    cursor: 'pointer',
-                    fontSize: 24,
-                  }}
-                >
-                  ›
-                </button>
-              </>
-            )}
-
-            {/* Full-size image */}
-            <div onClick={(e) => e.stopPropagation()} style={{ maxWidth: '90vw', maxHeight: '90vh', cursor: 'default' }}>
-              {isVideo ? (
-                <video
-                  src={`/api/photos/${currentPhoto.id}?size=full`}
-                  controls
-                  autoPlay
-                  style={{ maxWidth: '90vw', maxHeight: '90vh', objectFit: 'contain' }}
-                />
-              ) : (
-                <img
-                  src={`/api/photos/${currentPhoto.id}?size=full`}
-                  alt={currentPhoto.caption || 'Photo'}
-                  style={{ maxWidth: '90vw', maxHeight: '90vh', objectFit: 'contain' }}
-                />
-              )}
-              {currentPhoto.caption && (
-                <p style={{ color: '#fff', textAlign: 'center', marginTop: 12, fontSize: 14 }}>
-                  {currentPhoto.caption}
-                </p>
-              )}
+            {/* Photo area - takes remaining space */}
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', minHeight: 0 }}>
+              {/* Navigation arrows */}
               {thing.photos!.length > 1 && (
-                <p style={{ color: 'rgba(255,255,255,0.6)', textAlign: 'center', marginTop: 8, fontSize: 12 }}>
-                  {currentPhotoIndex + 1} / {thing.photos!.length}
-                </p>
+                <>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setCurrentPhotoIndex((prev) => (prev === 0 ? thing.photos!.length - 1 : prev - 1)) }}
+                    style={{
+                      position: 'absolute',
+                      left: 16,
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      background: 'rgba(255, 255, 255, 0.1)',
+                      color: '#fff',
+                      border: 'none',
+                      padding: '16px 24px',
+                      borderRadius: 8,
+                      cursor: 'pointer',
+                      fontSize: 24,
+                      zIndex: 10001,
+                    }}
+                  >
+                    ‹
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setCurrentPhotoIndex((prev) => (prev === thing.photos!.length - 1 ? 0 : prev + 1)) }}
+                    style={{
+                      position: 'absolute',
+                      right: 16,
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      background: 'rgba(255, 255, 255, 0.1)',
+                      color: '#fff',
+                      border: 'none',
+                      padding: '16px 24px',
+                      borderRadius: 8,
+                      cursor: 'pointer',
+                      fontSize: 24,
+                      zIndex: 10001,
+                    }}
+                  >
+                    ›
+                  </button>
+                </>
               )}
+
+              {/* Full-size image */}
+              <div onClick={(e) => e.stopPropagation()} style={{ maxWidth: '100%', maxHeight: '100%', cursor: 'default', position: 'relative' }}>
+                {isVideo ? (
+                  <video
+                    src={`/api/photos/${currentPhoto.id}?size=full`}
+                    controls
+                    autoPlay
+                    style={{ maxWidth: '100vw', maxHeight: '60vh', objectFit: 'contain' }}
+                  />
+                ) : (
+                  <img
+                    src={`/api/photos/${currentPhoto.id}?size=full`}
+                    alt={currentPhoto.caption || 'Photo'}
+                    style={{ maxWidth: '100vw', maxHeight: '60vh', objectFit: 'contain' }}
+                  />
+                )}
+                {thing.photos!.length > 1 && (
+                  <p style={{ color: 'rgba(255,255,255,0.6)', textAlign: 'center', marginTop: 8, fontSize: 12 }}>
+                    {currentPhotoIndex + 1} / {thing.photos!.length}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Bottom section - caption and comments stub */}
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                background: theme.bgCard,
+                borderTop: `1px solid ${theme.border}`,
+                padding: 16,
+                cursor: 'default',
+                maxHeight: '40vh',
+                overflowY: 'auto',
+              }}
+            >
+              {/* Caption */}
+              {currentPhoto.caption && (
+                <div
+                  onClick={(e) => { e.stopPropagation(); setCaptionExpanded(!captionExpanded) }}
+                  style={{
+                    color: theme.text,
+                    fontSize: 14,
+                    marginBottom: 12,
+                    cursor: 'pointer',
+                    ...(captionExpanded ? {} : {
+                      maxHeight: '4.5em',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      display: '-webkit-box',
+                      WebkitLineClamp: 3,
+                      WebkitBoxOrient: 'vertical',
+                    })
+                  }}
+                >
+                  {currentPhoto.caption}
+                </div>
+              )}
+
+              {/* Post content */}
+              {thing.content && (
+                <div style={{ color: theme.text, fontSize: 14, marginBottom: 12, paddingBottom: 12, borderBottom: `1px solid ${theme.border}` }}>
+                  <Markdown content={thing.content} theme={theme} className="markdown-content" />
+                </div>
+              )}
+
+              {/* Comments stub */}
+              <div style={{ color: theme.textMuted, fontSize: 13, paddingTop: 8 }}>
+                <p style={{ margin: 0 }}>Comments coming soon...</p>
+              </div>
             </div>
           </div>
         )
@@ -2645,7 +2904,7 @@ function ThingCard({
                 {/* Metadata */}
                 <div style={{ marginTop: 'auto' }}>
                   <p style={{ fontSize: 11, color: theme.textSubtle, margin: 0 }}>
-                    {new Date(thing.createdAt).toLocaleString()}
+                    {new Date(thing.created_at).toLocaleString()}
                   </p>
                 </div>
               </div>
@@ -2781,10 +3040,10 @@ function ThingCard({
                   </div>
                 )}
                 <p style={{ fontSize: 11, color: theme.textSubtle, margin: 0 }}>
-                  {new Date(thing.createdAt).toLocaleString()}
+                  {new Date(thing.created_at).toLocaleString()}
                 </p>
               </div>
-              <EditButton /><DeleteButton />
+              <EditButton />
             </div>
           </div>
         </div>
@@ -2793,7 +3052,7 @@ function ThingCard({
 
     // Handle single photo (metadata.url)
     const url = thing.metadata?.url as string | undefined
-    const contentType = thing.metadata?.contentType as string | undefined
+    const contentType = thing.metadata?.content_type as string | undefined
     const isVideo = contentType?.startsWith('video/')
 
     return (
@@ -2846,10 +3105,10 @@ function ThingCard({
                 </div>
               )}
               <p style={{ fontSize: 11, color: theme.textSubtle, margin: thing.content ? '8px 0 0' : 0 }}>
-                {new Date(thing.createdAt).toLocaleString()}
+                {new Date(thing.created_at).toLocaleString()}
               </p>
             </div>
-            <EditButton /><DeleteButton />
+            <EditButton />
           </div>
         </div>
       </div>
@@ -2891,10 +3150,10 @@ function ThingCard({
           <AttributesDisplay />
           <LinkedThingsDisplay />
           <p style={{ fontSize: 12, color: theme.textSubtle, margin: '8px 0 0' }}>
-            {new Date(thing.createdAt).toLocaleString()}
+            {new Date(thing.created_at).toLocaleString()}
           </p>
         </div>
-        <EditButton /><DeleteButton />
+        <EditButton />
       </div>
     </div>
   )
@@ -3454,10 +3713,10 @@ function KindsPanel({
 interface APIKey {
   id: string
   name: string
-  keyPrefix: string
+  key_prefix: string
   scopes: string[]
-  lastUsedAt: string | null
-  createdAt: string
+  last_used_at: string | null
+  created_at: string
 }
 
 // Data Management Panel (Import/Export + API Keys)
@@ -3925,14 +4184,14 @@ function DataPanel({
                 </div>
                 <div style={{ fontSize: 12, color: theme.textMuted }}>
                   <code style={{ background: theme.bgMuted, padding: '2px 6px', borderRadius: 4 }}>
-                    {key.keyPrefix}...
+                    {key.key_prefix}...
                   </code>
                   {' • '}
                   {key.scopes.length === availableScopes.length ? 'Admin' : `${key.scopes.length} scopes`}
-                  {key.lastUsedAt && (
+                  {key.last_used_at && (
                     <>
                       {' • Last used '}
-                      {new Date(key.lastUsedAt).toLocaleDateString()}
+                      {new Date(key.last_used_at).toLocaleDateString()}
                     </>
                   )}
                 </div>

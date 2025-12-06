@@ -723,7 +723,7 @@ func (a *API) authStatus(w http.ResponseWriter, r *http.Request) {
 		"hasOwner":            userCount > 0,
 		"registrationEnabled": userCount == 0 && !a.sandboxMode,
 		"sandboxMode":         a.sandboxMode,
-		"authDisabled":        a.sandboxMode, // No login required in sandbox
+		"authDisabled":        false, // Frontend handles auto-login for sandbox mode
 	}
 
 	respondJSON(w, http.StatusOK, response)
