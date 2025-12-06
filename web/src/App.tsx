@@ -672,7 +672,7 @@ function AuthScreen({ onAuth, authStatus }: { onAuth: () => void, authStatus: Au
       }}>
         <h1 style={{ fontSize: 36, fontWeight: 700, margin: '0 0 8px', textAlign: 'center', color: theme.text }}>tenant.social</h1>
         <p style={{ color: theme.textMuted, fontSize: 14, margin: '0 0 20px', textAlign: 'center' }}>
-          Your personal social data platform
+          your corner of the internet
         </p>
         <p style={{ color: theme.textSecondary, fontSize: 14, margin: '0 0 16px', textAlign: 'center', fontWeight: 500 }}>
           {mode === 'register' ? 'Create your account' : 'Sign in to continue'}
@@ -1744,7 +1744,7 @@ function App() {
                   </button>
                   <select
                     value={newVisibility}
-                    onChange={e => setNewVisibility(e.target.value as 'private' | 'friends' | 'public')}
+                    onChange={e => setNewVisibility((e.target as HTMLSelectElement).value as 'private' | 'friends' | 'public')}
                     style={{
                       padding: '6px 10px',
                       background: theme.bgMuted,
