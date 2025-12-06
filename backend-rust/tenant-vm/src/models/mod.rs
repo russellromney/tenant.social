@@ -212,23 +212,18 @@ pub struct FilterRule {
     pub value: String,
 }
 
-/// Friendship represents a connection between users
+/// Follow represents a friend connection to another node
+/// Per whitepaper: "sharing your API endpoint with someone and adding theirs to your config"
+/// Friendship is bidirectional - both nodes must follow each other
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Friendship {
+pub struct Follow {
     pub id: String,
-    pub user_id: String,
-    pub friend_id: String,
-    pub status: FriendshipStatus,
+    pub follower_id: String,        // Local user who added this friend
+    pub following_id: String,        // Remote user identifier (username@domain)
+    pub remote_endpoint: String,     // Friend's API endpoint (e.g., "https://friend.tenant.social")
+    #[serde(skip_serializing)]
+    pub access_token: Option<String>, // Optional token for calling friend's API
     pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum FriendshipStatus {
-    Pending,
-    Accepted,
-    Blocked,
 }
 
 /// Channel for group communication
@@ -320,6 +315,14 @@ pub struct RegisterRequest {
     pub email: String,
     pub password: String,
     pub display_name: Option<String>,
+}
+
+/// Request to add a remote friend node
+#[derive(Debug, Deserialize)]
+pub struct AddFriendRequest {
+    pub remote_user_id: String,      // username@domain format
+    pub remote_endpoint: String,      // e.g., "https://friend.tenant.social"
+    pub access_token: Option<String>, // Optional bearer token for their API
 }
 
 #[derive(Debug, Serialize)]

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'preact/hooks'
 import { EMOJI_CATEGORIES, ALL_EMOJIS } from './emojis'
 import { useTheme, Theme } from './theme.tsx'
 import { Markdown } from './Markdown.tsx'
+import { PublicHomePage } from './PublicHomePage.tsx'
 
 // Types
 interface Attribute {
@@ -48,6 +49,7 @@ interface Thing {
   type: string
   content: string
   metadata: Record<string, unknown>
+  visibility: 'private' | 'friends' | 'public'
   created_at: string
   updated_at: string
   photos?: Photo[]
@@ -597,61 +599,13 @@ function AuthScreen({ onAuth, authStatus }: { onAuth: () => void, authStatus: Au
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  // Sandbox mode - just show enter button
+  console.log('[AuthScreen] authStatus:', authStatus)
+  console.log('[AuthScreen] authStatus?.sandboxMode:', authStatus?.sandboxMode)
+
+  // Sandbox mode - show public home page
   if (authStatus?.sandboxMode) {
-    return (
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        minHeight: '100vh',
-        fontFamily: 'system-ui, sans-serif',
-        background: theme.bg,
-        flexDirection: 'column',
-      }}>
-        <div style={{
-          background: theme.bgCard,
-          padding: 32,
-          borderRadius: 12,
-          boxShadow: `0 4px 12px ${theme.shadow}`,
-          width: '100%',
-          maxWidth: 380,
-          textAlign: 'center',
-        }}>
-          <h1 style={{ fontSize: 36, fontWeight: 700, margin: '0 0 8px', color: theme.text }}>tenant.social</h1>
-          <p style={{ color: theme.textMuted, fontSize: 14, margin: '0 0 20px' }}>
-            Your personal social data platform
-          </p>
-          <p style={{
-            background: theme.warning,
-            color: theme.warningText,
-            padding: '8px 12px',
-            borderRadius: 6,
-            fontSize: 13,
-            margin: '0 0 20px',
-          }}>
-            This is sandbox mode. Go wild!
-          </p>
-          <button
-            onClick={onAuth}
-            style={{
-              width: '100%',
-              padding: '12px 20px',
-              background: theme.accent,
-              color: theme.accentText,
-              border: 'none',
-              borderRadius: 6,
-              fontSize: 16,
-              fontWeight: 600,
-              cursor: 'pointer',
-            }}
-          >
-            Enter Sandbox
-          </button>
-        </div>
-        <Footer theme={theme} />
-      </div>
-    )
+    console.log('[AuthScreen] Rendering public home page for sandbox mode');
+    return <PublicHomePage theme={theme} onLogin={onAuth} />
   }
 
 
@@ -1040,6 +994,7 @@ function App() {
   const [newContent, setNewContent] = useState('')
   const [newType, setNewType] = useState('note')
   const [newMetadata, setNewMetadata] = useState<Record<string, unknown>>({})
+  const [newVisibility, setNewVisibility] = useState<'private' | 'friends' | 'public'>('private')
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [filterKind, setFilterKind] = useState('')
@@ -1076,25 +1031,46 @@ function App() {
     try {
       // First, check auth status to understand the instance state
       const statusRes = await fetch('/api/auth/status', { credentials: 'include' })
+      console.log('[checkAuth] /api/auth/status response:', statusRes.status)
       if (statusRes.ok) {
         const status: AuthStatus = await statusRes.json()
+        console.log('[checkAuth] Auth status:', status)
         setAuthStatus(status)
 
-        // In sandbox mode, show the welcome screen first (user clicks "Enter Sandbox")
+        // In sandbox mode, check if already authenticated (after clicking Enter Sandbox)
+        if (status.sandboxMode) {
+          console.log('[checkAuth] Sandbox mode detected, checking for existing session')
+          const res = await fetch('/api/auth/me', { credentials: 'include' })
+          if (res.ok) {
+            console.log('[checkAuth] Sandbox session found, setting isAuthenticated=true')
+            setIsAuthenticated(true)
+          } else {
+            console.log('[checkAuth] No sandbox session, showing Enter Sandbox button')
+            setIsAuthenticated(false)
+          }
+          return
+        }
+
+        // In auth-disabled mode, show the welcome screen first (user clicks "Enter Sandbox")
         if (status.authDisabled) {
+          console.log('[checkAuth] Auth disabled mode detected')
           setIsAuthenticated(false)
           return
         }
       }
 
       // Then check if we have a valid session
+      console.log('[checkAuth] Checking /api/auth/me for session')
       const res = await fetch('/api/auth/me', { credentials: 'include' })
       if (res.ok) {
+        console.log('[checkAuth] Valid session found, setting isAuthenticated=true')
         setIsAuthenticated(true)
       } else {
+        console.log('[checkAuth] No valid session, setting isAuthenticated=false')
         setIsAuthenticated(false)
       }
-    } catch {
+    } catch (err) {
+      console.error('[checkAuth] Error:', err)
       setIsAuthenticated(false)
     }
   }
@@ -1169,8 +1145,13 @@ function App() {
               attributes: defaultKind.attributes,
             }),
           })
-          const newKind = await createRes.json()
-          existingKinds.push(newKind)
+          if (createRes.ok) {
+            const newKind = await createRes.json()
+            existingKinds.push(newKind)
+          } else {
+            const error = await createRes.text()
+            console.error(`Failed to create default kind ${defaultKind.name}:`, createRes.status, error)
+          }
         }
       }
 
@@ -1219,12 +1200,14 @@ function App() {
           type: newType,
           content: newContent,
           metadata: newMetadata,
+          visibility: newVisibility,
         }),
       })
       const thing = await res.json()
       setThings([thing, ...things])
       setNewContent('')
       setNewMetadata({})
+      setNewVisibility('private')
     } catch (err) {
       console.error('Failed to create thing:', err)
     }
@@ -1710,7 +1693,7 @@ function App() {
                 )}
               </div>
 
-              {/* Bottom toolbar - Photo button and Post button */}
+              {/* Bottom toolbar - Photo button, Visibility selector, and Post button */}
               <div
                 style={{
                   display: 'flex',
@@ -1721,43 +1704,63 @@ function App() {
                   borderTop: `1px solid ${theme.bgMuted}`,
                 }}
               >
-                <button
-                  type="button"
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 4,
-                    padding: '6px 12px',
-                    background: 'transparent',
-                    border: 'none',
-                    borderRadius: 6,
-                    fontSize: 14,
-                    cursor: uploading ? 'wait' : 'pointer',
-                    color: theme.textMuted,
-                  }}
-                  onClick={() => setShowPhotoModal(true)}
-                  disabled={uploading}
-                >
-                  <span style={{ fontSize: 18 }}>📷</span>
-                  <span>{uploading ? 'Uploading...' : 'Photo'}</span>
-                  {selectedPhotos.length > 0 && (
-                    <span style={{
-                      background: theme.accent,
-                      color: theme.accentText,
-                      borderRadius: '50%',
-                      width: 20,
-                      height: 20,
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <button
+                    type="button"
+                    style={{
                       display: 'flex',
                       alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: 12,
-                      fontWeight: 600,
-                      marginLeft: 4,
-                    }}>
-                      {selectedPhotos.length}
-                    </span>
-                  )}
-                </button>
+                      gap: 4,
+                      padding: '6px 12px',
+                      background: 'transparent',
+                      border: 'none',
+                      borderRadius: 6,
+                      fontSize: 14,
+                      cursor: uploading ? 'wait' : 'pointer',
+                      color: theme.textMuted,
+                    }}
+                    onClick={() => setShowPhotoModal(true)}
+                    disabled={uploading}
+                  >
+                    <span style={{ fontSize: 18 }}>📷</span>
+                    <span>{uploading ? 'Uploading...' : 'Photo'}</span>
+                    {selectedPhotos.length > 0 && (
+                      <span style={{
+                        background: theme.accent,
+                        color: theme.accentText,
+                        borderRadius: '50%',
+                        width: 20,
+                        height: 20,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 12,
+                        fontWeight: 600,
+                        marginLeft: 4,
+                      }}>
+                        {selectedPhotos.length}
+                      </span>
+                    )}
+                  </button>
+                  <select
+                    value={newVisibility}
+                    onChange={e => setNewVisibility(e.target.value as 'private' | 'friends' | 'public')}
+                    style={{
+                      padding: '6px 10px',
+                      background: theme.bgMuted,
+                      border: `1px solid ${theme.border}`,
+                      borderRadius: 6,
+                      fontSize: 13,
+                      color: theme.text,
+                      cursor: 'pointer',
+                      fontFamily: 'inherit',
+                    }}
+                  >
+                    <option value="private">🔒 Private</option>
+                    <option value="friends">👥 Friends</option>
+                    <option value="public">🌐 Public</option>
+                  </select>
+                </div>
                 <button
                   type="submit"
                   disabled={!newContent.trim()}

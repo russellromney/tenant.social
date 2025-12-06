@@ -102,22 +102,25 @@ impl FromRequest for AuthUser {
         let req = req.clone();
 
         Box::pin(async move {
-            // Check if running as sandbox user (username is "sandbox")
-            let owner_username = env::var("OWNER_USERNAME").unwrap_or_default();
-            if owner_username == "sandbox" {
-                // In sandbox mode, create a default user with full access
-                return Ok(AuthUser {
-                    user_id: "sandbox".to_string(),
-                    is_api_key: false,
-                    scopes: vec!["*".to_string()],
-                });
-            }
-
             // Get the Store and AuthService from request app_data
             let store = req.app_data::<web::Data<Arc<Store>>>()
                 .ok_or_else(|| ErrorUnauthorized("Server configuration error"))?;
             let auth_service = req.app_data::<web::Data<Arc<AuthService>>>()
                 .ok_or_else(|| ErrorUnauthorized("Server configuration error"))?;
+
+            // Check if running as sandbox user (username is "sandbox")
+            let owner_username = env::var("OWNER_USERNAME").unwrap_or_default();
+            if owner_username == "sandbox" {
+                // In sandbox mode, look up the actual sandbox user from database
+                let sandbox_user = store.get_user_by_username("sandbox")
+                    .map_err(|_| ErrorUnauthorized("Sandbox user not found"))?;
+
+                return Ok(AuthUser {
+                    user_id: sandbox_user.id,
+                    is_api_key: false,
+                    scopes: vec!["*".to_string()],
+                });
+            }
 
             // Extract token from Authorization header or cookie
             let auth_header = req

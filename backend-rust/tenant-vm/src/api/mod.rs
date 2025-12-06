@@ -1,8 +1,9 @@
 use actix_multipart::Multipart;
-use actix_web::{cookie::{Cookie, SameSite, time::Duration}, web, HttpResponse, Responder};
+use actix_web::{cookie::{Cookie, SameSite, time::Duration}, web, HttpResponse, HttpRequest, Responder};
 use chrono::Utc;
 use futures_util::StreamExt;
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::env;
 use std::sync::Arc;
 
@@ -29,19 +30,42 @@ pub async fn health() -> impl Responder {
 
 // ==================== Auth Status ====================
 
-pub async fn auth_status() -> impl Responder {
-    // Check if running as sandbox user (username is "sandbox")
-    let owner_username = env::var("OWNER_USERNAME").unwrap_or_default();
-    let sandbox_mode = owner_username == "sandbox";
+pub async fn auth_status(state: web::Data<AppState>) -> impl Responder {
+    // Check if running in sandbox mode
+    let sandbox_mode = env::var("SANDBOX_MODE")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(false);
+
+    // In sandbox mode, return the actual sandbox user from database
+    if sandbox_mode {
+        match state.store.get_user_by_username("sandbox") {
+            Ok(user) => {
+                return HttpResponse::Ok().json(serde_json::json!({
+                    "hasOwner": true,
+                    "registrationEnabled": false,
+                    "sandboxMode": true,
+                    "authDisabled": false,
+                    "user": {
+                        "id": user.id,
+                        "username": user.username
+                    }
+                }));
+            }
+            Err(_) => {
+                return HttpResponse::InternalServerError().json(serde_json::json!({
+                    "error": "Sandbox user not found"
+                }));
+            }
+        }
+    }
 
     // Server always has an owner (created at startup from env vars)
     // No registration - owner is pre-configured
-    // In sandbox mode, auth is disabled so anyone can use it
     HttpResponse::Ok().json(serde_json::json!({
         "hasOwner": true,
         "registrationEnabled": false,
-        "sandboxMode": sandbox_mode,
-        "authDisabled": sandbox_mode
+        "sandboxMode": false,
+        "authDisabled": false
     }))
 }
 
@@ -159,6 +183,37 @@ pub async fn logout() -> impl Responder {
     HttpResponse::Ok()
         .cookie(cookie)
         .json(ApiResponse::<()>::success(()))
+}
+
+// ==================== Public Endpoints ====================
+
+#[derive(Deserialize)]
+pub struct PaginationQuery {
+    limit: Option<usize>,
+    offset: Option<usize>,
+}
+
+pub async fn get_public_profile(state: web::Data<AppState>) -> impl Responder {
+    match state.store.get_owner_profile() {
+        Ok(user) => HttpResponse::Ok().json(user),
+        Err(StoreError::NotFound(_)) => {
+            HttpResponse::NotFound().json(serde_json::json!({"error": "Owner profile not found"}))
+        }
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({"error": format!("Failed to get owner profile: {}", e)})),
+    }
+}
+
+pub async fn get_public_things(
+    state: web::Data<AppState>,
+    query: web::Query<PaginationQuery>,
+) -> impl Responder {
+    let limit = query.limit.unwrap_or(50).min(100);
+    let offset = query.offset.unwrap_or(0);
+
+    match state.store.get_public_things(limit, offset) {
+        Ok(things) => HttpResponse::Ok().json(things),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({"error": format!("Failed to get public things: {}", e)})),
+    }
 }
 
 // ==================== Things Endpoints ====================
@@ -742,6 +797,200 @@ pub async fn delete_kind(
     }
 }
 
+// ==================== Frontend Serving ====================
+
+/// Serve the frontend index.html for SPA routing
+pub async fn serve_frontend() -> impl Responder {
+    // Try to load frontend from cmd/tenant/dist directory
+    let frontend_paths = vec![
+        "cmd/tenant/dist/index.html",
+        "../cmd/tenant/dist/index.html",
+        "../../cmd/tenant/dist/index.html",
+        "./dist/index.html",
+    ];
+
+    for path in frontend_paths {
+        if let Ok(content) = std::fs::read_to_string(path) {
+            return HttpResponse::Ok()
+                .content_type("text/html; charset=utf-8")
+                .body(content);
+        }
+    }
+
+    // Fallback if no frontend found
+    HttpResponse::NotFound().body("Frontend not found")
+}
+
+/// Serve static assets from dist/assets
+pub async fn serve_assets(req: HttpRequest) -> impl Responder {
+    let path = req.path();
+
+    let asset_paths = vec![
+        format!("cmd/tenant/dist{}", path),
+        format!("../cmd/tenant/dist{}", path),
+        format!("../../cmd/tenant/dist{}", path),
+        format!("./dist{}", path),
+    ];
+
+    for asset_path in asset_paths {
+        if let Ok(content) = std::fs::read(&asset_path) {
+            let content_type = if path.ends_with(".js") {
+                "application/javascript"
+            } else if path.ends_with(".css") {
+                "text/css"
+            } else if path.ends_with(".svg") {
+                "image/svg+xml"
+            } else if path.ends_with(".png") {
+                "image/png"
+            } else if path.ends_with(".jpg") || path.ends_with(".jpeg") {
+                "image/jpeg"
+            } else if path.ends_with(".woff2") {
+                "font/woff2"
+            } else {
+                "application/octet-stream"
+            };
+
+            return HttpResponse::Ok()
+                .content_type(content_type)
+                .body(content);
+        }
+    }
+
+    HttpResponse::NotFound().body("Asset not found")
+}
+
+// ==================== Follow Endpoints ====================
+
+/// POST /api/friends - Add a friend (federated following)
+/// Accepts remote_endpoint and access_token for cross-node connections
+pub async fn add_friend(
+    state: web::Data<AppState>,
+    auth_user: AuthUser,
+    req: web::Json<crate::models::AddFriendRequest>,
+) -> impl Responder {
+    let remote_user_id = &req.remote_user_id;
+    let remote_endpoint = &req.remote_endpoint;
+    let access_token = req.access_token.clone();
+
+    // Check if already following
+    match state.store.is_following(&auth_user.user_id, remote_user_id) {
+        Ok(true) => {
+            return HttpResponse::BadRequest().json(ApiResponse::<()>::error("Already following this user"));
+        }
+        Ok(false) => {}
+        Err(_) => {
+            return HttpResponse::InternalServerError().json(ApiResponse::<()>::error("Database error"));
+        }
+    }
+
+    // Create friend relationship
+    let mut follow = crate::models::Follow {
+        id: String::new(),
+        follower_id: auth_user.user_id.clone(),
+        following_id: remote_user_id.clone(),
+        remote_endpoint: remote_endpoint.clone(),
+        access_token,
+        created_at: Utc::now(),
+    };
+
+    match state.store.create_follow(&mut follow) {
+        Ok(_) => HttpResponse::Created().json(ApiResponse::success(follow)),
+        Err(_) => HttpResponse::InternalServerError().json(ApiResponse::<()>::error("Failed to add friend")),
+    }
+}
+
+/// DELETE /api/follows/{user_id} - Unfollow a user
+pub async fn unfollow_user(
+    state: web::Data<AppState>,
+    auth_user: AuthUser,
+    path: web::Path<String>,
+) -> impl Responder {
+    let following_id = path.into_inner();
+
+    match state.store.delete_follow(&auth_user.user_id, &following_id) {
+        Ok(_) => HttpResponse::Ok().json(ApiResponse::<()>::success(())),
+        Err(StoreError::NotFound(_)) => {
+            HttpResponse::NotFound().json(ApiResponse::<()>::error("Not following this user"))
+        }
+        Err(_) => HttpResponse::InternalServerError().json(ApiResponse::<()>::error("Database error")),
+    }
+}
+
+/// GET /api/follows/followers - Get list of followers
+pub async fn get_followers(
+    state: web::Data<AppState>,
+    auth_user: AuthUser,
+) -> impl Responder {
+    match state.store.get_followers(&auth_user.user_id) {
+        Ok(follower_ids) => HttpResponse::Ok().json(ApiResponse::success(follower_ids)),
+        Err(_) => HttpResponse::InternalServerError().json(ApiResponse::<()>::error("Database error")),
+    }
+}
+
+/// GET /api/follows/following - Get list of users being followed
+pub async fn get_following(
+    state: web::Data<AppState>,
+    auth_user: AuthUser,
+) -> impl Responder {
+    match state.store.get_following(&auth_user.user_id) {
+        Ok(following_ids) => HttpResponse::Ok().json(ApiResponse::success(following_ids)),
+        Err(_) => HttpResponse::InternalServerError().json(ApiResponse::<()>::error("Database error")),
+    }
+}
+
+/// GET /api/follows/mutuals - Get list of mutual followers
+pub async fn get_mutuals(
+    state: web::Data<AppState>,
+    auth_user: AuthUser,
+) -> impl Responder {
+    match state.store.get_mutuals(&auth_user.user_id) {
+        Ok(mutual_ids) => HttpResponse::Ok().json(ApiResponse::success(mutual_ids)),
+        Err(_) => HttpResponse::InternalServerError().json(ApiResponse::<()>::error("Database error")),
+    }
+}
+
+/// GET /api/fed/things/{user_id} - Fetch friend-visible content from this node
+/// CRITICAL: Only returns PUBLIC and FRIENDS visibility - NEVER private
+/// This endpoint is called by remote friend nodes to fetch content
+pub async fn get_friend_visible_things(
+    state: web::Data<AppState>,
+    path: web::Path<String>,
+    query: web::Query<HashMap<String, String>>,
+) -> impl Responder {
+    let user_id = path.into_inner();
+    let limit: i64 = query.get("limit").and_then(|s| s.parse().ok()).unwrap_or(50);
+    let offset: i64 = query.get("offset").and_then(|s| s.parse().ok()).unwrap_or(0);
+
+    // Get all things for this user (None = all types)
+    match state.store.list_things(&user_id, None, limit, offset) {
+        Ok(things) => {
+            // CRITICAL SECURITY: Filter to ONLY public and friends visibility
+            let friend_visible: Vec<_> = things
+                .into_iter()
+                .filter(|thing| thing.visibility == "public" || thing.visibility == "friends")
+                .collect();
+
+            HttpResponse::Ok().json(ApiResponse::success(friend_visible))
+        }
+        Err(_) => HttpResponse::InternalServerError().json(ApiResponse::<()>::error("Database error")),
+    }
+}
+
+/// GET /api/feed/friends - Get friend feed (posts from followed users)
+pub async fn get_friend_feed(
+    state: web::Data<AppState>,
+    auth_user: AuthUser,
+    query: web::Query<PaginationQuery>,
+) -> impl Responder {
+    let limit = query.limit.unwrap_or(50) as i64;
+    let offset = query.offset.unwrap_or(0) as i64;
+
+    match state.store.get_friend_feed(&auth_user.user_id, limit, offset) {
+        Ok(things) => HttpResponse::Ok().json(things),
+        Err(_) => HttpResponse::InternalServerError().json(ApiResponse::<()>::error("Database error")),
+    }
+}
+
 // ==================== Route Configuration ====================
 
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
@@ -749,11 +998,24 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         // Health check
         .route("/health", web::get().to(health))
 
+        // Metrics endpoints
+        .route("/api/metrics", web::get().to(crate::metrics::get_metrics_handler))
+        .route("/api/metrics/time-series", web::get().to(crate::metrics::get_time_series_handler))
+        .route("/api/metrics/uptime", web::get().to(crate::metrics::get_uptime_history_handler))
+        .route("/api/metrics/status-breakdown", web::get().to(crate::metrics::get_status_breakdown_handler))
+        .route("/api/metrics/cold-start", web::get().to(crate::metrics::get_cold_start_handler))
+        .route("/api/metrics/reset", web::post().to(crate::metrics::reset_metrics_handler))
+        .route("/api/metrics/cleanup", web::post().to(crate::metrics::cleanup_old_metrics_handler))
+
         // Auth routes (no auth required)
         .route("/api/auth/status", web::get().to(auth_status))
         .route("/api/auth/register", web::post().to(register))
         .route("/api/auth/login", web::post().to(login))
         .route("/api/auth/logout", web::post().to(logout))
+
+        // Public routes (no auth required)
+        .route("/api/public/profile", web::get().to(get_public_profile))
+        .route("/api/public/things", web::get().to(get_public_things))
 
         // Protected routes - will need auth middleware
         .route("/api/auth/me", web::get().to(get_current_user))
@@ -780,5 +1042,23 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         .route("/api/kinds", web::post().to(create_kind))
         .route("/api/kinds/{id}", web::get().to(get_kind))
         .route("/api/kinds/{id}", web::put().to(update_kind))
-        .route("/api/kinds/{id}", web::delete().to(delete_kind));
+        .route("/api/kinds/{id}", web::delete().to(delete_kind))
+
+        // Follows
+        .route("/api/friends", web::post().to(add_friend))          // NEW: Federated friend management
+        .route("/api/follows/{user_id}", web::delete().to(unfollow_user))
+        .route("/api/follows/followers", web::get().to(get_followers))
+        .route("/api/follows/following", web::get().to(get_following))
+        .route("/api/follows/mutuals", web::get().to(get_mutuals))
+
+        // Federation endpoints (no auth required - called by friend nodes)
+        .route("/api/fed/things/{user_id}", web::get().to(get_friend_visible_things))  // NEW: Fetch friend-visible content
+
+        // Feed
+        .route("/api/feed/friends", web::get().to(get_friend_feed))
+
+        // Frontend assets and SPA routing
+        .route("/assets/{path:.*}", web::get().to(serve_assets))
+        .route("/favicon.svg", web::get().to(serve_assets))
+        .default_service(web::route().to(serve_frontend));
 }

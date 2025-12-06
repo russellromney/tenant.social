@@ -1245,8 +1245,6 @@ mod tests {
             follower_id: user1.id.clone(),
             following_id: user2.id.clone(),
             created_at: Utc::now(),
-            remote_endpoint: "local".to_string(),
-            access_token: None,
         };
         store.create_follow(&mut follow).unwrap();
         assert!(!follow.id.is_empty());
@@ -1329,8 +1327,6 @@ mod tests {
             follower_id: user1.id.clone(),
             following_id: user2.id.clone(),
             created_at: Utc::now(),
-            remote_endpoint: "local".to_string(),
-            access_token: None,
         };
         store.create_follow(&mut follow1).unwrap();
 
@@ -1340,8 +1336,6 @@ mod tests {
             follower_id: user1.id.clone(),
             following_id: user3.id.clone(),
             created_at: Utc::now(),
-            remote_endpoint: "local".to_string(),
-            access_token: None,
         };
         store.create_follow(&mut follow2).unwrap();
 
@@ -1350,8 +1344,6 @@ mod tests {
             follower_id: user3.id.clone(),
             following_id: user1.id.clone(),
             created_at: Utc::now(),
-            remote_endpoint: "local".to_string(),
-            access_token: None,
         };
         store.create_follow(&mut follow3).unwrap();
 
@@ -1407,8 +1399,6 @@ mod tests {
             follower_id: user1.id.clone(),
             following_id: user2.id.clone(),
             created_at: Utc::now(),
-            remote_endpoint: "local".to_string(),
-            access_token: None,
         };
         store.create_follow(&mut follow).unwrap();
 
@@ -1512,8 +1502,6 @@ mod tests {
             follower_id: user1.id.clone(),
             following_id: user2.id.clone(),
             created_at: Utc::now(),
-            remote_endpoint: "local".to_string(),
-            access_token: None,
         };
         assert!(store.create_follow(&mut follow1).is_ok());
 
@@ -1523,8 +1511,6 @@ mod tests {
             follower_id: user1.id.clone(),
             following_id: user2.id.clone(),
             created_at: Utc::now(),
-            remote_endpoint: "local".to_string(),
-            access_token: None,
         };
         assert!(store.create_follow(&mut follow2).is_err());
     }
