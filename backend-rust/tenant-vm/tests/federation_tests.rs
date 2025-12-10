@@ -6,8 +6,18 @@ use std::sync::Arc;
 // Import from main crate
 use tenant_vm::api::{self, AppState};
 use tenant_vm::auth::AuthService;
+use tenant_vm::events::EventProcessor;
 use tenant_vm::models::User;
 use tenant_vm::store::Store;
+
+/// Helper to create AppState with all required components
+fn create_app_state(store: Arc<Store>, auth_service: Arc<AuthService>) -> AppState {
+    AppState {
+        store: store.clone(),
+        auth_service: auth_service.clone(),
+        event_processor: Arc::new(EventProcessor::new(store)),
+    }
+}
 
 /// Helper to create a test user and return their auth token
 async fn create_test_user_with_token(store: &Arc<Store>, auth_service: &Arc<AuthService>, username: &str) -> (User, String) {
@@ -72,10 +82,7 @@ async fn test_add_friend_success() {
         App::new()
             .app_data(web::Data::new(store.clone()))
             .app_data(web::Data::new(auth_service.clone()))
-            .app_data(web::Data::new(AppState {
-                store: store.clone(),
-                auth_service: auth_service.clone(),
-            }))
+            .app_data(web::Data::new(create_app_state(store.clone(), auth_service.clone())))
             .configure(api::configure_routes)
     ).await;
 
@@ -110,10 +117,7 @@ async fn test_add_friend_duplicate_fails() {
         App::new()
             .app_data(web::Data::new(store.clone()))
             .app_data(web::Data::new(auth_service.clone()))
-            .app_data(web::Data::new(AppState {
-                store: store.clone(),
-                auth_service: auth_service.clone(),
-            }))
+            .app_data(web::Data::new(create_app_state(store.clone(), auth_service.clone())))
             .configure(api::configure_routes)
     ).await;
 
@@ -160,10 +164,7 @@ async fn test_get_friend_visible_things_filters_private() {
         App::new()
             .app_data(web::Data::new(store.clone()))
             .app_data(web::Data::new(auth_service.clone()))
-            .app_data(web::Data::new(AppState {
-                store: store.clone(),
-                auth_service: auth_service.clone(),
-            }))
+            .app_data(web::Data::new(create_app_state(store.clone(), auth_service.clone())))
             .configure(api::configure_routes)
     ).await;
 
@@ -208,10 +209,7 @@ async fn test_get_friend_visible_things_returns_only_public_and_friends() {
         App::new()
             .app_data(web::Data::new(store.clone()))
             .app_data(web::Data::new(auth_service.clone()))
-            .app_data(web::Data::new(AppState {
-                store: store.clone(),
-                auth_service: auth_service.clone(),
-            }))
+            .app_data(web::Data::new(create_app_state(store.clone(), auth_service.clone())))
             .configure(api::configure_routes)
     ).await;
 
@@ -252,10 +250,7 @@ async fn test_get_friend_visible_things_pagination() {
         App::new()
             .app_data(web::Data::new(store.clone()))
             .app_data(web::Data::new(auth_service.clone()))
-            .app_data(web::Data::new(AppState {
-                store: store.clone(),
-                auth_service: auth_service.clone(),
-            }))
+            .app_data(web::Data::new(create_app_state(store.clone(), auth_service.clone())))
             .configure(api::configure_routes)
     ).await;
 
@@ -288,10 +283,7 @@ async fn test_add_friend_without_auth_fails() {
         App::new()
             .app_data(web::Data::new(store.clone()))
             .app_data(web::Data::new(auth_service.clone()))
-            .app_data(web::Data::new(AppState {
-                store: store.clone(),
-                auth_service: auth_service.clone(),
-            }))
+            .app_data(web::Data::new(create_app_state(store.clone(), auth_service.clone())))
             .configure(api::configure_routes)
     ).await;
 
@@ -321,10 +313,7 @@ async fn test_fed_endpoint_works_without_auth() {
         App::new()
             .app_data(web::Data::new(store.clone()))
             .app_data(web::Data::new(auth_service.clone()))
-            .app_data(web::Data::new(AppState {
-                store: store.clone(),
-                auth_service: auth_service.clone(),
-            }))
+            .app_data(web::Data::new(create_app_state(store.clone(), auth_service.clone())))
             .configure(api::configure_routes)
     ).await;
 
@@ -335,4 +324,160 @@ async fn test_fed_endpoint_works_without_auth() {
 
     let resp = test::call_service(&app, req).await;
     assert!(resp.status().is_success(), "Federation endpoint should work without auth");
+}
+
+// ==================== Friend Feed Tests ====================
+
+#[actix_web::test]
+async fn test_friend_feed_returns_followed_users_things() {
+    // Setup
+    let store = Arc::new(Store::new(":memory:").unwrap());
+    let auth_service = Arc::new(AuthService::new("test_secret".to_string(), store.clone()));
+
+    // Create Alice (the viewer)
+    let (alice, alice_token) = create_test_user_with_token(&store, &auth_service, "alice").await;
+
+    // Create Bob (person Alice follows)
+    let (bob, _bob_token) = create_test_user_with_token(&store, &auth_service, "bob").await;
+
+    // Bob creates some things
+    create_thing_with_visibility(&store, &bob.id, "Bob's public post", "public").await;
+    create_thing_with_visibility(&store, &bob.id, "Bob's friends post", "friends").await;
+    create_thing_with_visibility(&store, &bob.id, "Bob's private post", "private").await;
+
+    // Alice follows Bob (local follow for this test)
+    let mut follow = tenant_vm::models::Follow {
+        id: String::new(),
+        follower_id: alice.id.clone(),
+        following_id: bob.id.clone(),
+        remote_endpoint: String::new(), // local follow
+        access_token: None,
+        created_at: chrono::Utc::now(),
+    };
+    store.create_follow(&mut follow).unwrap();
+
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(store.clone()))
+            .app_data(web::Data::new(auth_service.clone()))
+            .app_data(web::Data::new(create_app_state(store.clone(), auth_service.clone())))
+            .configure(api::configure_routes)
+    ).await;
+
+    // Alice views her friend feed
+    let req = test::TestRequest::get()
+        .uri("/api/feed/friends")
+        .insert_header(("Authorization", format!("Bearer {}", alice_token)))
+        .to_request();
+
+    let resp: serde_json::Value = test::call_and_read_body_json(&app, req).await;
+
+    // Should see Bob's public and friends posts, NOT private
+    let things = resp.as_array().unwrap();
+    assert_eq!(things.len(), 2, "Should see 2 things (public + friends, not private)");
+
+    for thing in things {
+        let visibility = thing["visibility"].as_str().unwrap();
+        assert!(visibility == "public" || visibility == "friends");
+        assert_ne!(thing["content"], "Bob's private post");
+    }
+}
+
+#[actix_web::test]
+async fn test_friend_feed_requires_auth() {
+    let store = Arc::new(Store::new(":memory:").unwrap());
+    let auth_service = Arc::new(AuthService::new("test_secret".to_string(), store.clone()));
+
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(store.clone()))
+            .app_data(web::Data::new(auth_service.clone()))
+            .app_data(web::Data::new(create_app_state(store.clone(), auth_service.clone())))
+            .configure(api::configure_routes)
+    ).await;
+
+    let req = test::TestRequest::get()
+        .uri("/api/feed/friends")
+        .to_request();
+
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 401, "Friend feed should require auth");
+}
+
+#[actix_web::test]
+async fn test_friend_feed_empty_when_no_follows() {
+    let store = Arc::new(Store::new(":memory:").unwrap());
+    let auth_service = Arc::new(AuthService::new("test_secret".to_string(), store.clone()));
+    let (_alice, alice_token) = create_test_user_with_token(&store, &auth_service, "alice").await;
+
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(store.clone()))
+            .app_data(web::Data::new(auth_service.clone()))
+            .app_data(web::Data::new(create_app_state(store.clone(), auth_service.clone())))
+            .configure(api::configure_routes)
+    ).await;
+
+    let req = test::TestRequest::get()
+        .uri("/api/feed/friends")
+        .insert_header(("Authorization", format!("Bearer {}", alice_token)))
+        .to_request();
+
+    let resp: serde_json::Value = test::call_and_read_body_json(&app, req).await;
+
+    let things = resp.as_array().unwrap();
+    assert_eq!(things.len(), 0, "Friend feed should be empty when not following anyone");
+}
+
+#[actix_web::test]
+async fn test_friend_feed_pagination() {
+    let store = Arc::new(Store::new(":memory:").unwrap());
+    let auth_service = Arc::new(AuthService::new("test_secret".to_string(), store.clone()));
+
+    let (alice, alice_token) = create_test_user_with_token(&store, &auth_service, "alice").await;
+    let (bob, _) = create_test_user_with_token(&store, &auth_service, "bob").await;
+
+    // Bob creates 10 public things
+    for i in 0..10 {
+        create_thing_with_visibility(&store, &bob.id, &format!("Post {}", i), "public").await;
+    }
+
+    // Alice follows Bob
+    let mut follow = tenant_vm::models::Follow {
+        id: String::new(),
+        follower_id: alice.id.clone(),
+        following_id: bob.id.clone(),
+        remote_endpoint: String::new(),
+        access_token: None,
+        created_at: chrono::Utc::now(),
+    };
+    store.create_follow(&mut follow).unwrap();
+
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(store.clone()))
+            .app_data(web::Data::new(auth_service.clone()))
+            .app_data(web::Data::new(create_app_state(store.clone(), auth_service.clone())))
+            .configure(api::configure_routes)
+    ).await;
+
+    // Get first 5
+    let req = test::TestRequest::get()
+        .uri("/api/feed/friends?limit=5")
+        .insert_header(("Authorization", format!("Bearer {}", alice_token)))
+        .to_request();
+
+    let resp: serde_json::Value = test::call_and_read_body_json(&app, req).await;
+    let things = resp.as_array().unwrap();
+    assert_eq!(things.len(), 5);
+
+    // Get next 5
+    let req = test::TestRequest::get()
+        .uri("/api/feed/friends?limit=5&offset=5")
+        .insert_header(("Authorization", format!("Bearer {}", alice_token)))
+        .to_request();
+
+    let resp: serde_json::Value = test::call_and_read_body_json(&app, req).await;
+    let things = resp.as_array().unwrap();
+    assert_eq!(things.len(), 5);
 }

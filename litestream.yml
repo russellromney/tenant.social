@@ -1,7 +1,0 @@
-dbs:
-  - path: /data/tenantsocial.db
-    replicas:
-      - type: s3
-        bucket: $BUCKET_NAME
-        path: db
-        endpoint: $AWS_ENDPOINT_URL_S3

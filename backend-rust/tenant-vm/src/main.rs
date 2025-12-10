@@ -1,5 +1,6 @@
 mod api;
 mod auth;
+mod events;
 mod models;
 mod store;
 mod metrics;
@@ -15,6 +16,7 @@ use std::os::unix::net::UnixListener as StdUnixListener;
 
 use api::AppState;
 use auth::AuthService;
+use events::EventProcessor;
 use models::{Attribute, Kind, User};
 use store::Store;
 use metrics::MetricsCollector;
@@ -53,6 +55,9 @@ async fn main() -> std::io::Result<()> {
 
     // Initialize auth service
     let auth_service = Arc::new(AuthService::new(jwt_secret, store.clone()));
+
+    // Initialize event processor for the notification/event system
+    let event_processor = Arc::new(EventProcessor::new(store.clone()));
 
     // Initialize metrics collector with separate database
     let metrics_db = env::var("DATABASE_PATH")
@@ -142,6 +147,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(AppState {
                 store: store.clone(),
                 auth_service: auth_service.clone(),
+                event_processor: event_processor.clone(),
             }))
             // Increase payload size limit for photo uploads (50MB)
             .app_data(web::PayloadConfig::new(50 * 1024 * 1024))

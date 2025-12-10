@@ -1,6 +1,8 @@
 # Tenant Roadmap
 
 ## Completed
+
+### Core Features
 - [x] Multi-user authentication (register, login, sessions)
 - [x] User-scoped data (Things, Kinds, Tags, Views)
 - [x] Server admin role (first user is admin)
@@ -10,180 +12,156 @@
 - [x] Query API Enhancements (filtering, sorting, pagination, metadata queries)
 - [x] Bulk Operations (create, update, delete up to 100 items)
 - [x] Thing Version History (automatic versioning, view history, revert to version)
+- [x] Photo/Gallery support with captions
+- [x] Rate limiting (10 req/sec per IP)
+
+### Social Foundation
+- [x] Follows system (follow/unfollow, followers list, following list, mutuals)
+- [x] Friend feed (Things from followed users with `friends`/`public` visibility)
+- [x] Visibility levels on Things (`private`, `friends`, `public`)
+- [x] Public profile endpoint (`/api/public/profile`)
+- [x] Public things endpoint (`/api/public/things`)
+- [x] Federation endpoint (`/api/fed/things/{user_id}`)
+
+### Infrastructure
+- [x] Rust backend migration (actix-web, rusqlite)
+- [x] Metrics and monitoring endpoints
+- [x] Thing backlinks (`GET /api/things/{id}/backlinks`)
+
+---
 
 ## In Progress
 
-### Thing Linking (Unidirectional)
-Things can link to other Things as attributes. A Thing stores IDs of Things it links to. When viewing a Thing, see what links to it via backlinks query.
+### Social Features (see SOCIAL_IMPLEMENTATION_PLAN.md)
 
-**Current scope:**
-- Add "link" attribute type (stores Thing ID in metadata)
-- Backlinks endpoint: `GET /api/things/{id}/backlinks`
-- UI: dropdown/search to select Things to link to
-- Display linked Things in view
+**Phase 1: Notifications**
+- [ ] Notifications table and model
+- [ ] List/mark-read/delete endpoints
+- [ ] Unread count endpoint
+- [ ] Create notification on follow
 
-**Unidirectional design:** Only the linking Thing stores the reference. To find backlinks, query all Things and check their attributes.
+**Phase 2: Reactions**
+- [ ] Reactions table (1 like + 1 emoji per user per Thing)
+- [ ] Add/remove reaction endpoints
+- [ ] Reaction counts in Thing response
+- [ ] Notification on reaction
 
-### API Key System (Reference)
-Programmatic access for integrations (personal website, scripts, apps):
+**Phase 3: Comments**
+- [ ] Comments as Things with `type=comment`
+- [ ] Max thread depth of 3
+- [ ] One top-level comment per user per Thing
+- [ ] Comment count in Thing response
+- [ ] Notification on comment
 
-**API Key Model:**
-```go
-type APIKey struct {
-    ID         string
-    UserID     string
-    Name       string      // "Personal Website", "Chrome Extension"
-    KeyHash    string      // bcrypt hash (never store raw key)
-    KeyPrefix  string      // "ts_abc123" (first 8 chars for UI identification)
-    Scopes     []string    // granular permissions
-    Metadata   JSON        // arbitrary user metadata (environment, repo, etc.)
-    LastUsedAt *time.Time
-    ExpiresAt  *time.Time  // optional, default never
-    CreatedAt  time.Time
-}
-```
+**Phase 4: Mentions**
+- [ ] Parse `@username` in content
+- [ ] Create notification for mentioned users
 
-**Granular Scopes:**
-- `things:read` - list/get things
-- `things:write` - create/update things
-- `things:delete` - delete things (separate from write!)
-- `kinds:read`, `kinds:write`, `kinds:delete`
-- `tags:read`, `tags:write`, `tags:delete`
-- `keys:manage` - create/revoke API keys
-
-**Key Format:** `ts_<random_32_chars>` - shown once at creation, stored as bcrypt hash
-
-**Endpoints:**
-- `POST /api/keys` - create key (returns raw key ONCE)
-- `GET /api/keys` - list your keys (metadata only)
-- `PUT /api/keys/:id` - update name/scopes/metadata
-- `DELETE /api/keys/:id` - revoke key
-
-**Auth:** `Authorization: Bearer ts_xxxxx`
-
-### Query API Enhancements
-Advanced filtering and pagination for Things:
-
-```
-GET /api/things?type=article&meta.status=queued&sort=-createdAt&page=1&count=20
-GET /api/things?type=article&count=all
-```
-
-**Features:**
-- Filter by type
-- Filter by metadata fields (`meta.fieldname=value`)
-- Sort by any field (`sort=createdAt`, `sort=-createdAt` for desc)
-- Pagination: `page=N&count=M` or `count=all`
-- Upsert: `PUT /api/things/upsert?type=article&meta.url=https://...`
-
-### Bulk Operations
-Efficient batch operations:
-
-```
-POST /api/things/bulk   - create many
-PUT /api/things/bulk    - update many
-DELETE /api/things/bulk - delete many (by IDs)
-```
-
-### Rate Limiting
-- 10 operations per second per IP
-- Configurable per-key limits (future)
-
-### Thing Version History
-Every Thing edit creates a new version - never lose data:
-
-```go
-type ThingVersion struct {
-    ID        string
-    ThingID   string
-    Version   int
-    Content   string
-    Metadata  JSON
-    CreatedAt time.Time
-    CreatedBy string    // user ID or API key ID
-}
-```
-
-**Endpoints:**
-- `GET /api/things/:id` - returns latest version
-- `GET /api/things/:id/versions` - returns version history
-- `GET /api/things/:id/versions/:version` - returns specific version
-- Deletes are soft-deletes (can be restored)
+---
 
 ## Next Up
 
 ### Thing Linking (Unidirectional)
 Things can link to other Things via a "link" attribute type:
 1. **Link attribute**: New attribute type `link` stores a Thing ID
-2. **Backlinks endpoint**: `GET /api/things/{id}/backlinks` - find what links to this Thing
+2. **Backlinks endpoint**: `GET /api/things/{id}/backlinks` - find what links to this Thing ✅
 3. **Link UI**: Search/select dropdown to link to other Things
 4. **Display**: Show linked Things in Thing view with preview
-5. **Future**: Add bidirectional support (maintains consistency on both sides, higher complexity)
 
-### Recovery Phrase System
-Users need a recovery phrase for account recovery and data export:
-1. **On registration**: Generate a 12-24 word mnemonic phrase (BIP39 style)
-2. **Store hash**: Store bcrypt hash of the phrase in `recovery_hash` field
-3. **User must save**: Show phrase ONCE, require user to confirm they saved it
-4. **Password recovery**: If user forgets password but has recovery phrase:
-   - Verify recovery phrase
-   - Allow password reset
-5. **Locked account data export**: If admin locks a user:
-   - User can still use recovery phrase to export their data
-   - Data export is read-only, no modifications allowed
-6. **Admin recovery**: Admin also gets a recovery phrase for password recovery
+### Channels API
+Database table exists, needs API exposure:
+- Create/list/delete channels
+- Add/remove members
+- Channel roles (owner, admin, member)
 
-### Encrypted Data Backup
-For when servers shut down or users want portable backups:
-1. **Encryption key derivation**: Derive encryption key from recovery phrase
-2. **Export encrypted backup**:
-   - Export all user data (Things, Kinds, Tags, Views, Photos)
-   - Encrypt with key derived from recovery phrase
-   - Produce single downloadable file
-3. **Import to new server**:
-   - User creates account on new server
-   - Uploads encrypted backup
-   - Enters recovery phrase to decrypt
-   - Data is imported to new account
+---
 
-### Future Features
-- [ ] Public profiles (optional, user-controlled)
-- [ ] Sharing Things between users
+## Future
+
+### Recovery & Backup
+- [ ] Recovery phrase system (BIP39 mnemonic for account recovery)
+- [ ] Encrypted data backup/restore
+- [ ] Data export (JSON dump of all user data)
+
+### Search & Discovery
 - [ ] Full-text search with FTS5
+- [ ] User search/discovery
+
+### Developer Features
+- [ ] Webhooks (notify external systems on data changes)
+- [ ] Audit log (track API key usage)
+- [ ] Configurable per-key rate limits
+
+### Security
+- [ ] Block/mute users
 - [ ] Data encryption at rest (optional, per-user)
 
-### Webhooks (Future)
-Real-time notifications when data changes:
+---
 
-```go
-type Webhook struct {
-    ID        string
-    UserID    string
-    URL       string
-    Events    []string  // "thing.created", "thing.updated", "thing.deleted"
-    Secret    string    // for HMAC signature verification
-    Active    bool
-    CreatedAt time.Time
-}
-```
+## API Reference
 
-When a Thing changes → POST to webhook URL with signed payload.
+### Existing Endpoints
 
-### Audit Log (Future)
-Track API key usage for debugging integrations:
+**Auth**
+- `POST /api/auth/register` - Register new user
+- `POST /api/auth/login` - Login
+- `POST /api/auth/logout` - Logout
+- `GET /api/auth/status` - Check if instance has owner
+- `GET /api/auth/me` - Get current user
 
-```go
-type APIKeyUsage struct {
-    ID        string
-    KeyID     string
-    UserID    string
-    Endpoint  string
-    Method    string
-    Status    int
-    Timestamp time.Time
-}
-```
+**Things**
+- `GET /api/things` - List things
+- `POST /api/things` - Create thing
+- `GET /api/things/{id}` - Get thing
+- `PUT /api/things/{id}` - Update thing
+- `DELETE /api/things/{id}` - Delete thing
+- `GET /api/things/{id}/backlinks` - Get backlinks
 
-- Store last N requests per key
-- Queryable for debugging
-- Auto-cleanup after 30 days
+**Photos**
+- `POST /api/upload` - Upload photos (creates gallery Thing)
+- `GET /api/photos/{id}` - Serve photo
+
+**API Keys**
+- `GET /api/keys` - List keys
+- `POST /api/keys` - Create key
+- `DELETE /api/keys/{id}` - Delete key
+
+**Kinds**
+- `GET /api/kinds` - List kinds
+- `POST /api/kinds` - Create kind
+- `GET /api/kinds/{id}` - Get kind
+- `PUT /api/kinds/{id}` - Update kind
+- `DELETE /api/kinds/{id}` - Delete kind
+
+**Social**
+- `POST /api/friends` - Add friend (follow)
+- `DELETE /api/follows/{user_id}` - Unfollow
+- `GET /api/follows/followers` - List followers
+- `GET /api/follows/following` - List following
+- `GET /api/follows/mutuals` - List mutual followers
+- `GET /api/feed/friends` - Friend feed
+
+**Public**
+- `GET /api/public/profile` - Get owner profile
+- `GET /api/public/things` - Get public things
+
+**Federation**
+- `GET /api/fed/things/{user_id}` - Get friend-visible things (for remote nodes)
+
+### Planned Endpoints (Social)
+
+**Notifications**
+- `GET /api/notifications` - List notifications
+- `GET /api/notifications/unread-count` - Unread count
+- `PUT /api/notifications/read-all` - Mark all read
+- `PUT /api/notifications/{id}/read` - Mark single read
+- `DELETE /api/notifications/{id}` - Delete notification
+
+**Reactions**
+- `POST /api/things/{id}/reactions` - Add reaction
+- `DELETE /api/things/{id}/reactions/{type}` - Remove reaction
+- `GET /api/things/{id}/reactions` - Get reactions
+
+**Comments**
+- `GET /api/things/{id}/comments` - List comments
+- `POST /api/things/{id}/comments` - Create comment

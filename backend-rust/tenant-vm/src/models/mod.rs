@@ -91,6 +91,10 @@ pub const API_KEY_SCOPES: &[&str] = &[
     "kinds:write",
     "kinds:delete",
     "keys:manage",
+    "notifications:read",
+    "notifications:write",
+    "reactions:read",
+    "reactions:write",
 ];
 
 /// Kind is a category of Thing (note, link, task, article, etc.)
@@ -255,6 +259,218 @@ pub enum ChannelRole {
     Member,
 }
 
+// ============================================================
+// EVENT SYSTEM
+// ============================================================
+
+/// Event is an ephemeral trigger - processed and discarded, not stored.
+/// Events flow through the system, match subscriptions, and cause effects.
+#[derive(Debug, Clone)]
+pub struct Event {
+    pub event_type: String,              // 'follow.created', 'reaction.added', etc.
+    pub source_type: String,             // 'first_party', 'friend', 'webhook'
+    pub source_id: Option<String>,       // Specific source ID
+    pub actor_id: String,                // Who triggered it
+    pub actor_type: String,              // 'user', 'system'
+    pub resource_type: Option<String>,   // 'thing', 'follow', 'comment'
+    pub resource_id: Option<String>,     // ID of the resource
+    pub payload: Option<HashMap<String, serde_json::Value>>,
+    pub timestamp: DateTime<Utc>,
+}
+
+impl Event {
+    pub fn new(
+        event_type: impl Into<String>,
+        actor_id: impl Into<String>,
+    ) -> Self {
+        Self {
+            event_type: event_type.into(),
+            source_type: "first_party".to_string(),
+            source_id: None,
+            actor_id: actor_id.into(),
+            actor_type: "user".to_string(),
+            resource_type: None,
+            resource_id: None,
+            payload: None,
+            timestamp: Utc::now(),
+        }
+    }
+
+    pub fn with_source(mut self, source_type: impl Into<String>, source_id: Option<String>) -> Self {
+        self.source_type = source_type.into();
+        self.source_id = source_id;
+        self
+    }
+
+    pub fn with_resource(mut self, resource_type: impl Into<String>, resource_id: impl Into<String>) -> Self {
+        self.resource_type = Some(resource_type.into());
+        self.resource_id = Some(resource_id.into());
+        self
+    }
+
+    pub fn with_payload(mut self, payload: HashMap<String, serde_json::Value>) -> Self {
+        self.payload = Some(payload);
+        self
+    }
+}
+
+/// Subscription defines what happens when events occur
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Subscription {
+    pub id: String,
+    pub user_id: String,
+    pub name: Option<String>,
+    pub event_type: String,              // Event type to match, or '*' for all
+    pub source_type: Option<String>,     // Filter by source type
+    pub source_id: Option<String>,       // Filter by specific source
+    pub action_type: String,             // 'notification', 'webhook', 'create_thing'
+    pub action_config: HashMap<String, serde_json::Value>,
+    pub enabled: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// DeliveryQueueItem for retrying failed outbound deliveries
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeliveryQueueItem {
+    pub id: String,
+    pub delivery_type: String,           // 'notification', 'webhook'
+    pub destination: String,             // URL endpoint
+    pub payload: String,                 // JSON payload
+    pub status: DeliveryStatus,
+    pub attempts: i32,
+    pub max_attempts: i32,
+    pub next_attempt_at: Option<DateTime<Utc>>,
+    pub last_error: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub delivered_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum DeliveryStatus {
+    Pending,
+    Delivered,
+    Rejected,
+    Failed,
+}
+
+impl DeliveryStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            DeliveryStatus::Pending => "pending",
+            DeliveryStatus::Delivered => "delivered",
+            DeliveryStatus::Rejected => "rejected",
+            DeliveryStatus::Failed => "failed",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "delivered" => DeliveryStatus::Delivered,
+            "rejected" => DeliveryStatus::Rejected,
+            "failed" => DeliveryStatus::Failed,
+            _ => DeliveryStatus::Pending,
+        }
+    }
+}
+
+// ============================================================
+// NOTIFICATIONS
+// ============================================================
+
+/// NotificationSettings controls what notification types a user accepts
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NotificationSettings {
+    pub id: String,
+    pub user_id: String,
+    pub notification_type: String,       // 'follow', 'reaction', 'comment', 'mention', '*'
+    pub enabled: bool,                   // true = accept, false = reject
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Notification is a stored, accepted notification
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Notification {
+    pub id: String,
+    pub user_id: String,                 // Recipient
+    pub notification_type: String,       // 'follow', 'reaction', 'comment', 'mention'
+    pub actor_id: Option<String>,        // Who triggered it
+    pub actor_type: Option<String>,      // 'user', 'webhook', 'system'
+    pub resource_type: Option<String>,   // 'thing', 'follow', 'comment'
+    pub resource_id: Option<String>,
+    pub title: Option<String>,
+    pub body: Option<String>,
+    pub url: Option<String>,
+    pub metadata: Option<HashMap<String, serde_json::Value>>,
+    pub read: bool,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Inbound notification request from remote node
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InboundNotificationRequest {
+    pub notification_type: String,
+    pub actor_id: Option<String>,
+    pub actor_type: Option<String>,
+    pub resource_type: Option<String>,
+    pub resource_id: Option<String>,
+    pub title: Option<String>,
+    pub body: Option<String>,
+    pub url: Option<String>,
+    pub metadata: Option<HashMap<String, serde_json::Value>>,
+}
+
+/// Response to inbound notification
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InboundNotificationResponse {
+    pub status: String,  // "accepted" or "rejected"
+}
+
+// ============================================================
+// REACTIONS
+// ============================================================
+
+/// Reaction on a Thing (like, heart, fire, etc.)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Reaction {
+    pub id: String,
+    pub user_id: String,
+    pub thing_id: String,
+    pub reaction_type: String,           // 'like', 'heart', 'fire', 'laugh', 'sad', 'celebrate'
+    pub created_at: DateTime<Utc>,
+}
+
+/// Allowed reaction types - text-based names and popular emojis
+pub const ALLOWED_REACTIONS: &[&str] = &[
+    // Text-based reaction names
+    "like",      // thumbs up
+    "heart",     // love
+    "fire",      // hot/good
+    "laugh",     // funny
+    "sad",       // sad
+    "celebrate", // party/congrats
+    // Popular emojis (50 most commonly used)
+    "👍", "👎", "❤️", "🔥", "😂",
+    "😍", "😢", "😮", "😡", "🎉",
+    "👏", "🙏", "💯", "✨", "🎊",
+    "💪", "🤔", "😊", "😎", "🥳",
+    "😭", "🤣", "💕", "✅", "❌",
+    "🚀", "💡", "⭐", "🌟", "💫",
+    "🙌", "🤝", "👋", "💖", "💗",
+    "💓", "💘", "💝", "🥰", "😇",
+    "🤩", "😻", "💙", "💚", "💛",
+    "💜", "🖤", "🤍", "🧡", "💔",
+];
+
+/// Reaction counts and user's reactions for a Thing
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReactionSummary {
+    pub counts: HashMap<String, i64>,
+    pub user_reactions: Vec<String>,
+}
+
 // Request/Response types for API
 #[derive(Debug, Deserialize)]
 pub struct CreateThingRequest {
@@ -317,6 +533,23 @@ pub struct RegisterRequest {
     pub display_name: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateProfileRequest {
+    pub display_name: Option<String>,
+    pub bio: Option<String>,
+    pub avatar_url: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateApiKeyRequest {
+    pub name: Option<String>,
+    pub scopes: Option<Vec<String>>,
+    pub metadata: Option<HashMap<String, serde_json::Value>>,
+    pub expires_at: Option<DateTime<Utc>>,
+}
+
 /// Request to add a remote friend node
 #[derive(Debug, Deserialize)]
 pub struct AddFriendRequest {
@@ -358,4 +591,80 @@ pub struct PaginatedResponse<T> {
     pub total: i64,
     pub limit: i64,
     pub offset: i64,
+}
+
+// ============================================================
+// Request types for subscriptions, notifications, reactions
+// ============================================================
+
+#[derive(Debug, Deserialize)]
+pub struct CreateSubscriptionRequest {
+    pub name: Option<String>,
+    pub event_type: String,
+    pub source_type: Option<String>,
+    pub source_id: Option<String>,
+    pub action_type: String,
+    pub action_config: HashMap<String, serde_json::Value>,
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
+}
+
+fn default_enabled() -> bool {
+    true
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateSubscriptionRequest {
+    pub name: Option<String>,
+    pub event_type: Option<String>,
+    pub source_type: Option<Option<String>>,
+    pub source_id: Option<Option<String>>,
+    pub action_type: Option<String>,
+    pub action_config: Option<HashMap<String, serde_json::Value>>,
+    pub enabled: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateNotificationSettingsRequest {
+    pub notification_type: String,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AddReactionRequest {
+    #[serde(rename = "type")]
+    pub reaction_type: String,
+}
+
+/// Response for listing notifications
+#[derive(Debug, Serialize)]
+pub struct NotificationsListResponse {
+    pub notifications: Vec<NotificationWithActor>,
+    pub total: i64,
+    pub unread_count: i64,
+}
+
+/// Notification with actor info joined
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NotificationWithActor {
+    pub id: String,
+    pub notification_type: String,
+    pub actor: Option<ActorInfo>,
+    pub resource_type: Option<String>,
+    pub resource_id: Option<String>,
+    pub title: Option<String>,
+    pub body: Option<String>,
+    pub url: Option<String>,
+    pub metadata: Option<HashMap<String, serde_json::Value>>,
+    pub read: bool,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Basic actor info for notification display
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActorInfo {
+    pub id: String,
+    pub username: String,
+    pub display_name: String,
+    pub avatar_url: String,
 }

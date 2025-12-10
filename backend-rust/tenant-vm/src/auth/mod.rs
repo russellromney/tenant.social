@@ -275,7 +275,12 @@ pub fn extract_auth_from_request(
 /// Check if user has required scope
 pub fn has_scope(auth_user: &AuthUser, required_scope: &str) -> bool {
     // Session tokens have all permissions
-    if !auth_user.is_api_key || auth_user.scopes.contains(&"*".to_string()) {
+    if !auth_user.is_api_key {
+        return true;
+    }
+
+    // Empty scopes = admin (full access) - matches Go behavior
+    if auth_user.scopes.is_empty() || auth_user.scopes.contains(&"*".to_string()) {
         return true;
     }
 
