@@ -1,18 +1,18 @@
-.PHONY: dev dev-backend dev-frontend dev-watch build build-frontend build-go test test-go test-e2e test-cover clean deploy logs install fmt
+.PHONY: dev dev-backend dev-frontend dev-watch build build-frontend build-backend test test-backend test-e2e clean deploy logs install
 
 # Development - run backend and frontend together
 dev:
-	@echo "Starting backend and frontend..."
+	@echo "Starting Rust backend and frontend..."
 	@make -j2 dev-backend dev-frontend
 
-# Backend only (uses local SQLite by default, no hot reload)
+# Backend only (Rust tenant-vm)
 dev-backend:
-	go run ./cmd/tenant
+	cd backend-rust/tenant-vm && ~/.cargo/bin/cargo run
 
-# Backend with hot reload using air (install: go install github.com/cosmtrek/air@latest)
+# Backend with hot reload using cargo-watch
 dev-watch:
-	@which air > /dev/null || (echo "Installing air..." && go install github.com/air-verse/air@latest)
-	air -c .air.toml 2>/dev/null || air
+	@which cargo-watch > /dev/null || (echo "Installing cargo-watch..." && ~/.cargo/bin/cargo install cargo-watch)
+	cd backend-rust/tenant-vm && ~/.cargo/bin/cargo watch -x run
 
 # Frontend only (Vite dev server with hot reload on port 3069)
 dev-frontend:
@@ -25,29 +25,22 @@ build-frontend:
 	@echo "Building frontend..."
 	cd web && rm -rf dist .vite && npm ci && npm run build
 
-# Build Go binary with embedded frontend
-build-go:
-	@echo "Building Go binary..."
-	CGO_ENABLED=0 go build -o tenant ./cmd/tenant
-	@echo "✅ Go binary built: ./tenant"
+# Build Rust backend
+build-backend:
+	@echo "Building Rust backend..."
+	cd backend-rust/tenant-vm && ~/.cargo/bin/cargo build --release
+	@echo "✅ Rust binary built: backend-rust/tenant-vm/target/release/tenant-vm"
 
-# Build everything (frontend + go binary) - always clean first
-build: clean build-frontend build-go
+# Build everything
+build: build-frontend build-backend
 	@echo "✅ Full build complete"
 
 # ===== TEST TARGETS =====
 
-# Run all Go tests
-test-go:
-	@echo "Running Go tests..."
-	go test -v ./...
-
-# Run Go tests with coverage
-test-cover:
-	@echo "Running Go tests with coverage..."
-	go test -coverprofile=coverage.out ./...
-	go tool cover -html=coverage.out -o coverage.html
-	@echo "✅ Coverage report: coverage.html"
+# Run Rust backend tests
+test-backend:
+	@echo "Running Rust backend tests..."
+	cd backend-rust/tenant-vm && ~/.cargo/bin/cargo test
 
 # Run Playwright E2E tests (requires server running on :8069)
 test-e2e:
@@ -57,14 +50,14 @@ test-e2e:
 	cd web && npx playwright test --config=playwright.config.ts
 	@echo "✅ E2E tests complete. Report: web/playwright-report/index.html"
 
-# Run all tests (Go + E2E)
-test: test-go test-e2e
+# Run all tests
+test: test-backend test-e2e
 	@echo "✅ All tests passed"
 
 # ===== DEPLOY TARGET =====
 
 # Deploy to Fly.io (builds, tests, then deploys)
-deploy: clean build test
+deploy: build test-backend
 	@echo "All checks passed! Deploying to Fly.io..."
 	@git status --short | grep -q . && (echo "❌ Uncommitted changes. Commit first:" && git status && exit 1) || true
 	@echo "✅ Repository clean, deploying..."
@@ -76,10 +69,9 @@ deploy: clean build test
 # Clean build artifacts
 clean:
 	@echo "Cleaning build artifacts..."
-	rm -f tenant
-	rm -f coverage.out coverage.html
+	rm -rf backend-rust/tenant-vm/target
 	rm -rf playwright-report
-	rm -rf web/dist cmd/tenant/dist
+	rm -rf web/dist
 	rm -rf web/.vite
 	@echo "✅ Clean complete"
 
@@ -90,12 +82,6 @@ logs:
 # Install all dependencies
 install:
 	@echo "Installing dependencies..."
-	go mod download
+	cd backend-rust/tenant-vm && ~/.cargo/bin/cargo fetch
 	cd web && npm install
 	@echo "✅ Dependencies installed"
-
-# Format code
-fmt:
-	@echo "Formatting code..."
-	go fmt ./...
-	@echo "✅ Code formatted"

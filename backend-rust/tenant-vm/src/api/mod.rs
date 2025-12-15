@@ -915,6 +915,32 @@ pub async fn serve_assets(req: HttpRequest) -> impl Responder {
 
 // ==================== Follow Endpoints ====================
 
+/// POST /api/follows/create-token - Create an ephemeral follow verification token
+/// Returns a token that can be used to verify follow requests across instances
+pub async fn create_follow_token(
+    state: web::Data<AppState>,
+    auth_user: AuthUser,
+) -> impl Responder {
+    // Get the instance endpoint from environment or config
+    // For now, we'll construct it from a config or use a default
+    let endpoint = std::env::var("INSTANCE_URL")
+        .unwrap_or_else(|_| "http://localhost:7777".to_string());
+
+    match state.store.create_follow_token(&auth_user.user_id, &endpoint) {
+        Ok(token) => {
+            let response = crate::models::CreateFollowTokenResponse {
+                follow_token: token,
+                expires_in: 300,  // 5 minutes
+            };
+            HttpResponse::Ok().json(ApiResponse::success(response))
+        }
+        Err(_) => {
+            HttpResponse::InternalServerError()
+                .json(ApiResponse::<()>::error("Failed to create follow token"))
+        }
+    }
+}
+
 /// POST /api/friends - Add a friend (federated following)
 /// Accepts remote_endpoint and access_token for cross-node connections
 pub async fn add_friend(
@@ -945,6 +971,7 @@ pub async fn add_friend(
         remote_endpoint: remote_endpoint.clone(),
         access_token,
         created_at: Utc::now(),
+        last_confirmed_at: None,
     };
 
     match state.store.create_follow(&mut follow) {
@@ -988,42 +1015,204 @@ pub async fn unfollow_user(
     }
 }
 
-/// GET /api/follows/followers - Get list of followers
+/// GET /api/follows/followers - Get list of followers (full records)
 pub async fn get_followers(
     state: web::Data<AppState>,
     auth_user: AuthUser,
 ) -> impl Responder {
-    match state.store.get_followers(&auth_user.user_id) {
-        Ok(follower_ids) => HttpResponse::Ok().json(ApiResponse::success(follower_ids)),
+    match state.store.get_follower_records(&auth_user.user_id) {
+        Ok(followers) => HttpResponse::Ok().json(ApiResponse::success(followers)),
         Err(_) => HttpResponse::InternalServerError().json(ApiResponse::<()>::error("Database error")),
     }
 }
 
-/// GET /api/follows/following - Get list of users being followed
+/// GET /api/follows/following - Get list of users being followed (full records)
 pub async fn get_following(
     state: web::Data<AppState>,
     auth_user: AuthUser,
 ) -> impl Responder {
-    match state.store.get_following(&auth_user.user_id) {
-        Ok(following_ids) => HttpResponse::Ok().json(ApiResponse::success(following_ids)),
+    match state.store.get_following_records(&auth_user.user_id) {
+        Ok(following) => HttpResponse::Ok().json(ApiResponse::success(following)),
         Err(_) => HttpResponse::InternalServerError().json(ApiResponse::<()>::error("Database error")),
     }
 }
 
-/// GET /api/follows/mutuals - Get list of mutual followers
+/// GET /api/follows/mutuals - Get list of mutual followers (full records)
 pub async fn get_mutuals(
     state: web::Data<AppState>,
     auth_user: AuthUser,
 ) -> impl Responder {
-    match state.store.get_mutuals(&auth_user.user_id) {
-        Ok(mutual_ids) => HttpResponse::Ok().json(ApiResponse::success(mutual_ids)),
+    match state.store.get_mutuals_records(&auth_user.user_id) {
+        Ok(mutuals) => HttpResponse::Ok().json(ApiResponse::success(mutuals)),
         Err(_) => HttpResponse::InternalServerError().json(ApiResponse::<()>::error("Database error")),
     }
+}
+
+/// GET /api/public/follows/{user_id} - Check if this instance's owner follows a user
+/// Used for federated mutual detection - no auth required
+pub async fn check_follows_user(
+    state: web::Data<AppState>,
+    path: web::Path<String>,
+) -> impl Responder {
+    let target_user_id = path.into_inner();
+
+    // Get the owner of this instance (first/only user in single-tenant mode)
+    let owner = match state.store.get_first_user() {
+        Ok(Some(user)) => user,
+        _ => return HttpResponse::NotFound().json(ApiResponse::<bool>::error("No owner found")),
+    };
+
+    // Check if owner follows the target user
+    match state.store.is_following(&owner.id, &target_user_id) {
+        Ok(follows) => HttpResponse::Ok().json(ApiResponse::success(follows)),
+        Err(_) => HttpResponse::InternalServerError().json(ApiResponse::<bool>::error("Database error")),
+    }
+}
+
+/// POST /api/fed/notify-follow - Receive a follow notification from a remote instance
+/// Remote instances call this to notify that one of their users is following us
+/// This initiates the token verification handshake
+pub async fn notify_follow(
+    state: web::Data<AppState>,
+    req: web::Json<crate::models::NotifyFollowRequest>,
+) -> impl Responder {
+    let follower_user_id = &req.follower_user_id;
+    let follower_endpoint = &req.follower_endpoint;
+    let follow_token = &req.follow_token;
+
+    // Input validation
+    if follower_user_id.is_empty() {
+        return HttpResponse::BadRequest()
+            .json(ApiResponse::<()>::error("follower_user_id cannot be empty"));
+    }
+    if follower_endpoint.is_empty() {
+        return HttpResponse::BadRequest()
+            .json(ApiResponse::<()>::error("follower_endpoint cannot be empty"));
+    }
+    if follow_token.is_empty() {
+        return HttpResponse::BadRequest()
+            .json(ApiResponse::<()>::error("follow_token cannot be empty"));
+    }
+
+    // Prevent extremely long inputs (resource exhaustion)
+    if follower_user_id.len() > 255 || follower_endpoint.len() > 2048 || follow_token.len() > 1024 {
+        return HttpResponse::BadRequest()
+            .json(ApiResponse::<()>::error("Request fields exceed maximum length"));
+    }
+
+    // Validate endpoint format (basic check: must start with http:// or https://)
+    if !follower_endpoint.starts_with("http://") && !follower_endpoint.starts_with("https://") {
+        return HttpResponse::BadRequest()
+            .json(ApiResponse::<()>::error("Invalid endpoint format - must be http:// or https://"));
+    }
+
+    // Security check: Prevent following your own instance
+    let current_endpoint = std::env::var("INSTANCE_URL")
+        .unwrap_or_else(|_| "http://localhost:7777".to_string());
+
+    // Normalize both endpoints for comparison (remove trailing slashes)
+    let follower_endpoint_normalized = follower_endpoint.trim_end_matches('/');
+    let current_endpoint_normalized = current_endpoint.trim_end_matches('/');
+
+    if follower_endpoint_normalized == current_endpoint_normalized {
+        return HttpResponse::BadRequest()
+            .json(ApiResponse::<()>::error("Cannot follow your own instance"));
+    }
+
+    // Step 1: Verify the token by calling back to the follower's instance
+    let verify_url = format!("{}/api/fed/verify-follow", follower_endpoint);
+
+    let verify_req = crate::models::FollowVerifyRequest {
+        follow_token: follow_token.clone(),
+    };
+
+    // Make HTTP request to verify token
+    let client = reqwest::Client::new();
+    let verify_result = client
+        .post(&verify_url)
+        .json(&verify_req)
+        .send()
+        .await;
+
+    let is_valid = match verify_result {
+        Ok(response) => {
+            // Try to parse response
+            match response.json::<ApiResponse<crate::models::FollowVerifyResponse>>().await {
+                Ok(api_resp) => {
+                    if let Some(data) = api_resp.data {
+                        data.valid
+                    } else {
+                        false
+                    }
+                }
+                Err(_) => false,
+            }
+        }
+        Err(_) => false,
+    };
+
+    if !is_valid {
+        return HttpResponse::BadRequest()
+            .json(ApiResponse::<()>::error("Token verification failed"));
+    }
+
+    // Step 2: Token is valid, record the follower
+    let owner = match state.store.get_first_user() {
+        Ok(Some(user)) => user,
+        _ => {
+            return HttpResponse::InternalServerError()
+                .json(ApiResponse::<()>::error("Could not find instance owner"))
+        }
+    };
+
+    // Record the follower (creates or updates the follow record)
+    if let Err(e) = state.store.record_follower(follower_user_id, follower_endpoint, &owner.id) {
+        log::warn!("Failed to record follower: {:?}", e);
+        return HttpResponse::InternalServerError()
+            .json(ApiResponse::<()>::error("Failed to record follow"));
+    }
+
+    // Step 3: Return success
+    HttpResponse::Ok().json(ApiResponse::success(()))
+}
+
+/// POST /api/fed/verify-follow - Verify a follow token for federated follow handshake
+/// Called by remote instances to verify that a follow request is legitimate
+/// No auth required - verification is done via token validation
+pub async fn verify_follow(
+    state: web::Data<AppState>,
+    req: web::Json<crate::models::FollowVerifyRequest>,
+) -> impl Responder {
+    // Input validation
+    if req.follow_token.is_empty() || req.follow_token.len() > 1024 {
+        let response = crate::models::FollowVerifyResponse {
+            valid: false,
+            user_id: None,
+            endpoint: None,
+        };
+        return HttpResponse::Ok().json(ApiResponse::success(response));
+    }
+
+    let (valid, user_id, endpoint) = state.store.verify_follow_token(&req.follow_token);
+
+    let response = crate::models::FollowVerifyResponse {
+        valid,
+        user_id,
+        endpoint,
+    };
+
+    // Always return 200 to avoid leaking token validity via HTTP status codes
+    HttpResponse::Ok().json(ApiResponse::success(response))
 }
 
 /// GET /api/fed/things/{user_id} - Fetch friend-visible content from this node
 /// CRITICAL: Only returns PUBLIC and FRIENDS visibility - NEVER private
 /// This endpoint is called by remote friend nodes to fetch content
+///
+/// Optional query params for passive follow confirmation:
+/// - requester_id: The user ID of the requester (who is following us)
+/// - requester_endpoint: The endpoint of the requester's instance
+/// When provided, updates last_confirmed_at to track active followers
 pub async fn get_friend_visible_things(
     state: web::Data<AppState>,
     path: web::Path<String>,
@@ -1032,6 +1221,22 @@ pub async fn get_friend_visible_things(
     let user_id = path.into_inner();
     let limit: i64 = query.get("limit").and_then(|s| s.parse().ok()).unwrap_or(50);
     let offset: i64 = query.get("offset").and_then(|s| s.parse().ok()).unwrap_or(0);
+
+    // Passive follow confirmation: if requester info provided, record/update the follower
+    // This piggybacks on feed fetches - no separate heartbeat needed
+    if let (Some(requester_id), Some(requester_endpoint)) = (
+        query.get("requester_id"),
+        query.get("requester_endpoint"),
+    ) {
+        // Get the owner of this instance to record them as the "following" target
+        if let Ok(Some(owner)) = state.store.get_first_user() {
+            // Record that requester_id (from requester_endpoint) follows owner
+            // This updates last_confirmed_at if exists, or creates new record
+            if let Err(e) = state.store.record_follower(requester_id, requester_endpoint, &owner.id) {
+                log::warn!("Failed to record follower confirmation: {:?}", e);
+            }
+        }
+    }
 
     // Get all things for this user (None = all types)
     match state.store.list_things(&user_id, None, limit, offset) {
@@ -2454,6 +2659,7 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         // Public routes (no auth required)
         .route("/api/public/profile", web::get().to(get_public_profile))
         .route("/api/public/things", web::get().to(get_public_things))
+        .route("/api/public/follows/{user_id}", web::get().to(check_follows_user))
 
         // Protected routes - will need auth middleware
         .route("/api/auth/me", web::get().to(get_current_user))
@@ -2520,12 +2726,15 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
 
         // Follows
         .route("/api/friends", web::post().to(add_friend))          // NEW: Federated friend management
+        .route("/api/follows/create-token", web::post().to(create_follow_token))  // NEW: Create verification token
         .route("/api/follows/{user_id}", web::delete().to(unfollow_user))
         .route("/api/follows/followers", web::get().to(get_followers))
         .route("/api/follows/following", web::get().to(get_following))
         .route("/api/follows/mutuals", web::get().to(get_mutuals))
 
         // Federation endpoints (no auth required - called by friend nodes)
+        .route("/api/fed/notify-follow", web::post().to(notify_follow))  // NEW: Receive follow notification
+        .route("/api/fed/verify-follow", web::post().to(verify_follow))  // NEW: Verify follow token
         .route("/api/fed/things/{user_id}", web::get().to(get_friend_visible_things))  // NEW: Fetch friend-visible content
 
         // Feed

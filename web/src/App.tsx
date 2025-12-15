@@ -3,6 +3,10 @@ import { EMOJI_CATEGORIES, ALL_EMOJIS } from './emojis'
 import { useTheme, Theme } from './theme.tsx'
 import { Markdown } from './Markdown.tsx'
 import { PublicHomePage } from './PublicHomePage.tsx'
+import { apiUrl, getRoute, navigateTo, routeHref, setupClientSideNavigation } from './api'
+
+// Setup client-side navigation for SPA routing
+setupClientSideNavigation()
 
 // Types
 interface Attribute {
@@ -55,6 +59,29 @@ interface Thing {
   photos?: Photo[]
 }
 
+interface Follow {
+  id: string
+  follower_id: string
+  following_id: string
+  remote_endpoint: string
+  access_token: string | null
+  created_at: string
+  last_confirmed_at?: string | null
+}
+
+interface RemoteProfile {
+  id: string
+  username: string
+  display_name: string
+  bio: string
+  avatar_url: string
+}
+
+interface FriendFeedItem extends Thing {
+  owner_username?: string
+  owner_endpoint?: string
+}
+
 // Default kinds - will be created in DB on first load
 const DEFAULT_KINDS: Omit<Kind, 'created_at' | 'updated_at'>[] = [
   { id: 'default-note', name: 'note', icon: '📝', template: 'default', attributes: [], isDefault: true },
@@ -64,14 +91,14 @@ const DEFAULT_KINDS: Omit<Kind, 'created_at' | 'updated_at'>[] = [
   { id: 'default-gallery', name: 'gallery', icon: '🖼️', template: 'photo', attributes: [], isDefault: true },
 ]
 
-// Simple hash-based routing
+// Path-based routing
 function useRoute() {
-  const [route, setRoute] = useState(window.location.hash || '#/')
+  const [route, setRoute] = useState(getRoute())
 
   useEffect(() => {
-    const handleHashChange = () => setRoute(window.location.hash || '#/')
-    window.addEventListener('hashchange', handleHashChange)
-    return () => window.removeEventListener('hashchange', handleHashChange)
+    const handleRouteChange = () => setRoute(getRoute())
+    window.addEventListener('popstate', handleRouteChange)
+    return () => window.removeEventListener('popstate', handleRouteChange)
   }, [])
 
   return route
@@ -113,9 +140,9 @@ function Footer({ theme }: { theme: Theme }) {
         Your personal social data platform
       </div>
       <div style={{ marginBottom: 12 }}>
-        <a href="#/docs" style={{ color: theme.textMuted, textDecoration: 'none', margin: '0 12px' }}>About</a>
-        <a href="#/docs/api" style={{ color: theme.textMuted, textDecoration: 'none', margin: '0 12px' }}>API</a>
-        <a href="#/docs/deployment" style={{ color: theme.textMuted, textDecoration: 'none', margin: '0 12px' }}>Deploy</a>
+        <a href={routeHref('/docs')} style={{ color: theme.textMuted, textDecoration: 'none', margin: '0 12px' }}>About</a>
+        <a href={routeHref('/docs/api')} style={{ color: theme.textMuted, textDecoration: 'none', margin: '0 12px' }}>API</a>
+        <a href={routeHref('/docs/deployment')} style={{ color: theme.textMuted, textDecoration: 'none', margin: '0 12px' }}>Deploy</a>
         <a href="https://github.com/russellromney/tenant.social" target="_blank" rel="noopener noreferrer" style={{ color: theme.textMuted, textDecoration: 'none', margin: '0 12px' }}>GitHub</a>
       </div>
       Made with ❤️ in NYC by <a href="https://russellromney.com" target="_blank" rel="noopener noreferrer" style={{ color: theme.link, textDecoration: 'none' }}>me</a>
@@ -497,20 +524,20 @@ order_index: 0`}
 // Unified Documentation Page with Sidebar Navigation
 function UnifiedDocsPage() {
   const { theme } = useTheme()
-  const route = window.location.hash
+  const route = getRoute()
 
   // Determine which section to show based on route
   let section = 'about' // default
-  if (route === '#/about' || route === '#/docs') section = 'about'
-  else if (route === '#/guides' || route.includes('/deployment')) section = 'deployment'
+  if (route === '/about' || route === '/docs') section = 'about'
+  else if (route === '/guides' || route.includes('/deployment')) section = 'deployment'
   else if (route.includes('/ai-agents')) section = 'ai-agents'
   else if (route.includes('/api')) section = 'api'
 
   const sections = [
-    { id: 'about', label: 'About', route: '#/docs' },
-    { id: 'ai-agents', label: 'AI Agents', route: '#/docs/ai-agents' },
-    { id: 'api', label: 'API Reference', route: '#/docs/api' },
-    { id: 'deployment', label: 'Deployment', route: '#/docs/deployment' },
+    { id: 'about', label: 'About', route: routeHref('/docs') },
+    { id: 'ai-agents', label: 'AI Agents', route: routeHref('/docs/ai-agents') },
+    { id: 'api', label: 'API Reference', route: routeHref('/docs/api') },
+    { id: 'deployment', label: 'Deployment', route: routeHref('/docs/deployment') },
   ]
 
   const sectionTitles: Record<string, string> = {
@@ -532,7 +559,7 @@ function UnifiedDocsPage() {
         height: '100vh',
         overflowY: 'auto',
       }}>
-        <a href="#/" style={{ textDecoration: 'none', color: theme.text, display: 'block', padding: '0 20px 20px' }}>
+        <a href={routeHref('/')} style={{ textDecoration: 'none', color: theme.text, display: 'block', padding: '0 20px 20px' }}>
           <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>tenant</h1>
         </a>
         <nav>
@@ -563,7 +590,7 @@ function UnifiedDocsPage() {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
             <h2 style={{ fontSize: 28, fontWeight: 600, margin: 0, color: theme.text }}>{sectionTitles[section]}</h2>
             <a
-              href="#/"
+              href={routeHref('/')}
               style={{
                 padding: '8px 16px',
                 background: theme.bgHover,
@@ -814,7 +841,7 @@ function PostPage({
   async function fetchPost() {
     setLoading(true)
     try {
-      const res = await fetch(`/api/things/${postId}`, { credentials: 'include' })
+      const res = await fetch(apiUrl(`/api/things/${postId}`), { credentials: 'include' })
       if (res.ok) {
         const data = await res.json()
         setThing(data)
@@ -832,7 +859,7 @@ function PostPage({
   async function fetchBacklinks(thingId: string) {
     setBacklinksLoading(true)
     try {
-      const res = await fetch(`/api/things/${thingId}/backlinks`, { credentials: 'include' })
+      const res = await fetch(apiUrl(`/api/things/${thingId}/backlinks`), { credentials: 'include' })
       if (res.ok) {
         const data = await res.json()
         setBacklinks(data.backlinks || [])
@@ -850,7 +877,7 @@ function PostPage({
 
   async function updateThing(updated: Thing) {
     try {
-      const res = await fetch(`/api/things/${updated.id}`, {
+      const res = await fetch(apiUrl(`/api/things/${updated.id}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updated),
@@ -886,7 +913,7 @@ function PostPage({
           >
             ←
           </button>
-          <a href="#/" style={{ textDecoration: 'none', color: theme.text }}>
+          <a href={routeHref('/')} style={{ textDecoration: 'none', color: theme.text }}>
             <h1 style={{ fontSize: isMobile ? 22 : 28, fontWeight: 700, margin: 0 }}>tenant</h1>
           </a>
         </div>
@@ -1002,8 +1029,11 @@ function App() {
   const [editingKind, setEditingKind] = useState<Kind | null>(null)
   const [uploading, setUploading] = useState(false)
 
-  const isKindsPage = route === '#/kinds'
-  const isSettingsPage = route === '#/settings' || route === '#/data' || route === '#/keys' // aliases
+  const isKindsPage = route === '/kinds'
+  const isSettingsPage = route === '/settings' || route === '/data' || route === '/keys' // aliases
+  const isFriendsPage = route === '/friends'
+  const isFeedPage = route === '/feed'
+  const isProfilePage = route === '/' || route === '' || route === '/profile'
   const isSubPage = isKindsPage || isSettingsPage
 
   // Check authentication on mount
@@ -1013,7 +1043,7 @@ function App() {
 
   // Restore scroll position when returning to feed from a post
   useEffect(() => {
-    const isFeedRoute = route === '#/' || route === ''
+    const isFeedRoute = route === '/' || route === ''
     if (isFeedRoute && !loading) {
       const savedPosition = sessionStorage.getItem('feedScrollPosition')
       if (savedPosition) {
@@ -1030,7 +1060,7 @@ function App() {
   async function checkAuth() {
     try {
       // First, check auth status to understand the instance state
-      const statusRes = await fetch('/api/auth/status', { credentials: 'include' })
+      const statusRes = await fetch(apiUrl('/api/auth/status'), { credentials: 'include' })
       console.log('[checkAuth] /api/auth/status response:', statusRes.status)
       if (statusRes.ok) {
         const status: AuthStatus = await statusRes.json()
@@ -1040,7 +1070,7 @@ function App() {
         // In sandbox mode, check if already authenticated (after clicking Enter Sandbox)
         if (status.sandboxMode) {
           console.log('[checkAuth] Sandbox mode detected, checking for existing session')
-          const res = await fetch('/api/auth/me', { credentials: 'include' })
+          const res = await fetch(apiUrl('/api/auth/me'), { credentials: 'include' })
           if (res.ok) {
             console.log('[checkAuth] Sandbox session found, setting isAuthenticated=true')
             setIsAuthenticated(true)
@@ -1061,7 +1091,7 @@ function App() {
 
       // Then check if we have a valid session
       console.log('[checkAuth] Checking /api/auth/me for session')
-      const res = await fetch('/api/auth/me', { credentials: 'include' })
+      const res = await fetch(apiUrl('/api/auth/me'), { credentials: 'include' })
       if (res.ok) {
         console.log('[checkAuth] Valid session found, setting isAuthenticated=true')
         setIsAuthenticated(true)
@@ -1077,7 +1107,7 @@ function App() {
 
   async function handleLogout() {
     try {
-      await fetch('/api/auth/logout', {
+      await fetch(apiUrl('/api/auth/logout'), {
         method: 'POST',
         credentials: 'include',
       })
@@ -1128,14 +1158,14 @@ function App() {
 
   async function initializeKinds() {
     try {
-      const res = await fetch('/api/kinds')
+      const res = await fetch(apiUrl('/api/kinds'))
       const existingKinds: Kind[] = await res.json()
 
       // Create default kinds if they don't exist
       for (const defaultKind of DEFAULT_KINDS) {
         const exists = existingKinds.some(k => k.name === defaultKind.name)
         if (!exists) {
-          const createRes = await fetch('/api/kinds', {
+          const createRes = await fetch(apiUrl('/api/kinds'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1176,7 +1206,7 @@ function App() {
 
   async function searchThings(query: string) {
     try {
-      const res = await fetch(`/api/things/search?q=${encodeURIComponent(query)}`)
+      const res = await fetch(apiUrl(`/api/things/search?q=${encodeURIComponent(query)}`))
       const data = await res.json()
       if (filterKind) {
         setThings(data.filter((t: Thing) => t.type === filterKind))
@@ -1193,7 +1223,7 @@ function App() {
     if (!newContent.trim()) return
 
     try {
-      const res = await fetch('/api/things', {
+      const res = await fetch(apiUrl('/api/things'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1215,7 +1245,7 @@ function App() {
 
   async function updateThing(thing: Thing) {
     try {
-      const res = await fetch(`/api/things/${thing.id}`, {
+      const res = await fetch(apiUrl(`/api/things/${thing.id}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(thing),
@@ -1230,7 +1260,7 @@ function App() {
 
   async function deleteThing(id: string) {
     try {
-      await fetch(`/api/things/${id}`, { method: 'DELETE' })
+      await fetch(apiUrl(`/api/things/${id}`), { method: 'DELETE' })
       setThings(things.filter(t => t.id !== id))
     } catch (err) {
       console.error('Failed to delete thing:', err)
@@ -1318,7 +1348,7 @@ function App() {
       formData.append('content', photoContent)
       formData.append('visibility', photoVisibility)
 
-      const res = await fetch('/api/upload', {
+      const res = await fetch(apiUrl('/api/upload'), {
         method: 'POST',
         body: formData,
         credentials: 'include',
@@ -1383,7 +1413,7 @@ function App() {
 
   async function createKind(kind: Partial<Kind>) {
     try {
-      const res = await fetch('/api/kinds', {
+      const res = await fetch(apiUrl('/api/kinds'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(kind),
@@ -1398,7 +1428,7 @@ function App() {
 
   async function updateKind(kind: Kind) {
     try {
-      const res = await fetch(`/api/kinds/${kind.id}`, {
+      const res = await fetch(apiUrl(`/api/kinds/${kind.id}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(kind),
@@ -1413,7 +1443,7 @@ function App() {
 
   async function deleteKind(id: string) {
     try {
-      await fetch(`/api/kinds/${id}`, { method: 'DELETE' })
+      await fetch(apiUrl(`/api/kinds/${id}`), { method: 'DELETE' })
       setKinds(kinds.filter(k => k.id !== id))
     } catch (err) {
       console.error('Failed to delete kind:', err)
@@ -1432,12 +1462,12 @@ function App() {
 
   // Public pages - accessible without authentication
   // All documentation routes now use unified docs page with sidebar
-  if (route === '#/about' || route.startsWith('#/docs') || route === '#/guides') {
+  if (route === '/about' || route.startsWith('/docs') || route === '/guides') {
     return <UnifiedDocsPage />
   }
 
   // Post detail page - requires authentication
-  const postMatch = route.match(/^#\/post\/(.+)$/)
+  const postMatch = route.match(/^\/post\/(.+)$/)
   if (postMatch && isAuthenticated) {
     const postId = postMatch[1]
     return (
@@ -1448,7 +1478,7 @@ function App() {
         isDark={isDark}
         toggleTheme={toggleTheme}
         onLogout={handleLogout}
-        onBack={() => window.location.hash = '#/'}
+        onBack={() => navigateTo('/')}
         onDelete={deleteThing}
         isMobile={isMobile}
       />
@@ -1460,16 +1490,24 @@ function App() {
     return null
   }
 
+  // Check if we're on the login page (pathname ends with /login)
+  const isLoginPage = window.location.pathname.endsWith('/login')
+
   // Show auth screen if not authenticated
   if (!isAuthenticated) {
-    return <AuthScreen onAuth={() => setIsAuthenticated(true)} authStatus={authStatus} />
+    // If explicitly on /login path, show the login form
+    if (isLoginPage) {
+      return <AuthScreen onAuth={() => setIsAuthenticated(true)} authStatus={authStatus} />
+    }
+    // Otherwise show the public home page
+    return <PublicHomePage theme={theme} onLogin={() => window.location.href = window.location.pathname + '/login'} />
   }
 
   return (
     <div style={{ maxWidth: 700, margin: '0 auto', padding: isMobile ? 12 : 20, fontFamily: 'system-ui, sans-serif', background: theme.bg, minHeight: '100vh', color: theme.text }}>
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: isMobile ? 16 : 24, gap: 8 }}>
-        <a href="#/" style={{ textDecoration: 'none', color: theme.text }}>
+        <a href={routeHref('/')} style={{ textDecoration: 'none', color: theme.text }}>
           <h1 style={{ fontSize: isMobile ? 22 : 28, fontWeight: 700, margin: 0 }}>tenant</h1>
         </a>
         <div style={{ display: 'flex', gap: isMobile ? 4 : 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -1490,7 +1528,7 @@ function App() {
           </button>
           {isSubPage ? (
             <a
-              href="#/"
+              href={routeHref('/')}
               style={{
                 padding: isMobile ? '6px 12px' : '8px 16px',
                 background: theme.accent,
@@ -1506,38 +1544,58 @@ function App() {
             </a>
           ) : (
             <>
+              {/* Main tabs: Feed, Profile, Friends */}
               <a
-                href="#/kinds"
+                href={routeHref('/feed')}
                 style={{
                   padding: isMobile ? '6px 10px' : '8px 16px',
-                  background: theme.bgHover,
-                  color: theme.textSecondary,
+                  background: isFeedPage ? theme.accent : theme.bgHover,
+                  color: isFeedPage ? theme.accentText : theme.textSecondary,
                   border: 'none',
                   borderRadius: 6,
                   fontSize: isMobile ? 13 : 14,
                   cursor: 'pointer',
                   textDecoration: 'none',
+                  fontWeight: isFeedPage ? 600 : 400,
                 }}
               >
-                {isMobile ? '📋' : 'Kinds'}
+                {isMobile ? '📰' : 'Feed'}
               </a>
               <a
-                href="#/docs"
+                href={routeHref('/')}
                 style={{
                   padding: isMobile ? '6px 10px' : '8px 16px',
-                  background: theme.bgHover,
-                  color: theme.textSecondary,
+                  background: isProfilePage ? theme.accent : theme.bgHover,
+                  color: isProfilePage ? theme.accentText : theme.textSecondary,
                   border: 'none',
                   borderRadius: 6,
                   fontSize: isMobile ? 13 : 14,
                   cursor: 'pointer',
                   textDecoration: 'none',
+                  fontWeight: isProfilePage ? 600 : 400,
                 }}
               >
-                {isMobile ? '📖' : 'Docs'}
+                {isMobile ? '👤' : 'Profile'}
               </a>
               <a
-                href="#/settings"
+                href={routeHref('/friends')}
+                style={{
+                  padding: isMobile ? '6px 10px' : '8px 16px',
+                  background: isFriendsPage ? theme.accent : theme.bgHover,
+                  color: isFriendsPage ? theme.accentText : theme.textSecondary,
+                  border: 'none',
+                  borderRadius: 6,
+                  fontSize: isMobile ? 13 : 14,
+                  cursor: 'pointer',
+                  textDecoration: 'none',
+                  fontWeight: isFriendsPage ? 600 : 400,
+                }}
+              >
+                {isMobile ? '👥' : 'Friends'}
+              </a>
+              <span style={{ color: theme.textMuted, margin: '0 4px' }}>|</span>
+              <a
+                href={routeHref('/settings')}
                 style={{
                   padding: isMobile ? '6px 10px' : '8px 16px',
                   background: theme.bgHover,
@@ -1587,6 +1645,10 @@ function App() {
             fetchThings()
           }}
         />
+      ) : isFriendsPage ? (
+        <FriendsView theme={theme} isMobile={isMobile} />
+      ) : isFeedPage ? (
+        <FeedView theme={theme} kinds={kinds} />
       ) : (
         <>
           {/* Search & Filter */}
@@ -2305,7 +2367,7 @@ function ThingCard({
     if (!isDetailView) {
       // Save scroll position before navigating
       sessionStorage.setItem('feedScrollPosition', String(window.scrollY))
-      window.location.hash = `#/post/${thing.id}`
+      navigateTo(`/post/${thing.id}`)
     }
   }
 
@@ -2379,7 +2441,7 @@ function ThingCard({
               key={linkedId}
               onClick={(e) => {
                 e.stopPropagation()
-                window.location.hash = `#/post/${linkedId}`
+                navigateTo(`/post/${linkedId}`)
               }}
               style={{
                 padding: '4px 10px',
@@ -2664,14 +2726,14 @@ function ThingCard({
               <div onClick={(e) => e.stopPropagation()} style={{ maxWidth: '100%', maxHeight: '100%', cursor: 'default', position: 'relative' }}>
                 {isVideo ? (
                   <video
-                    src={`/api/photos/${currentPhoto.id}?size=full`}
+                    src={apiUrl(`/api/photos/${currentPhoto.id}?size=full`)}
                     controls
                     autoPlay
                     style={{ maxWidth: '100vw', maxHeight: '60vh', objectFit: 'contain' }}
                   />
                 ) : (
                   <img
-                    src={`/api/photos/${currentPhoto.id}?size=full`}
+                    src={apiUrl(`/api/photos/${currentPhoto.id}?size=full`)}
                     alt={currentPhoto.caption || 'Photo'}
                     style={{ maxWidth: '100vw', maxHeight: '60vh', objectFit: 'contain' }}
                   />
@@ -2776,7 +2838,7 @@ function ThingCard({
               <div style={{ position: 'relative', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 500, maxHeight: '80vh' }}>
                 {isVideo ? (
                   <video
-                    src={`/api/photos/${currentPhoto.id}?size=full`}
+                    src={apiUrl(`/api/photos/${currentPhoto.id}?size=full`)}
                     controls
                     style={{
                       maxWidth: '100%',
@@ -2789,7 +2851,7 @@ function ThingCard({
                   />
                 ) : (
                   <img
-                    src={`/api/photos/${currentPhoto.id}?size=full`}
+                    src={apiUrl(`/api/photos/${currentPhoto.id}?size=full`)}
                     alt={currentPhoto.caption || 'Photo'}
                     style={{
                       maxWidth: '100%',
@@ -2934,7 +2996,7 @@ function ThingCard({
           <div style={{ position: 'relative', background: '#000' }}>
             {isVideo ? (
               <video
-                src={`/api/photos/${currentPhoto.id}?size=thumb`}
+                src={apiUrl(`/api/photos/${currentPhoto.id}?size=thumb`)}
                 controls
                 style={{
                   width: '100%',
@@ -2950,7 +3012,7 @@ function ThingCard({
               />
             ) : (
               <img
-                src={`/api/photos/${currentPhoto.id}?size=thumb`}
+                src={apiUrl(`/api/photos/${currentPhoto.id}?size=thumb`)}
                 alt={currentPhoto.caption || 'Photo'}
                 onClick={(e) => {
                   e.stopPropagation()
@@ -3181,7 +3243,7 @@ function LinkAttributeInput({
   useEffect(() => {
     const fetchThings = async () => {
       try {
-        const res = await fetch('/api/things', { credentials: 'include' })
+        const res = await fetch(apiUrl('/api/things'), { credentials: 'include' })
         const data = await res.json()
         setAvailableThings(data || [])
       } catch (err) {
@@ -3748,7 +3810,7 @@ function DataPanel({
 
   async function fetchAPIKeys() {
     try {
-      const res = await fetch('/api/keys', { credentials: 'include' })
+      const res = await fetch(apiUrl('/api/keys'), { credentials: 'include' })
       if (res.ok) {
         const data = await res.json()
         setApiKeys(data.keys || [])
@@ -3764,7 +3826,7 @@ function DataPanel({
     if (!newKeyName.trim()) return
 
     try {
-      const res = await fetch('/api/keys', {
+      const res = await fetch(apiUrl('/api/keys'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -3791,7 +3853,7 @@ function DataPanel({
     if (!confirm('Delete this API key? This cannot be undone.')) return
 
     try {
-      await fetch(`/api/keys/${id}`, {
+      await fetch(apiUrl(`/api/keys/${id}`), {
         method: 'DELETE',
         credentials: 'include',
       })
@@ -3813,7 +3875,7 @@ function DataPanel({
     setExporting(true)
     setMessage(null)
     try {
-      const res = await fetch('/api/export', { credentials: 'include' })
+      const res = await fetch(apiUrl('/api/export'), { credentials: 'include' })
       if (!res.ok) throw new Error('Export failed')
 
       const blob = await res.blob()
@@ -3843,7 +3905,7 @@ function DataPanel({
     setMessage(null)
     try {
       const text = await file.text()
-      const res = await fetch('/api/import', {
+      const res = await fetch(apiUrl('/api/import'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -4254,7 +4316,7 @@ function EditThingModal({
     try {
       // Delete photos that were marked for deletion
       for (const photoId of deletedPhotoIds) {
-        await fetch(`/api/photos/${photoId}`, {
+        await fetch(apiUrl(`/api/photos/${photoId}`), {
           method: 'DELETE',
           credentials: 'include',
         })
@@ -4268,7 +4330,7 @@ function EditThingModal({
 
           const newCaption = photoCaptions[photo.id] || ''
           if (newCaption !== (photo.caption || '')) {
-            await fetch(`/api/photos/${photo.id}`, {
+            await fetch(apiUrl(`/api/photos/${photo.id}`), {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ caption: newCaption }),
@@ -4388,7 +4450,7 @@ function EditThingModal({
                 {visiblePhotos.map((photo, index) => (
                   <div key={photo.id} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                     <img
-                      src={`/api/photos/${photo.id}?size=thumb`}
+                      src={apiUrl(`/api/photos/${photo.id}?size=thumb`)}
                       alt={`Photo ${index + 1}`}
                       style={{
                         width: 60,
@@ -4701,6 +4763,743 @@ function EditKindModal({
           </div>
         </form>
       </div>
+    </div>
+  )
+}
+
+// Friends Management View
+function FriendsView({
+  theme,
+  isMobile,
+}: {
+  theme: Theme
+  isMobile: boolean
+}) {
+  const [following, setFollowing] = useState<Follow[]>([])
+  const [followers, setFollowers] = useState<Follow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [friendUrl, setFriendUrl] = useState('')
+  const [adding, setAdding] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
+  const [mutuals, setMutuals] = useState<Follow[]>([])
+
+  // Convert endpoint to full clickable URL
+  function getFullUrl(endpoint: string): string {
+    if (endpoint.startsWith('http://') || endpoint.startsWith('https://')) {
+      return endpoint
+    }
+    // For relative paths like /sandbox, use current origin
+    return `${window.location.origin}${endpoint}`
+  }
+
+  // Fetch following, followers, and mutuals on mount
+  useEffect(() => {
+    fetchFollows()
+  }, [])
+
+  async function fetchFollows() {
+    setLoading(true)
+    try {
+      // Get our user info first
+      const authRes = await fetch(apiUrl('/api/auth/status'), { credentials: 'include' })
+      const authData = await authRes.json()
+      const myUserId = authData.user?.id
+
+      const [followingRes, followersRes] = await Promise.all([
+        fetch(apiUrl('/api/follows/following'), { credentials: 'include' }),
+        fetch(apiUrl('/api/follows/followers'), { credentials: 'include' }),
+      ])
+
+      let followingList: Follow[] = []
+      if (followingRes.ok) {
+        const data = await followingRes.json()
+        followingList = data.data || []
+        setFollowing(followingList)
+      }
+      if (followersRes.ok) {
+        const data = await followersRes.json()
+        setFollowers(data.data || [])
+      }
+
+      // Check mutuals by asking each followed user if they follow us back
+      if (myUserId && followingList.length > 0) {
+        const mutualChecks = await Promise.all(
+          followingList.map(async (follow) => {
+            try {
+              // Build the URL to check if they follow us
+              const checkUrl = follow.remote_endpoint.startsWith('http')
+                ? `${follow.remote_endpoint}/api/public/follows/${myUserId}`
+                : `${window.location.origin}${follow.remote_endpoint}/api/public/follows/${myUserId}`
+
+              const res = await fetch(checkUrl, { credentials: 'omit' })
+              if (res.ok) {
+                const data = await res.json()
+                return data.data === true ? follow : null
+              }
+            } catch (e) {
+              console.warn(`Failed to check mutual for ${follow.remote_endpoint}:`, e)
+            }
+            return null
+          })
+        )
+        setMutuals(mutualChecks.filter((f): f is Follow => f !== null))
+      }
+    } catch (err) {
+      console.error('Failed to fetch follows:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Normalize friend URL
+  function normalizeEndpoint(input: string): string {
+    let endpoint = input.trim()
+
+    // If it's just a username (no slashes or protocol), add leading slash
+    if (!endpoint.includes('/') && !endpoint.includes(':')) {
+      endpoint = '/' + endpoint
+    }
+
+    // If it starts with http, it's a full URL - keep as is
+    if (endpoint.startsWith('http://') || endpoint.startsWith('https://')) {
+      // Remove trailing slash
+      return endpoint.replace(/\/$/, '')
+    }
+
+    // Otherwise it's a relative path - ensure it starts with /
+    if (!endpoint.startsWith('/')) {
+      endpoint = '/' + endpoint
+    }
+
+    // Remove trailing slash
+    return endpoint.replace(/\/$/, '')
+  }
+
+  async function addFriend(e: Event) {
+    e.preventDefault()
+    if (!friendUrl.trim()) return
+
+    setAdding(true)
+    setError(null)
+    setSuccess(null)
+
+    try {
+      // Step 0: Get current user's ID and verify logged in
+      const authRes = await fetch(apiUrl('/api/auth/status'), { credentials: 'include' })
+      const authData = await authRes.json()
+      const myUserId = authData.user?.id
+
+      if (!myUserId) {
+        throw new Error('You must be logged in to follow users')
+      }
+
+      const endpoint = normalizeEndpoint(friendUrl)
+
+      // Prevent following your own instance
+      const currentOrigin = window.location.origin
+      if (endpoint === currentOrigin) {
+        throw new Error('You cannot follow your own instance')
+      }
+
+      // Step 1: Fetch the remote user's public profile to get their user_id
+      const profileUrl = endpoint.startsWith('http')
+        ? `${endpoint}/api/public/profile`
+        : `${endpoint}/api/public/profile`
+
+      const profileRes = await fetch(profileUrl, { credentials: 'omit' })
+      if (!profileRes.ok) {
+        throw new Error('Could not find user at that address')
+      }
+
+      const profile: RemoteProfile = await profileRes.json()
+
+      // Step 2: Create a follow token (must be logged in)
+      const tokenRes = await fetch(apiUrl('/api/follows/create-token'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+      })
+
+      if (!tokenRes.ok) {
+        throw new Error('Failed to create follow token - are you logged in?')
+      }
+
+      const tokenData = await tokenRes.json()
+      const followToken = tokenData.data?.follow_token
+
+      if (!followToken) {
+        throw new Error('Failed to obtain follow token')
+      }
+
+      // Step 3: Send follow request to remote instance with the token
+      const notifyUrl = `${endpoint}/api/fed/notify-follow`
+      const notifyRes = await fetch(notifyUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'omit',
+        body: JSON.stringify({
+          follower_user_id: myUserId,
+          follower_endpoint: window.location.origin,
+          follow_token: followToken,
+        }),
+      })
+
+      if (!notifyRes.ok) {
+        const data = await notifyRes.json()
+        throw new Error(data.error || 'Remote instance rejected follow request')
+      }
+
+      setSuccess(`Now following ${profile.username || profile.display_name}!`)
+      setFriendUrl('')
+      fetchFollows()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to add friend')
+    } finally {
+      setAdding(false)
+    }
+  }
+
+  async function unfollowUser(userId: string) {
+    try {
+      const res = await fetch(apiUrl(`/api/follows/${userId}`), {
+        method: 'DELETE',
+        credentials: 'include',
+      })
+
+      if (res.ok) {
+        setFollowing(prev => prev.filter(f => f.following_id !== userId))
+        setSuccess('Unfollowed successfully')
+      }
+    } catch (err) {
+      setError('Failed to unfollow')
+    }
+  }
+
+  return (
+    <div>
+      <h2 style={{ fontSize: 20, margin: '0 0 16px', color: theme.text }}>Friends</h2>
+
+      {/* Mutuals Section - Real Friends */}
+      {mutuals.length > 0 && (
+        <div style={{
+          padding: 20,
+          background: theme.bgCard,
+          borderRadius: 12,
+          border: `1px solid ${theme.accent}`,
+          marginBottom: 24,
+        }}>
+          <h3 style={{ fontSize: 16, margin: '0 0 16px', color: theme.accent }}>
+            Mutuals ({mutuals.length})
+          </h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {mutuals.map(follow => (
+              <div
+                key={follow.id}
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  padding: '12px 16px',
+                  background: theme.bgHover,
+                  borderRadius: 8,
+                }}
+              >
+                <div>
+                  <a
+                    href={getFullUrl(follow.remote_endpoint)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ fontWeight: 500, color: theme.link, textDecoration: 'none' }}
+                  >
+                    {getFullUrl(follow.remote_endpoint)}
+                  </a>
+                  <div style={{ fontSize: 12, color: theme.textMuted }}>
+                    Friends since {new Date(follow.created_at).toLocaleDateString()}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Add Friend Section */}
+      <div style={{
+        padding: 20,
+        background: theme.bgCard,
+        borderRadius: 12,
+        border: `1px solid ${theme.border}`,
+        marginBottom: 24,
+      }}>
+        <h3 style={{ fontSize: 16, margin: '0 0 8px', color: theme.text }}>Add Friend</h3>
+        <p style={{ fontSize: 14, color: theme.textMuted, margin: '0 0 16px' }}>
+          Enter a username or URL to follow someone.
+        </p>
+
+        <form onSubmit={addFriend} style={{ display: 'flex', gap: 8, flexDirection: isMobile ? 'column' : 'row' }}>
+          <input
+            type="text"
+            value={friendUrl}
+            onInput={e => setFriendUrl((e.target as HTMLInputElement).value)}
+            placeholder="bob or /bob or http://tenant.social/alice"
+            style={{
+              flex: 1,
+              padding: '10px 14px',
+              border: `1px solid ${theme.borderInput}`,
+              borderRadius: 6,
+              fontSize: 14,
+              background: theme.bgInput,
+              color: theme.text,
+            }}
+          />
+          <button
+            type="submit"
+            disabled={adding || !friendUrl.trim()}
+            style={{
+              padding: '10px 20px',
+              background: adding ? theme.textDisabled : theme.accent,
+              color: adding ? theme.textSubtle : theme.accentText,
+              border: 'none',
+              borderRadius: 6,
+              cursor: adding ? 'not-allowed' : 'pointer',
+              fontSize: 14,
+              fontWeight: 500,
+            }}
+          >
+            {adding ? 'Adding...' : 'Add Friend'}
+          </button>
+        </form>
+
+        {error && (
+          <p style={{ color: '#ef4444', fontSize: 14, margin: '12px 0 0' }}>{error}</p>
+        )}
+        {success && (
+          <p style={{ color: '#22c55e', fontSize: 14, margin: '12px 0 0' }}>{success}</p>
+        )}
+      </div>
+
+      {/* Following Section */}
+      <div style={{
+        padding: 20,
+        background: theme.bgCard,
+        borderRadius: 12,
+        border: `1px solid ${theme.border}`,
+        marginBottom: 16,
+      }}>
+        <h3 style={{ fontSize: 16, margin: '0 0 16px', color: theme.text }}>
+          Following ({following.length})
+        </h3>
+
+        {loading ? (
+          <p style={{ color: theme.textMuted, fontSize: 14 }}>Loading...</p>
+        ) : following.length === 0 ? (
+          <p style={{ color: theme.textMuted, fontSize: 14 }}>
+            You're not following anyone yet. Add a friend above!
+          </p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {following.map(follow => (
+              <div
+                key={follow.id}
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  padding: '12px 16px',
+                  background: theme.bgHover,
+                  borderRadius: 8,
+                }}
+              >
+                <div>
+                  <a
+                    href={getFullUrl(follow.remote_endpoint)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ fontWeight: 500, color: theme.link, textDecoration: 'none' }}
+                  >
+                    {getFullUrl(follow.remote_endpoint)}
+                  </a>
+                  <div style={{ fontSize: 12, color: theme.textMuted }}>
+                    Since {new Date(follow.created_at).toLocaleDateString()}
+                  </div>
+                </div>
+                <button
+                  onClick={() => unfollowUser(follow.following_id)}
+                  style={{
+                    padding: '6px 12px',
+                    background: 'transparent',
+                    color: theme.textMuted,
+                    border: `1px solid ${theme.border}`,
+                    borderRadius: 6,
+                    cursor: 'pointer',
+                    fontSize: 13,
+                  }}
+                >
+                  Unfollow
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Followers Section */}
+      <div style={{
+        padding: 20,
+        background: theme.bgCard,
+        borderRadius: 12,
+        border: `1px solid ${theme.border}`,
+      }}>
+        <h3 style={{ fontSize: 16, margin: '0 0 16px', color: theme.text }}>
+          Followers ({followers.length})
+        </h3>
+
+        {loading ? (
+          <p style={{ color: theme.textMuted, fontSize: 14 }}>Loading...</p>
+        ) : followers.length === 0 ? (
+          <p style={{ color: theme.textMuted, fontSize: 14 }}>
+            No one is following you yet.
+          </p>
+        ) : (() => {
+          // Categorize followers as active (confirmed in last 30 days) vs lapsed
+          const now = new Date()
+          const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+
+          const activeFollowers = followers.filter(f => {
+            if (!f.last_confirmed_at) return false
+            const confirmedDate = new Date(f.last_confirmed_at)
+            return confirmedDate > thirtyDaysAgo
+          })
+
+          const lapsedFollowers = followers.filter(f => {
+            if (!f.last_confirmed_at) return true
+            const confirmedDate = new Date(f.last_confirmed_at)
+            return confirmedDate <= thirtyDaysAgo
+          })
+
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {/* Active Followers */}
+              {activeFollowers.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: theme.accent, marginBottom: 8 }}>
+                    Active ({activeFollowers.length})
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {activeFollowers.map(follow => (
+                      <div
+                        key={follow.id}
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          padding: '12px 16px',
+                          background: theme.bgHover,
+                          borderRadius: 8,
+                          borderLeft: `3px solid ${theme.accent}`,
+                        }}
+                      >
+                        <div>
+                          <a
+                            href={getFullUrl(follow.remote_endpoint)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ fontWeight: 500, color: theme.link, textDecoration: 'none' }}
+                          >
+                            {getFullUrl(follow.remote_endpoint)}
+                          </a>
+                          <div style={{ fontSize: 12, color: theme.textMuted }}>
+                            Following since {new Date(follow.created_at).toLocaleDateString()} · Confirmed {new Date(follow.last_confirmed_at!).toLocaleDateString()}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Lapsed Followers */}
+              {lapsedFollowers.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: theme.textMuted, marginBottom: 8 }}>
+                    Lapsed ({lapsedFollowers.length})
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {lapsedFollowers.map(follow => (
+                      <div
+                        key={follow.id}
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          padding: '12px 16px',
+                          background: theme.bgHover,
+                          borderRadius: 8,
+                          opacity: 0.7,
+                        }}
+                      >
+                        <div>
+                          <a
+                            href={getFullUrl(follow.remote_endpoint)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ fontWeight: 500, color: theme.link, textDecoration: 'none' }}
+                          >
+                            {getFullUrl(follow.remote_endpoint)}
+                          </a>
+                          <div style={{ fontSize: 12, color: theme.textMuted }}>
+                            Following since {new Date(follow.created_at).toLocaleDateString()}
+                            {follow.last_confirmed_at ? ` · Last confirmed ${new Date(follow.last_confirmed_at).toLocaleDateString()}` : ' · Never confirmed'}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )
+        })()}
+      </div>
+    </div>
+  )
+}
+
+// Friends Feed View
+function FeedView({
+  theme,
+  kinds,
+}: {
+  theme: Theme
+  kinds: Kind[]
+}) {
+  const [feedItems, setFeedItems] = useState<FriendFeedItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetchFeed()
+  }, [])
+
+  async function fetchFeed() {
+    setLoading(true)
+    setError(null)
+    try {
+      // Get current user info for requester params (enables passive follow confirmation)
+      const authRes = await fetch(apiUrl('/api/auth/check'), { credentials: 'include' })
+      const authData = authRes.ok ? await authRes.json() : null
+      const myUserId = authData?.user?.id
+      const myEndpoint = window.location.origin
+
+      // Get list of people we're following
+      const followingRes = await fetch(apiUrl('/api/follows/following'), { credentials: 'include' })
+      if (!followingRes.ok) {
+        setError('Failed to load following list')
+        return
+      }
+      const followingData = await followingRes.json()
+      const followingList: Follow[] = followingData.data || []
+
+      if (followingList.length === 0) {
+        setFeedItems([])
+        return
+      }
+
+      // Fetch content from each followed user's endpoint
+      // Include requester info so they can update last_confirmed_at (passive follow confirmation)
+      const allItems: FriendFeedItem[] = []
+      await Promise.all(
+        followingList.map(async (follow) => {
+          try {
+            const baseUrl = follow.remote_endpoint.startsWith('http')
+              ? follow.remote_endpoint
+              : `${window.location.origin}${follow.remote_endpoint}`
+
+            // Build URL with requester info for passive confirmation
+            const params = new URLSearchParams({ limit: '20' })
+            if (myUserId) {
+              params.set('requester_id', myUserId)
+              params.set('requester_endpoint', myEndpoint)
+            }
+
+            const url = `${baseUrl}/api/fed/things/${follow.following_id}?${params}`
+            const res = await fetch(url, { credentials: 'omit' })
+
+            if (res.ok) {
+              const data = await res.json()
+              const items = data.data || []
+              // Add owner info to each item
+              items.forEach((item: Thing) => {
+                allItems.push({
+                  ...item,
+                  owner_endpoint: baseUrl,
+                  owner_username: follow.following_id,
+                })
+              })
+            }
+          } catch (e) {
+            console.warn(`Failed to fetch from ${follow.remote_endpoint}:`, e)
+          }
+        })
+      )
+
+      // Sort by created_at descending (newest first)
+      allItems.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      setFeedItems(allItems)
+    } catch (err) {
+      console.error('Failed to fetch feed:', err)
+      setError('Failed to load feed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function getKind(typeName: string): Kind | undefined {
+    return kinds.find(k => k.name === typeName)
+  }
+
+  function formatDate(dateStr: string): string {
+    const date = new Date(dateStr)
+    const now = new Date()
+    const diffMs = now.getTime() - date.getTime()
+    const diffMins = Math.floor(diffMs / 60000)
+    const diffHours = Math.floor(diffMs / 3600000)
+    const diffDays = Math.floor(diffMs / 86400000)
+
+    if (diffMins < 1) return 'just now'
+    if (diffMins < 60) return `${diffMins}m ago`
+    if (diffHours < 24) return `${diffHours}h ago`
+    if (diffDays < 7) return `${diffDays}d ago`
+    return date.toLocaleDateString()
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <h2 style={{ fontSize: 20, margin: 0, color: theme.text }}>Feed</h2>
+        <button
+          onClick={fetchFeed}
+          style={{
+            padding: '6px 12px',
+            background: theme.bgHover,
+            color: theme.textSecondary,
+            border: 'none',
+            borderRadius: 6,
+            cursor: 'pointer',
+            fontSize: 13,
+          }}
+        >
+          Refresh
+        </button>
+      </div>
+
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: 40, color: theme.textMuted }}>
+          Loading feed...
+        </div>
+      ) : error ? (
+        <div style={{ textAlign: 'center', padding: 40, color: '#ef4444' }}>
+          {error}
+        </div>
+      ) : feedItems.length === 0 ? (
+        <div style={{
+          textAlign: 'center',
+          padding: 40,
+          background: theme.bgCard,
+          borderRadius: 12,
+          border: `1px solid ${theme.border}`,
+        }}>
+          <p style={{ color: theme.textMuted, fontSize: 16, margin: '0 0 8px' }}>
+            Your feed is empty
+          </p>
+          <p style={{ color: theme.textSubtle, fontSize: 14, margin: 0 }}>
+            Follow some friends to see their posts here!
+          </p>
+          <a
+            href={routeHref('/friends')}
+            style={{
+              display: 'inline-block',
+              marginTop: 16,
+              padding: '10px 20px',
+              background: theme.accent,
+              color: theme.accentText,
+              borderRadius: 6,
+              textDecoration: 'none',
+              fontSize: 14,
+              fontWeight: 500,
+            }}
+          >
+            Add Friends
+          </a>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {feedItems.map(item => {
+            const kind = getKind(item.type)
+            return (
+              <div
+                key={item.id}
+                style={{
+                  padding: 16,
+                  background: theme.bgCard,
+                  borderRadius: 12,
+                  border: `1px solid ${theme.border}`,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 18 }}>{kind?.icon || '📝'}</span>
+                    {item.owner_endpoint && (
+                      <a
+                        href={item.owner_endpoint}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ color: theme.link, textDecoration: 'none', fontWeight: 500 }}
+                      >
+                        {item.owner_username || item.owner_endpoint}
+                      </a>
+                    )}
+                  </div>
+                  <span style={{ fontSize: 12, color: theme.textMuted }}>
+                    {formatDate(item.created_at)}
+                  </span>
+                </div>
+
+                <div style={{ color: theme.text, lineHeight: 1.6 }}>
+                  {item.content}
+                </div>
+
+                {/* Photos */}
+                {item.photos && item.photos.length > 0 && (
+                  <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {item.photos.slice(0, 4).map(photo => (
+                      <img
+                        key={photo.id}
+                        src={item.owner_endpoint
+                          ? `${item.owner_endpoint}/api/photos/${photo.id}?size=thumb`
+                          : apiUrl(`/api/photos/${photo.id}?size=thumb`)
+                        }
+                        alt={photo.caption || ''}
+                        style={{
+                          width: item.photos!.length === 1 ? '100%' : 'calc(50% - 4px)',
+                          maxHeight: 200,
+                          objectFit: 'cover',
+                          borderRadius: 8,
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
+
+                <div style={{ marginTop: 8, fontSize: 12, color: theme.textMuted }}>
+                  {item.visibility === 'public' ? '🌐 Public' : '👥 Friends'}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

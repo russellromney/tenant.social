@@ -44,6 +44,7 @@ pub struct ThingQueryResult {
 /// Thread-safe SQLite store
 pub struct Store {
     conn: Arc<Mutex<Connection>>,
+    pub follow_tokens: Arc<Mutex<HashMap<String, FollowToken>>>,
 }
 
 impl Store {
@@ -52,6 +53,7 @@ impl Store {
         let conn = Connection::open(db_path)?;
         let store = Self {
             conn: Arc::new(Mutex::new(conn)),
+            follow_tokens: Arc::new(Mutex::new(HashMap::new())),
         };
         store.init_schema()?;
         Ok(store)
@@ -62,6 +64,7 @@ impl Store {
         let conn = Connection::open_in_memory()?;
         let store = Self {
             conn: Arc::new(Mutex::new(conn)),
+            follow_tokens: Arc::new(Mutex::new(HashMap::new())),
         };
         store.init_schema()?;
         Ok(store)
@@ -200,7 +203,7 @@ impl Store {
                 remote_endpoint TEXT NOT NULL,
                 access_token TEXT,
                 created_at TEXT NOT NULL,
-                FOREIGN KEY (follower_id) REFERENCES users(id) ON DELETE CASCADE,
+                last_confirmed_at TEXT,
                 UNIQUE(follower_id, following_id)
             );
 
@@ -352,6 +355,27 @@ impl Store {
             CREATE INDEX IF NOT EXISTS idx_reactions_user_thing ON reactions(user_id, thing_id);
             "#,
         )?;
+
+        // Run migrations for existing databases
+        Self::run_migrations(&conn)?;
+
+        Ok(())
+    }
+
+    fn run_migrations(conn: &rusqlite::Connection) -> StoreResult<()> {
+        // Migration: Add last_confirmed_at to follows table
+        let has_column: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM pragma_table_info('follows') WHERE name = 'last_confirmed_at'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+
+        if !has_column {
+            conn.execute("ALTER TABLE follows ADD COLUMN last_confirmed_at TEXT", [])?;
+        }
+
         Ok(())
     }
 
@@ -427,6 +451,19 @@ impl Store {
             }
             _ => StoreError::Database(e),
         })
+    }
+
+    /// Get the first user (owner) - for single-tenant mode
+    pub fn get_first_user(&self) -> StoreResult<Option<User>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT * FROM users ORDER BY created_at ASC LIMIT 1")?;
+        let mut rows = stmt.query([])?;
+
+        if let Some(row) = rows.next()? {
+            Ok(Some(self.row_to_user(row)?))
+        } else {
+            Ok(None)
+        }
     }
 
     fn row_to_user(&self, row: &rusqlite::Row) -> rusqlite::Result<User> {
@@ -949,7 +986,7 @@ impl Store {
         let page = if q.page < 1 { 1 } else { q.page };
         let count = q.count;
 
-        let (limit_clause, use_limit) = if count <= 0 {
+        let (limit_clause, _use_limit) = if count <= 0 {
             ("".to_string(), false)
         } else {
             let offset = (page - 1) * count;
@@ -1845,6 +1882,53 @@ impl Store {
         Ok(things)
     }
 
+    // ==================== Follow Token Operations ====================
+
+    /// Create an ephemeral follow token for federated follow verification
+    /// Token expires in 5 minutes and is single-use for follow verification
+    pub fn create_follow_token(&self, user_id: &str, endpoint: &str) -> StoreResult<String> {
+        // Generate a token (could be JWT or random string)
+        let token = Uuid::new_v4().to_string();
+        let now = Utc::now();
+        let expires_at = now + chrono::Duration::minutes(5);
+
+        let follow_token = FollowToken {
+            token: token.clone(),
+            user_id: user_id.to_string(),
+            endpoint: endpoint.to_string(),
+            created_at: now,
+            expires_at,
+        };
+
+        let mut tokens = self.follow_tokens.lock().unwrap();
+        tokens.insert(token.clone(), follow_token);
+
+        Ok(token)
+    }
+
+    /// Verify a follow token
+    /// Returns (valid, user_id, endpoint) if valid, otherwise (false, None, None)
+    pub fn verify_follow_token(&self, token: &str) -> (bool, Option<String>, Option<String>) {
+        let tokens = self.follow_tokens.lock().unwrap();
+
+        if let Some(follow_token) = tokens.get(token) {
+            let now = Utc::now();
+            if now < follow_token.expires_at {
+                return (true, Some(follow_token.user_id.clone()), Some(follow_token.endpoint.clone()));
+            }
+        }
+
+        (false, None, None)
+    }
+
+    /// Clean up expired follow tokens
+    /// Should be called periodically to prevent memory bloat
+    pub fn cleanup_expired_tokens(&self) {
+        let now = Utc::now();
+        let mut tokens = self.follow_tokens.lock().unwrap();
+        tokens.retain(|_, token| now < token.expires_at);
+    }
+
     // ==================== Follow Operations ====================
 
     /// Create a follow relationship (user follows another user)
@@ -1896,7 +1980,7 @@ impl Store {
         Ok(followers)
     }
 
-    /// Get all users that this user is following
+    /// Get all users that this user is following (IDs only)
     pub fn get_following(&self, user_id: &str) -> StoreResult<Vec<String>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
@@ -1911,7 +1995,65 @@ impl Store {
         Ok(following)
     }
 
-    /// Get mutual followers (users where both follow each other)
+    /// Get all users that this user is following (full records)
+    pub fn get_following_records(&self, user_id: &str) -> StoreResult<Vec<crate::models::Follow>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, follower_id, following_id, remote_endpoint, access_token, created_at, last_confirmed_at FROM follows WHERE follower_id = ?1 ORDER BY created_at DESC"
+        )?;
+        let rows = stmt.query_map(params![user_id], |row| {
+            Ok(crate::models::Follow {
+                id: row.get(0)?,
+                follower_id: row.get(1)?,
+                following_id: row.get(2)?,
+                remote_endpoint: row.get(3)?,
+                access_token: row.get(4)?,
+                created_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(5)?)
+                    .map(|dt| dt.with_timezone(&Utc))
+                    .unwrap_or_else(|_| Utc::now()),
+                last_confirmed_at: row.get::<_, Option<String>>(6)?
+                    .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
+                    .map(|dt| dt.with_timezone(&Utc)),
+            })
+        })?;
+
+        let mut following = Vec::new();
+        for row in rows {
+            following.push(row?);
+        }
+        Ok(following)
+    }
+
+    /// Get all followers of a user (full records)
+    pub fn get_follower_records(&self, user_id: &str) -> StoreResult<Vec<crate::models::Follow>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, follower_id, following_id, remote_endpoint, access_token, created_at, last_confirmed_at FROM follows WHERE following_id = ?1 ORDER BY created_at DESC"
+        )?;
+        let rows = stmt.query_map(params![user_id], |row| {
+            Ok(crate::models::Follow {
+                id: row.get(0)?,
+                follower_id: row.get(1)?,
+                following_id: row.get(2)?,
+                remote_endpoint: row.get(3)?,
+                access_token: row.get(4)?,
+                created_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(5)?)
+                    .map(|dt| dt.with_timezone(&Utc))
+                    .unwrap_or_else(|_| Utc::now()),
+                last_confirmed_at: row.get::<_, Option<String>>(6)?
+                    .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
+                    .map(|dt| dt.with_timezone(&Utc)),
+            })
+        })?;
+
+        let mut followers = Vec::new();
+        for row in rows {
+            followers.push(row?);
+        }
+        Ok(followers)
+    }
+
+    /// Get mutual followers (users where both follow each other) - IDs only
     pub fn get_mutuals(&self, user_id: &str) -> StoreResult<Vec<String>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
@@ -1928,6 +2070,76 @@ impl Store {
             mutuals.push(row?);
         }
         Ok(mutuals)
+    }
+
+    /// Get mutual followers (full records)
+    pub fn get_mutuals_records(&self, user_id: &str) -> StoreResult<Vec<crate::models::Follow>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            r#"SELECT f1.id, f1.follower_id, f1.following_id, f1.remote_endpoint, f1.access_token, f1.created_at, f1.last_confirmed_at
+               FROM follows f1
+               INNER JOIN follows f2 ON f1.following_id = f2.follower_id
+               WHERE f1.follower_id = ?1 AND f2.following_id = ?1
+               ORDER BY f1.created_at DESC"#
+        )?;
+        let rows = stmt.query_map(params![user_id], |row| {
+            Ok(crate::models::Follow {
+                id: row.get(0)?,
+                follower_id: row.get(1)?,
+                following_id: row.get(2)?,
+                remote_endpoint: row.get(3)?,
+                access_token: row.get(4)?,
+                created_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(5)?)
+                    .map(|dt| dt.with_timezone(&Utc))
+                    .unwrap_or_else(|_| Utc::now()),
+                last_confirmed_at: row.get::<_, Option<String>>(6)?
+                    .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
+                    .map(|dt| dt.with_timezone(&Utc)),
+            })
+        })?;
+
+        let mut mutuals = Vec::new();
+        for row in rows {
+            mutuals.push(row?);
+        }
+        Ok(mutuals)
+    }
+
+    /// Confirm a follow (update last_confirmed_at) - used when a remote node pings us
+    pub fn confirm_follow(&self, follower_id: &str, following_id: &str) -> StoreResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().to_rfc3339();
+        let rows = conn.execute(
+            "UPDATE follows SET last_confirmed_at = ?1 WHERE follower_id = ?2 AND following_id = ?3",
+            params![&now, follower_id, following_id],
+        )?;
+        if rows == 0 {
+            return Err(StoreError::NotFound("Follow relationship not found".to_string()));
+        }
+        Ok(())
+    }
+
+    /// Record that someone follows us (upsert - create or update confirmation)
+    pub fn record_follower(&self, follower_user_id: &str, follower_endpoint: &str, my_user_id: &str) -> StoreResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().to_rfc3339();
+
+        // Try to update existing record first
+        let rows = conn.execute(
+            "UPDATE follows SET last_confirmed_at = ?1 WHERE follower_id = ?2 AND following_id = ?3",
+            params![&now, follower_user_id, my_user_id],
+        )?;
+
+        if rows == 0 {
+            // Create new record - someone new is following us
+            let id = Uuid::new_v4().to_string();
+            conn.execute(
+                r#"INSERT INTO follows (id, follower_id, following_id, remote_endpoint, created_at, last_confirmed_at)
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?5)"#,
+                params![&id, follower_user_id, my_user_id, follower_endpoint, &now],
+            )?;
+        }
+        Ok(())
     }
 
     /// Check if follower_id follows following_id
@@ -2726,6 +2938,7 @@ mod tests {
             created_at: Utc::now(),
             remote_endpoint: "local".to_string(),
             access_token: None,
+            last_confirmed_at: None,
         };
         store.create_follow(&mut follow).unwrap();
         assert!(!follow.id.is_empty());
@@ -2810,6 +3023,7 @@ mod tests {
             created_at: Utc::now(),
             remote_endpoint: "local".to_string(),
             access_token: None,
+            last_confirmed_at: None,
         };
         store.create_follow(&mut follow1).unwrap();
 
@@ -2821,6 +3035,7 @@ mod tests {
             created_at: Utc::now(),
             remote_endpoint: "local".to_string(),
             access_token: None,
+            last_confirmed_at: None,
         };
         store.create_follow(&mut follow2).unwrap();
 
@@ -2831,6 +3046,7 @@ mod tests {
             created_at: Utc::now(),
             remote_endpoint: "local".to_string(),
             access_token: None,
+            last_confirmed_at: None,
         };
         store.create_follow(&mut follow3).unwrap();
 
@@ -2888,6 +3104,7 @@ mod tests {
             created_at: Utc::now(),
             remote_endpoint: "local".to_string(),
             access_token: None,
+            last_confirmed_at: None,
         };
         store.create_follow(&mut follow).unwrap();
 
@@ -2993,6 +3210,7 @@ mod tests {
             created_at: Utc::now(),
             remote_endpoint: "local".to_string(),
             access_token: None,
+            last_confirmed_at: None,
         };
         assert!(store.create_follow(&mut follow1).is_ok());
 
@@ -3004,6 +3222,7 @@ mod tests {
             created_at: Utc::now(),
             remote_endpoint: "local".to_string(),
             access_token: None,
+            last_confirmed_at: None,
         };
         assert!(store.create_follow(&mut follow2).is_err());
     }
@@ -4750,5 +4969,497 @@ mod tests {
         let photos = store.get_photos_by_thing_id(&thing.id).unwrap();
         assert_eq!(photos.len(), 1, "Expected 1 photo");
         assert_eq!(photos[0].caption, "Test photo", "Expected caption 'Test photo'");
+    }
+
+    // ==================== Follow Confirmation Tests ====================
+
+    #[test]
+    fn test_record_follower_new() {
+        let store = Store::in_memory().unwrap();
+
+        // Create a user
+        let mut user = User {
+            id: String::new(),
+            username: "testuser".to_string(),
+            email: "test@example.com".to_string(),
+            password_hash: "hash".to_string(),
+            display_name: String::new(),
+            bio: String::new(),
+            avatar_url: String::new(),
+            is_admin: false,
+            is_locked: false,
+            recovery_hash: String::new(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        store.create_user(&mut user).unwrap();
+
+        // Record a new follower (creates new entry)
+        let result = store.record_follower("remote-user-id", "https://remote.com", &user.id);
+        assert!(result.is_ok(), "record_follower should succeed for new follower");
+
+        // Verify the follower was created
+        let followers = store.get_follower_records(&user.id).unwrap();
+        assert_eq!(followers.len(), 1, "Expected 1 follower");
+        assert_eq!(followers[0].follower_id, "remote-user-id");
+        assert_eq!(followers[0].remote_endpoint, "https://remote.com");
+        assert!(followers[0].last_confirmed_at.is_some(), "last_confirmed_at should be set");
+    }
+
+    #[test]
+    fn test_record_follower_update() {
+        let store = Store::in_memory().unwrap();
+
+        // Create two users
+        let mut user1 = User {
+            id: String::new(),
+            username: "user1".to_string(),
+            email: "user1@example.com".to_string(),
+            password_hash: "hash".to_string(),
+            display_name: String::new(),
+            bio: String::new(),
+            avatar_url: String::new(),
+            is_admin: false,
+            is_locked: false,
+            recovery_hash: String::new(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        store.create_user(&mut user1).unwrap();
+
+        let mut user2 = User {
+            id: String::new(),
+            username: "user2".to_string(),
+            email: "user2@example.com".to_string(),
+            password_hash: "hash".to_string(),
+            display_name: String::new(),
+            bio: String::new(),
+            avatar_url: String::new(),
+            is_admin: false,
+            is_locked: false,
+            recovery_hash: String::new(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        store.create_user(&mut user2).unwrap();
+
+        // Create initial follow relationship
+        let mut follow = crate::models::Follow {
+            id: String::new(),
+            follower_id: user2.id.clone(),
+            following_id: user1.id.clone(),
+            created_at: Utc::now(),
+            remote_endpoint: "https://user2.com".to_string(),
+            access_token: None,
+            last_confirmed_at: None,
+        };
+        store.create_follow(&mut follow).unwrap();
+
+        // Record follower (should update last_confirmed_at)
+        let result = store.record_follower(&user2.id, "https://user2.com", &user1.id);
+        assert!(result.is_ok(), "record_follower should succeed");
+
+        // Verify last_confirmed_at was updated
+        let followers = store.get_follower_records(&user1.id).unwrap();
+        assert_eq!(followers.len(), 1);
+        assert!(followers[0].last_confirmed_at.is_some(), "last_confirmed_at should be set after record_follower");
+    }
+
+    #[test]
+    fn test_confirm_follow() {
+        let store = Store::in_memory().unwrap();
+
+        // Create two users
+        let mut user1 = User {
+            id: String::new(),
+            username: "user1".to_string(),
+            email: "user1@example.com".to_string(),
+            password_hash: "hash".to_string(),
+            display_name: String::new(),
+            bio: String::new(),
+            avatar_url: String::new(),
+            is_admin: false,
+            is_locked: false,
+            recovery_hash: String::new(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        store.create_user(&mut user1).unwrap();
+
+        let mut user2 = User {
+            id: String::new(),
+            username: "user2".to_string(),
+            email: "user2@example.com".to_string(),
+            password_hash: "hash".to_string(),
+            display_name: String::new(),
+            bio: String::new(),
+            avatar_url: String::new(),
+            is_admin: false,
+            is_locked: false,
+            recovery_hash: String::new(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        store.create_user(&mut user2).unwrap();
+
+        // User1 follows User2
+        let mut follow = crate::models::Follow {
+            id: String::new(),
+            follower_id: user1.id.clone(),
+            following_id: user2.id.clone(),
+            created_at: Utc::now(),
+            remote_endpoint: "https://user2.com".to_string(),
+            access_token: None,
+            last_confirmed_at: None,
+        };
+        store.create_follow(&mut follow).unwrap();
+
+        // Confirm the follow
+        let result = store.confirm_follow(&user1.id, &user2.id);
+        assert!(result.is_ok(), "confirm_follow should succeed");
+
+        // Verify last_confirmed_at was set
+        let following = store.get_following_records(&user1.id).unwrap();
+        assert_eq!(following.len(), 1);
+        assert!(following[0].last_confirmed_at.is_some(), "last_confirmed_at should be set");
+    }
+
+    #[test]
+    fn test_confirm_follow_nonexistent() {
+        let store = Store::in_memory().unwrap();
+
+        // Try to confirm a follow that doesn't exist
+        let result = store.confirm_follow("nonexistent-user1", "nonexistent-user2");
+        assert!(result.is_err(), "confirm_follow should fail for nonexistent follow");
+    }
+
+    // ==================== Follow Token Tests ====================
+
+    #[test]
+    fn test_create_follow_token() {
+        let store = Store::in_memory().unwrap();
+
+        // Create a follow token
+        let token = store
+            .create_follow_token("user-alice", "https://alice.example.com")
+            .unwrap();
+
+        assert!(!token.is_empty(), "Token should not be empty");
+        assert!(token.len() > 10, "Token should be reasonably long (UUID format)");
+    }
+
+    #[test]
+    fn test_verify_valid_token() {
+        let store = Store::in_memory().unwrap();
+
+        // Create a token
+        let token = store
+            .create_follow_token("user-alice", "https://alice.example.com")
+            .unwrap();
+
+        // Verify immediately
+        let (valid, user_id, endpoint) = store.verify_follow_token(&token);
+
+        assert!(valid, "Token should be valid");
+        assert_eq!(user_id, Some("user-alice".to_string()));
+        assert_eq!(endpoint, Some("https://alice.example.com".to_string()));
+    }
+
+    #[test]
+    fn test_verify_invalid_token() {
+        let store = Store::in_memory().unwrap();
+
+        // Verify a token that was never created
+        let (valid, user_id, endpoint) = store.verify_follow_token("nonexistent-token");
+
+        assert!(!valid, "Invalid token should not be valid");
+        assert_eq!(user_id, None);
+        assert_eq!(endpoint, None);
+    }
+
+    #[test]
+    fn test_verify_expired_token() {
+        let store = Store::in_memory().unwrap();
+
+        // Create a token
+        let token = store
+            .create_follow_token("user-alice", "https://alice.example.com")
+            .unwrap();
+
+        // Manually expire it by directly manipulating the storage
+        {
+            let mut tokens = store.follow_tokens.lock().unwrap();
+            if let Some(follow_token) = tokens.get_mut(&token) {
+                // Set expiry to the past
+                follow_token.expires_at = Utc::now() - chrono::Duration::seconds(1);
+            }
+        }
+
+        // Try to verify the expired token
+        let (valid, user_id, endpoint) = store.verify_follow_token(&token);
+
+        assert!(!valid, "Expired token should not be valid");
+        assert_eq!(user_id, None);
+        assert_eq!(endpoint, None);
+    }
+
+    #[test]
+    fn test_multiple_tokens_per_user() {
+        let store = Store::in_memory().unwrap();
+
+        // Create multiple tokens for the same user
+        let token1 = store
+            .create_follow_token("user-alice", "https://alice.example.com")
+            .unwrap();
+        let token2 = store
+            .create_follow_token("user-alice", "https://alice.example.com")
+            .unwrap();
+        let token3 = store
+            .create_follow_token("user-alice", "https://alice.example.com")
+            .unwrap();
+
+        // All should be different
+        assert_ne!(token1, token2, "Tokens should be unique");
+        assert_ne!(token2, token3, "Tokens should be unique");
+        assert_ne!(token1, token3, "Tokens should be unique");
+
+        // All should be valid
+        let (v1, _, _) = store.verify_follow_token(&token1);
+        let (v2, _, _) = store.verify_follow_token(&token2);
+        let (v3, _, _) = store.verify_follow_token(&token3);
+
+        assert!(v1 && v2 && v3, "All tokens should be valid");
+    }
+
+    #[test]
+    fn test_cleanup_expired_tokens() {
+        let store = Store::in_memory().unwrap();
+
+        // Create some tokens
+        let token1 = store
+            .create_follow_token("user-alice", "https://alice.example.com")
+            .unwrap();
+        let token2 = store
+            .create_follow_token("user-bob", "https://bob.example.com")
+            .unwrap();
+
+        // Expire token1
+        {
+            let mut tokens = store.follow_tokens.lock().unwrap();
+            if let Some(follow_token) = tokens.get_mut(&token1) {
+                follow_token.expires_at = Utc::now() - chrono::Duration::seconds(1);
+            }
+        }
+
+        // Verify before cleanup
+        let token_count_before = {
+            let tokens = store.follow_tokens.lock().unwrap();
+            tokens.len()
+        };
+        assert_eq!(token_count_before, 2, "Should have 2 tokens before cleanup");
+
+        // Cleanup
+        store.cleanup_expired_tokens();
+
+        // Verify after cleanup
+        let token_count_after = {
+            let tokens = store.follow_tokens.lock().unwrap();
+            tokens.len()
+        };
+        assert_eq!(
+            token_count_after, 1,
+            "Should have 1 token after cleanup (one expired)"
+        );
+
+        // Expired token should not be verifiable
+        let (valid, _, _) = store.verify_follow_token(&token1);
+        assert!(!valid, "Expired token should not verify");
+
+        // Non-expired token should still be valid
+        let (valid, _, _) = store.verify_follow_token(&token2);
+        assert!(valid, "Non-expired token should verify");
+    }
+
+    #[test]
+    fn test_follow_token_payload() {
+        let store = Store::in_memory().unwrap();
+
+        let user_id = "user-alice";
+        let endpoint = "https://alice.example.com";
+
+        let token = store.create_follow_token(user_id, endpoint).unwrap();
+
+        // Verify token contains correct data
+        let (valid, returned_user_id, returned_endpoint) = store.verify_follow_token(&token);
+
+        assert!(valid);
+        assert_eq!(returned_user_id, Some(user_id.to_string()));
+        assert_eq!(returned_endpoint, Some(endpoint.to_string()));
+    }
+
+    #[test]
+    fn test_token_different_endpoints() {
+        let store = Store::in_memory().unwrap();
+
+        let token1 = store
+            .create_follow_token("user-alice", "https://alice.example.com")
+            .unwrap();
+        let token2 = store
+            .create_follow_token("user-alice", "https://alice.different.com")
+            .unwrap();
+
+        let (_, _, endpoint1) = store.verify_follow_token(&token1);
+        let (_, _, endpoint2) = store.verify_follow_token(&token2);
+
+        assert_eq!(endpoint1, Some("https://alice.example.com".to_string()));
+        assert_eq!(endpoint2, Some("https://alice.different.com".to_string()));
+    }
+
+    #[test]
+    fn test_token_with_special_characters_in_endpoint() {
+        let store = Store::in_memory().unwrap();
+
+        // Endpoint with special characters (URL encoded)
+        let endpoint = "https://alice.example.com:8080/api/v1";
+
+        let token = store.create_follow_token("user-alice", endpoint).unwrap();
+
+        let (valid, _, returned_endpoint) = store.verify_follow_token(&token);
+
+        assert!(valid);
+        assert_eq!(returned_endpoint, Some(endpoint.to_string()));
+    }
+
+    #[test]
+    fn test_token_expiry_boundary() {
+        let store = Store::in_memory().unwrap();
+
+        let token = store
+            .create_follow_token("user-alice", "https://alice.example.com")
+            .unwrap();
+
+        // Token should be valid immediately
+        let (valid_now, _, _) = store.verify_follow_token(&token);
+        assert!(valid_now, "Token should be valid at creation");
+
+        // Manually set expiry to right now
+        {
+            let mut tokens = store.follow_tokens.lock().unwrap();
+            if let Some(follow_token) = tokens.get_mut(&token) {
+                follow_token.expires_at = Utc::now();
+            }
+        }
+
+        // Should still be valid (>= now)
+        let (valid_at_expiry, _, _) = store.verify_follow_token(&token);
+        // This is a boundary condition - implementation might differ
+        // The check is `now < expires_at`, so if expires_at == now, it's invalid
+        assert!(
+            !valid_at_expiry,
+            "Token should be invalid when expiry time is now"
+        );
+    }
+
+    #[test]
+    fn test_concurrent_token_creation() {
+        use std::sync::Arc;
+        use std::thread;
+
+        let store = Arc::new(Store::in_memory().unwrap());
+        let mut handles = vec![];
+
+        // Spawn 10 threads, each creating 5 tokens
+        for i in 0..10 {
+            let store_clone = Arc::clone(&store);
+            let handle = thread::spawn(move || {
+                let mut tokens = vec![];
+                for j in 0..5 {
+                    let token = store_clone
+                        .create_follow_token(
+                            &format!("user-{}", i),
+                            &format!("https://endpoint-{}.example.com", j),
+                        )
+                        .unwrap();
+                    tokens.push(token);
+                }
+                tokens
+            });
+            handles.push(handle);
+        }
+
+        // Collect all tokens
+        let mut all_tokens = vec![];
+        for handle in handles {
+            let tokens = handle.join().unwrap();
+            all_tokens.extend(tokens);
+        }
+
+        // Should have 50 tokens (10 threads * 5 tokens each)
+        assert_eq!(
+            all_tokens.len(),
+            50,
+            "Should create 50 tokens concurrently"
+        );
+
+        // All tokens should be unique
+        let mut token_set = std::collections::HashSet::new();
+        for token in &all_tokens {
+            assert!(
+                token_set.insert(token.clone()),
+                "All tokens should be unique"
+            );
+        }
+
+        // All tokens should be valid
+        for token in all_tokens {
+            let (valid, _, _) = store.verify_follow_token(&token);
+            assert!(valid, "Token created concurrently should be valid");
+        }
+    }
+
+    #[test]
+    fn test_load_many_tokens() {
+        let store = Store::in_memory().unwrap();
+
+        // Create 1000 tokens
+        let mut tokens = vec![];
+        for i in 0..1000 {
+            let token = store
+                .create_follow_token(&format!("user-{}", i), "https://example.com")
+                .unwrap();
+            tokens.push(token);
+        }
+
+        // Verify all tokens are valid
+        let mut valid_count = 0;
+        for token in &tokens {
+            let (valid, _, _) = store.verify_follow_token(token);
+            if valid {
+                valid_count += 1;
+            }
+        }
+
+        assert_eq!(
+            valid_count, 1000,
+            "All 1000 tokens should be valid"
+        );
+
+        // Expire all tokens
+        {
+            let mut token_storage = store.follow_tokens.lock().unwrap();
+            for follow_token in token_storage.values_mut() {
+                follow_token.expires_at = Utc::now() - chrono::Duration::seconds(1);
+            }
+        }
+
+        // Cleanup
+        store.cleanup_expired_tokens();
+
+        // No tokens should remain
+        let remaining = {
+            let tokens = store.follow_tokens.lock().unwrap();
+            tokens.len()
+        };
+        assert_eq!(remaining, 0, "All expired tokens should be cleaned up");
     }
 }

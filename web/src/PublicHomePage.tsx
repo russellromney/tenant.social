@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'preact/hooks'
 import { Theme } from './theme.tsx'
 import { Markdown } from './Markdown.tsx'
+import { getBasePath } from './api'
 
 interface Photo {
   id: string
@@ -46,6 +47,7 @@ export function PublicHomePage({ theme, onLogin }: PublicHomePageProps) {
   const [things, setThings] = useState<Thing[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const basePath = getBasePath()
 
   useEffect(() => {
     const fetchPublicData = async () => {
@@ -53,14 +55,14 @@ export function PublicHomePage({ theme, onLogin }: PublicHomePageProps) {
         setLoading(true)
 
         // Fetch public profile
-        const profileRes = await fetch('/api/public/profile')
+        const profileRes = await fetch(`${basePath}/api/public/profile`)
         if (profileRes.ok) {
           const profileData = await profileRes.json()
           setProfile(profileData)
         }
 
         // Fetch public things
-        const thingsRes = await fetch('/api/public/things?limit=20')
+        const thingsRes = await fetch(`${basePath}/api/public/things?limit=20`)
         if (thingsRes.ok) {
           const thingsData = await thingsRes.json()
           setThings(thingsData)
@@ -75,7 +77,7 @@ export function PublicHomePage({ theme, onLogin }: PublicHomePageProps) {
     }
 
     fetchPublicData()
-  }, [])
+  }, [basePath])
 
   if (loading) {
     return (
@@ -236,7 +238,7 @@ export function PublicHomePage({ theme, onLogin }: PublicHomePageProps) {
                         photo.content_type.startsWith('image/') ? (
                           <img
                             key={photo.id}
-                            src={`/api/photos/${photo.id}`}
+                            src={`${basePath}/api/photos/${photo.id}`}
                             alt={photo.caption || ''}
                             style={{
                               width: '100%',
@@ -248,7 +250,7 @@ export function PublicHomePage({ theme, onLogin }: PublicHomePageProps) {
                         ) : photo.content_type.startsWith('video/') ? (
                           <video
                             key={photo.id}
-                            src={`/api/photos/${photo.id}`}
+                            src={`${basePath}/api/photos/${photo.id}`}
                             controls
                             style={{
                               width: '100%',

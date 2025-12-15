@@ -228,6 +228,7 @@ pub struct Follow {
     #[serde(skip_serializing)]
     pub access_token: Option<String>, // Optional token for calling friend's API
     pub created_at: DateTime<Utc>,
+    pub last_confirmed_at: Option<DateTime<Utc>>, // Last time follower confirmed they still follow
 }
 
 /// Channel for group communication
@@ -558,7 +559,48 @@ pub struct AddFriendRequest {
     pub access_token: Option<String>, // Optional bearer token for their API
 }
 
-#[derive(Debug, Serialize)]
+/// Follow token for secure federated follows
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FollowToken {
+    pub token: String,
+    pub user_id: String,
+    pub endpoint: String,
+    pub created_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+}
+
+/// Request to verify a follow token
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FollowVerifyRequest {
+    pub follow_token: String,
+}
+
+/// Response to token verification
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FollowVerifyResponse {
+    pub valid: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub endpoint: Option<String>,
+}
+
+/// Response for creating a follow token
+#[derive(Debug, Clone, Serialize)]
+pub struct CreateFollowTokenResponse {
+    pub follow_token: String,
+    pub expires_in: u64,  // Seconds (300 = 5 minutes)
+}
+
+/// Request to notify a remote server that someone is following their user
+#[derive(Debug, Clone, Deserialize)]
+pub struct NotifyFollowRequest {
+    pub follower_user_id: String,    // Who is following (the sender's user ID)
+    pub follower_endpoint: String,   // Where the follower lives (e.g., "https://russ.tenant.social")
+    pub follow_token: String,        // Token to verify authenticity
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ApiResponse<T> {
     pub success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
