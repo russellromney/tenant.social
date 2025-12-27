@@ -409,7 +409,19 @@ pub async fn delete_thing(
     // Verify ownership first
     match state.store.get_thing(&id) {
         Ok(thing) => {
-            if thing.user_id != auth_user.user_id {
+            let is_author = thing.user_id == auth_user.user_id;
+
+            // For comments, also allow the root Thing owner to delete
+            let is_comment = thing.thing_type == "comment";
+            let mut is_post_owner = false;
+
+            if is_comment {
+                if let Ok(Some(root_owner)) = state.store.get_root_thing_owner(&id) {
+                    is_post_owner = root_owner == auth_user.user_id;
+                }
+            }
+
+            if !is_author && !is_post_owner {
                 return HttpResponse::NotFound().json(serde_json::json!({"error": "Thing not found"}));
             }
         }
@@ -769,6 +781,8 @@ pub async fn create_kind(
         icon: body.icon.clone(),
         template: body.template.clone(),
         attributes: body.attributes.clone(),
+        commentable: body.commentable,
+        show_existing_comments: body.show_existing_comments,
         created_at: Utc::now(),
         updated_at: Utc::now(),
     };
@@ -813,6 +827,12 @@ pub async fn update_kind(
     }
     if let Some(ref a) = body.attributes {
         kind.attributes = a.clone();
+    }
+    if let Some(c) = body.commentable {
+        kind.commentable = c;
+    }
+    if let Some(s) = body.show_existing_comments {
+        kind.show_existing_comments = s;
     }
 
     match state.store.update_kind(&mut kind) {
@@ -1203,6 +1223,495 @@ pub async fn verify_follow(
 
     // Always return 200 to avoid leaking token validity via HTTP status codes
     HttpResponse::Ok().json(ApiResponse::success(response))
+}
+
+// ==================== Comment Token Operations ====================
+
+/// POST /api/comments/create-token - Create a comment token for federated commenting
+pub async fn create_comment_token(
+    state: web::Data<AppState>,
+    auth_user: AuthUser,
+) -> impl Responder {
+    let endpoint = std::env::var("INSTANCE_URL")
+        .unwrap_or_else(|_| "http://localhost:7777".to_string());
+
+    match state.store.create_comment_token(&auth_user.user_id, &endpoint) {
+        Ok(token) => {
+            let response = crate::models::CreateCommentTokenResponse {
+                comment_token: token,
+                expires_in: 300,  // 5 minutes
+            };
+            HttpResponse::Ok().json(ApiResponse::success(response))
+        }
+        Err(_) => {
+            HttpResponse::InternalServerError()
+                .json(ApiResponse::<()>::error("Failed to create comment token"))
+        }
+    }
+}
+
+/// POST /api/fed/verify-comment-token - Verify a comment token for federated comment handshake
+pub async fn verify_comment_token(
+    state: web::Data<AppState>,
+    req: web::Json<crate::models::CommentVerifyTokenRequest>,
+) -> impl Responder {
+    // Input validation
+    if req.comment_token.is_empty() || req.comment_token.len() > 1024 {
+        let response = crate::models::CommentVerifyTokenResponse {
+            valid: false,
+            user_id: None,
+            endpoint: None,
+        };
+        return HttpResponse::Ok().json(ApiResponse::success(response));
+    }
+
+    let (valid, user_id, endpoint) = state.store.verify_comment_token(&req.comment_token);
+
+    let response = crate::models::CommentVerifyTokenResponse {
+        valid,
+        user_id,
+        endpoint,
+    };
+
+    HttpResponse::Ok().json(ApiResponse::success(response))
+}
+
+/// POST /api/fed/comments - Receive a federated comment on a Thing
+pub async fn notify_comment(
+    state: web::Data<AppState>,
+    req: web::Json<crate::models::NotifyCommentRequest>,
+) -> impl Responder {
+    let commenter_user_id = &req.commenter_user_id;
+    let commenter_endpoint = &req.commenter_endpoint;
+    let thing_id = &req.thing_id;
+    let comment_token = &req.comment_token;
+
+    // Input validation
+    if commenter_user_id.is_empty() {
+        return HttpResponse::BadRequest()
+            .json(ApiResponse::<()>::error("commenter_user_id cannot be empty"));
+    }
+    if commenter_endpoint.is_empty() {
+        return HttpResponse::BadRequest()
+            .json(ApiResponse::<()>::error("commenter_endpoint cannot be empty"));
+    }
+    if thing_id.is_empty() {
+        return HttpResponse::BadRequest()
+            .json(ApiResponse::<()>::error("thing_id cannot be empty"));
+    }
+    if comment_token.is_empty() {
+        return HttpResponse::BadRequest()
+            .json(ApiResponse::<()>::error("comment_token cannot be empty"));
+    }
+
+    // Length validation
+    if commenter_user_id.len() > 255 || commenter_endpoint.len() > 2048 || comment_token.len() > 1024 {
+        return HttpResponse::BadRequest()
+            .json(ApiResponse::<()>::error("Request fields exceed maximum length"));
+    }
+
+    // Verify endpoint format
+    if !commenter_endpoint.starts_with("http://") && !commenter_endpoint.starts_with("https://") {
+        return HttpResponse::BadRequest()
+            .json(ApiResponse::<()>::error("Invalid endpoint format - must be http:// or https://"));
+    }
+
+    // Step 1: Verify the token
+    // First try to verify locally (for same-instance tests/development)
+    let (is_valid_local, local_user_id, local_endpoint) = state.store.verify_comment_token(comment_token);
+
+    let is_valid = if is_valid_local && local_endpoint.as_deref() == Some(commenter_endpoint) {
+        // Token is valid locally and endpoint matches
+        true
+    } else {
+        // Token not found locally or endpoint mismatch - try remote verification
+        let verify_url = format!("{}/api/fed/verify-comment-token", commenter_endpoint);
+        let verify_req = crate::models::CommentVerifyTokenRequest {
+            comment_token: comment_token.clone(),
+        };
+
+        let client = reqwest::Client::new();
+        let verify_result = client
+            .post(&verify_url)
+            .json(&verify_req)
+            .timeout(std::time::Duration::from_secs(10))
+            .send()
+            .await;
+
+        match verify_result {
+            Ok(response) => {
+                match response.json::<ApiResponse<crate::models::CommentVerifyTokenResponse>>().await {
+                    Ok(api_resp) => {
+                        if let Some(data) = api_resp.data {
+                            data.valid && data.user_id.as_deref() == Some(commenter_user_id)
+                        } else {
+                            false
+                        }
+                    }
+                    Err(_) => false,
+                }
+            }
+            Err(_) => false,
+        }
+    };
+
+    if !is_valid {
+        return HttpResponse::BadRequest()
+            .json(ApiResponse::<()>::error("Token verification failed"));
+    }
+
+    // Step 2: Verify the Thing exists and get its owner
+    let root_thing = match state.store.get_thing(thing_id) {
+        Ok(thing) => thing,
+        Err(_) => {
+            return HttpResponse::BadRequest()
+                .json(ApiResponse::<()>::error("Thing not found"));
+        }
+    };
+
+    // Step 2b: Check visibility - cannot comment on private Things
+    if root_thing.visibility == "private" {
+        return HttpResponse::BadRequest()
+            .json(ApiResponse::<()>::error("Cannot comment on private Things"));
+    }
+
+    // Step 2c: Determine parent and depth (handle replies)
+    let (parent_id, depth) = if let Some(ref req_parent_id) = req.parent_id {
+        // Replying to a comment - look up the parent
+        let parent = match state.store.get_thing(req_parent_id) {
+            Ok(thing) => thing,
+            Err(_) => {
+                return HttpResponse::BadRequest()
+                    .json(ApiResponse::<()>::error("Parent comment not found"));
+            }
+        };
+
+        // Verify parent is a comment and belongs to the same root
+        if parent.thing_type != "comment" {
+            return HttpResponse::BadRequest()
+                .json(ApiResponse::<()>::error("parent_id must reference a comment"));
+        }
+
+        let parent_root_id = parent.metadata.get("root_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if parent_root_id != thing_id.as_str() {
+            return HttpResponse::BadRequest()
+                .json(ApiResponse::<()>::error("Parent comment does not belong to this Thing"));
+        }
+
+        let parent_depth = parent.metadata.get("depth")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0) as i32;
+
+        let new_depth = parent_depth + 1;
+        if new_depth > 3 {
+            return HttpResponse::BadRequest()
+                .json(ApiResponse::<()>::error("Maximum comment depth (3) exceeded"));
+        }
+
+        (req_parent_id.clone(), new_depth)
+    } else {
+        // Top-level comment on the root Thing
+        (thing_id.clone(), 0)
+    };
+
+    // Step 3: Create the comment Thing
+    let mut comment = Thing {
+        id: String::new(),
+        user_id: commenter_user_id.clone(),
+        thing_type: "comment".to_string(),
+        content: req.content.clone(),
+        metadata: {
+            let mut m = req.metadata.clone();
+            m.insert("root_id".to_string(), serde_json::json!(thing_id));
+            m.insert("parent_id".to_string(), serde_json::json!(parent_id));
+            m.insert("depth".to_string(), serde_json::json!(depth));
+            m
+        },
+        visibility: root_thing.visibility.clone(), // Inherit root visibility
+        version: 0,
+        deleted_at: None,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+        photos: Vec::new(),
+    };
+
+    if let Err(e) = state.store.create_thing(&mut comment) {
+        log::error!("Failed to create comment: {:?}", e);
+        return HttpResponse::InternalServerError()
+            .json(ApiResponse::<()>::error(format!("Failed to record comment: {}", e)));
+    }
+
+    // Step 4: Emit comment.created event
+    let event = crate::events::comment_created_event(
+        commenter_user_id,
+        &comment.id,
+        thing_id,
+        &root_thing.user_id,
+    );
+
+    let processor = state.event_processor.clone();
+    tokio::spawn(async move {
+        if let Err(e) = processor.process(&event).await {
+            log::warn!("Failed to process comment.created event: {:?}", e);
+        }
+    });
+
+    HttpResponse::Created().json(ApiResponse::success(serde_json::json!({"comment_id": &comment.id})))
+}
+
+/// POST /api/things/{id}/comments - Create a local comment on a Thing (authenticated)
+/// The path param `id` is the root Thing. Use `parent_id` in body to reply to a comment.
+pub async fn create_local_comment(
+    state: web::Data<AppState>,
+    auth_user: AuthUser,
+    path: web::Path<String>,
+    body: web::Json<CreateCommentRequest>,
+) -> impl Responder {
+    if !has_scope(&auth_user, "things:write") {
+        return HttpResponse::Forbidden()
+            .json(ApiResponse::<()>::error("Insufficient permissions"));
+    }
+
+    let thing_id = path.into_inner();
+
+    // Validate content
+    if body.content.is_empty() {
+        return HttpResponse::BadRequest()
+            .json(ApiResponse::<()>::error("Comment content cannot be empty"));
+    }
+
+    // Get the root Thing (the original post)
+    let root_thing = match state.store.get_thing(&thing_id) {
+        Ok(thing) => thing,
+        Err(_) => {
+            return HttpResponse::NotFound()
+                .json(ApiResponse::<()>::error("Thing not found"));
+        }
+    };
+
+    // Check visibility - only owner can comment on private Things
+    if root_thing.visibility == "private" && root_thing.user_id != auth_user.user_id {
+        return HttpResponse::Forbidden()
+            .json(ApiResponse::<()>::error("Cannot comment on private Things"));
+    }
+
+    // Check if the Thing's Kind allows comments
+    if let Ok(Some(kind_id)) = state.store.get_thing_kind(&thing_id) {
+        if let Ok(kind) = state.store.get_kind(&kind_id) {
+            if !kind.commentable {
+                return HttpResponse::Forbidden()
+                    .json(ApiResponse::<()>::error("Replies are not enabled for this type"));
+            }
+        }
+    }
+
+    // Determine parent and depth
+    let (parent_id, depth, root_id) = if let Some(ref req_parent_id) = body.parent_id {
+        // Replying to a comment - look up the parent
+        let parent = match state.store.get_thing(req_parent_id) {
+            Ok(thing) => thing,
+            Err(_) => {
+                return HttpResponse::NotFound()
+                    .json(ApiResponse::<()>::error("Parent comment not found"));
+            }
+        };
+
+        // Verify parent is a comment and belongs to the same root
+        if parent.thing_type != "comment" {
+            return HttpResponse::BadRequest()
+                .json(ApiResponse::<()>::error("parent_id must reference a comment"));
+        }
+
+        let parent_root_id = parent.metadata.get("root_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if parent_root_id != thing_id {
+            return HttpResponse::BadRequest()
+                .json(ApiResponse::<()>::error("Parent comment does not belong to this Thing"));
+        }
+
+        let parent_depth = parent.metadata.get("depth")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0) as i32;
+
+        let new_depth = parent_depth + 1;
+        if new_depth > 3 {
+            return HttpResponse::BadRequest()
+                .json(ApiResponse::<()>::error("Maximum comment depth (3) exceeded"));
+        }
+
+        (req_parent_id.clone(), new_depth, thing_id.clone())
+    } else {
+        // Top-level comment on the root Thing
+        (thing_id.clone(), 0, thing_id.clone())
+    };
+
+    // Create the comment
+    let mut comment = Thing {
+        id: String::new(),
+        user_id: auth_user.user_id.clone(),
+        thing_type: "comment".to_string(),
+        content: body.content.clone(),
+        metadata: {
+            let mut m = body.metadata.clone();
+            m.insert("root_id".to_string(), serde_json::json!(root_id));
+            m.insert("parent_id".to_string(), serde_json::json!(parent_id));
+            m.insert("depth".to_string(), serde_json::json!(depth));
+            m
+        },
+        visibility: root_thing.visibility.clone(), // Inherit root visibility
+        version: 0,
+        deleted_at: None,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+        photos: Vec::new(),
+    };
+
+    if let Err(e) = state.store.create_thing(&mut comment) {
+        log::error!("Failed to create local comment: {:?}", e);
+        return HttpResponse::InternalServerError()
+            .json(ApiResponse::<()>::error(format!("Failed to create comment: {}", e)));
+    }
+
+    // Emit comment.created event
+    let event = crate::events::comment_created_event(
+        &auth_user.user_id,
+        &comment.id,
+        &thing_id,
+        &root_thing.user_id,
+    );
+
+    let processor = state.event_processor.clone();
+    tokio::spawn(async move {
+        if let Err(e) = processor.process(&event).await {
+            log::warn!("Failed to process comment.created event: {:?}", e);
+        }
+    });
+
+    HttpResponse::Created().json(ApiResponse::success(comment))
+}
+
+/// GET /api/things/{id}/comments - Get all comments for a Thing
+pub async fn get_comments(
+    state: web::Data<AppState>,
+    path: web::Path<String>,
+    query: web::Query<HashMap<String, String>>,
+) -> impl Responder {
+    let thing_id = path.into_inner();
+
+    // Optional: include_deleted (for viewing tombstones)
+    let include_deleted = query.get("include_deleted")
+        .map(|v| v == "true")
+        .unwrap_or(true); // Default: include deleted
+
+    // Verify the Thing exists
+    let root_thing = match state.store.get_thing(&thing_id) {
+        Ok(thing) => thing,
+        Err(_) => {
+            return HttpResponse::NotFound()
+                .json(ApiResponse::<()>::error("Thing not found"));
+        }
+    };
+
+    // Check Kind settings - if not commentable and not showing existing, return empty
+    if let Ok(Some(kind_id)) = state.store.get_thing_kind(&thing_id) {
+        if let Ok(kind) = state.store.get_kind(&kind_id) {
+            if !kind.commentable && !kind.show_existing_comments {
+                // Return empty list with metadata indicating replies are disabled
+                return HttpResponse::Ok().json(ApiResponse::success(Vec::<crate::models::CommentWithAuthor>::new()));
+            }
+        }
+    }
+
+    // Get all comments for this Thing
+    match state.store.get_comments_for_thing(&thing_id) {
+        Ok(mut comments) => {
+            // Filter deleted if requested
+            if !include_deleted {
+                comments.retain(|c| c.deleted_at.is_none());
+            }
+
+            // Sort by created_at ascending
+            comments.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+
+            // Build a map of comment_id -> comment for parent lookups
+            let comment_map: std::collections::HashMap<String, &Thing> =
+                comments.iter().map(|c| (c.id.clone(), c)).collect();
+
+            // Helper to get author info
+            let get_author = |user_id: &str| -> Option<crate::models::CommentAuthor> {
+                state.store.get_user(user_id).ok().map(|user| {
+                    crate::models::CommentAuthor {
+                        user_id: user.id,
+                        username: user.username.clone(),
+                        display_name: if user.display_name.is_empty() {
+                            user.username
+                        } else {
+                            user.display_name
+                        },
+                    }
+                })
+            };
+
+            // Enrich comments with author info
+            let enriched: Vec<crate::models::CommentWithAuthor> = comments.iter().map(|comment| {
+                let author = get_author(&comment.user_id);
+
+                // Get parent info for "replying to" context
+                let parent_id = comment.metadata.get("parent_id")
+                    .and_then(|v| v.as_str());
+                let root_id = comment.metadata.get("root_id")
+                    .and_then(|v| v.as_str());
+
+                let (parent_content, parent_author) = if parent_id != root_id {
+                    // This is a reply to another comment
+                    if let Some(parent_id_str) = parent_id {
+                        if let Some(parent) = comment_map.get(parent_id_str) {
+                            let content = if parent.deleted_at.is_some() {
+                                Some("[deleted]".to_string())
+                            } else {
+                                // Truncate to ~100 chars
+                                let truncated = if parent.content.len() > 100 {
+                                    format!("{}...", &parent.content[..97])
+                                } else {
+                                    parent.content.clone()
+                                };
+                                Some(truncated)
+                            };
+                            let p_author = get_author(&parent.user_id);
+                            (content, p_author)
+                        } else {
+                            (None, None)
+                        }
+                    } else {
+                        (None, None)
+                    }
+                } else {
+                    // Top-level comment replying to the root Thing
+                    let content = if root_thing.content.len() > 100 {
+                        format!("{}...", &root_thing.content[..97])
+                    } else {
+                        root_thing.content.clone()
+                    };
+                    let p_author = get_author(&root_thing.user_id);
+                    (Some(content), p_author)
+                };
+
+                crate::models::CommentWithAuthor {
+                    comment: comment.clone(),
+                    author,
+                    parent_content,
+                    parent_author,
+                }
+            }).collect();
+
+            HttpResponse::Ok().json(ApiResponse::success(enriched))
+        }
+        Err(e) => HttpResponse::InternalServerError()
+            .json(ApiResponse::<()>::error(format!("Failed to fetch comments: {}", e))),
+    }
 }
 
 /// GET /api/fed/things/{user_id} - Fetch friend-visible content from this node
@@ -2469,6 +2978,8 @@ async fn import_data(
                 icon: kind_json.get("icon").and_then(|i| i.as_str()).unwrap_or("").to_string(),
                 template: kind_json.get("template").and_then(|t| t.as_str()).unwrap_or("").to_string(),
                 attributes,
+                commentable: kind_json.get("commentable").and_then(|c| c.as_bool()).unwrap_or(false),
+                show_existing_comments: kind_json.get("show_existing_comments").and_then(|c| c.as_bool()).unwrap_or(false),
                 created_at: chrono::Utc::now(),
                 updated_at: chrono::Utc::now(),
             };
@@ -2735,6 +3246,11 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         // Federation endpoints (no auth required - called by friend nodes)
         .route("/api/fed/notify-follow", web::post().to(notify_follow))  // NEW: Receive follow notification
         .route("/api/fed/verify-follow", web::post().to(verify_follow))  // NEW: Verify follow token
+        .route("/api/comments/create-token", web::post().to(create_comment_token))  // NEW: Create comment token
+        .route("/api/fed/verify-comment-token", web::post().to(verify_comment_token))  // NEW: Verify comment token
+        .route("/api/fed/comments", web::post().to(notify_comment))  // NEW: Receive federated comment
+        .route("/api/things/{id}/comments", web::post().to(create_local_comment))  // NEW: Create local comment
+        .route("/api/things/{id}/comments", web::get().to(get_comments))  // NEW: Get comments for Thing
         .route("/api/fed/things/{user_id}", web::get().to(get_friend_visible_things))  // NEW: Fetch friend-visible content
 
         // Feed

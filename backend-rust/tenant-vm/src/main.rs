@@ -218,9 +218,21 @@ async fn report_ready_to_hypervisor(user_id: &str, startup_ms: u64) {
 }
 
 /// Create default Kinds for a user
-/// Matches the frontend defaults: note, link, task, gallery
+/// Matches the frontend defaults: post, note, link, task, gallery
 fn create_default_kinds(store: &Arc<Store>, user_id: &str) {
     let default_kinds = vec![
+        Kind {
+            id: String::new(),
+            user_id: user_id.to_string(),
+            name: "post".to_string(),
+            icon: "💬".to_string(),
+            template: "default".to_string(),
+            attributes: vec![],
+            commentable: true,  // Posts are commentable by default
+            show_existing_comments: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        },
         Kind {
             id: String::new(),
             user_id: user_id.to_string(),
@@ -228,6 +240,8 @@ fn create_default_kinds(store: &Arc<Store>, user_id: &str) {
             icon: "📝".to_string(),
             template: "default".to_string(),
             attributes: vec![],
+            commentable: false,
+            show_existing_comments: false,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         },
@@ -243,6 +257,8 @@ fn create_default_kinds(store: &Arc<Store>, user_id: &str) {
                 required: true,
                 options: String::new(),
             }],
+            commentable: false,
+            show_existing_comments: false,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         },
@@ -258,6 +274,8 @@ fn create_default_kinds(store: &Arc<Store>, user_id: &str) {
                 required: false,
                 options: String::new(),
             }],
+            commentable: false,
+            show_existing_comments: false,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         },
@@ -268,6 +286,8 @@ fn create_default_kinds(store: &Arc<Store>, user_id: &str) {
             icon: "🖼️".to_string(),
             template: "photo".to_string(),
             attributes: vec![],
+            commentable: false,
+            show_existing_comments: false,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         },

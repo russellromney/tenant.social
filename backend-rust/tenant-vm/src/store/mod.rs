@@ -45,6 +45,7 @@ pub struct ThingQueryResult {
 pub struct Store {
     conn: Arc<Mutex<Connection>>,
     pub follow_tokens: Arc<Mutex<HashMap<String, FollowToken>>>,
+    pub comment_tokens: Arc<Mutex<HashMap<String, CommentToken>>>,
 }
 
 impl Store {
@@ -54,6 +55,7 @@ impl Store {
         let store = Self {
             conn: Arc::new(Mutex::new(conn)),
             follow_tokens: Arc::new(Mutex::new(HashMap::new())),
+            comment_tokens: Arc::new(Mutex::new(HashMap::new())),
         };
         store.init_schema()?;
         Ok(store)
@@ -65,6 +67,7 @@ impl Store {
         let store = Self {
             conn: Arc::new(Mutex::new(conn)),
             follow_tokens: Arc::new(Mutex::new(HashMap::new())),
+            comment_tokens: Arc::new(Mutex::new(HashMap::new())),
         };
         store.init_schema()?;
         Ok(store)
@@ -108,8 +111,7 @@ impl Store {
                 version INTEGER DEFAULT 1,
                 deleted_at TEXT,
                 created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                FOREIGN KEY (user_id) REFERENCES users(id)
+                updated_at TEXT NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS thing_versions (
@@ -158,6 +160,8 @@ impl Store {
                 icon TEXT DEFAULT '',
                 template TEXT DEFAULT 'default',
                 attributes TEXT DEFAULT '[]',
+                commentable INTEGER DEFAULT 0,
+                show_existing_comments INTEGER DEFAULT 0,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY (user_id) REFERENCES users(id)
@@ -374,6 +378,34 @@ impl Store {
 
         if !has_column {
             conn.execute("ALTER TABLE follows ADD COLUMN last_confirmed_at TEXT", [])?;
+        }
+
+        // Migration: Add commentable to kinds table
+        let has_commentable: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM pragma_table_info('kinds') WHERE name = 'commentable'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+
+        if !has_commentable {
+            conn.execute("ALTER TABLE kinds ADD COLUMN commentable INTEGER DEFAULT 0", [])?;
+            // Set post kind to commentable by default
+            conn.execute("UPDATE kinds SET commentable = 1 WHERE LOWER(name) = 'post'", [])?;
+        }
+
+        // Migration: Add show_existing_comments to kinds table
+        let has_show_existing: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM pragma_table_info('kinds') WHERE name = 'show_existing_comments'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+
+        if !has_show_existing {
+            conn.execute("ALTER TABLE kinds ADD COLUMN show_existing_comments INTEGER DEFAULT 0", [])?;
         }
 
         Ok(())
@@ -1059,8 +1091,9 @@ impl Store {
                 things.push(row?);
             }
         } else {
+            // Exclude comments from the general feed - they should only appear under posts
             let mut stmt = conn.prepare(
-                r#"SELECT * FROM things WHERE user_id = ?1 AND deleted_at IS NULL
+                r#"SELECT * FROM things WHERE user_id = ?1 AND deleted_at IS NULL AND type != 'comment'
                    ORDER BY created_at DESC LIMIT ?2 OFFSET ?3"#
             )?;
             let rows = stmt.query_map(params![user_id, limit, offset], |row| {
@@ -1710,8 +1743,8 @@ impl Store {
         let attributes_json = serde_json::to_string(&kind.attributes).unwrap_or_else(|_| "[]".to_string());
 
         conn.execute(
-            r#"INSERT INTO kinds (id, user_id, name, icon, template, attributes, created_at, updated_at)
-               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)"#,
+            r#"INSERT INTO kinds (id, user_id, name, icon, template, attributes, commentable, show_existing_comments, created_at, updated_at)
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"#,
             params![
                 &kind.id,
                 &kind.user_id,
@@ -1719,6 +1752,8 @@ impl Store {
                 &kind.icon,
                 &kind.template,
                 &attributes_json,
+                kind.commentable,
+                kind.show_existing_comments,
                 kind.created_at.to_rfc3339(),
                 kind.updated_at.to_rfc3339(),
             ],
@@ -1739,7 +1774,7 @@ impl Store {
     pub fn list_kinds(&self, user_id: &str) -> StoreResult<Vec<Kind>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            r#"SELECT id, user_id, name, icon, template, attributes, created_at, updated_at
+            r#"SELECT id, user_id, name, icon, template, attributes, commentable, show_existing_comments, created_at, updated_at
                FROM kinds WHERE user_id = ?1 ORDER BY name ASC"#,
         )?;
 
@@ -1755,6 +1790,8 @@ impl Store {
                     icon: row.get("icon")?,
                     template: row.get("template")?,
                     attributes,
+                    commentable: row.get::<_, i32>("commentable").unwrap_or(0) != 0,
+                    show_existing_comments: row.get::<_, i32>("show_existing_comments").unwrap_or(0) != 0,
                     created_at: parse_datetime(row.get::<_, String>("created_at")?),
                     updated_at: parse_datetime(row.get::<_, String>("updated_at")?),
                 })
@@ -1767,7 +1804,7 @@ impl Store {
     pub fn get_kind(&self, id: &str) -> StoreResult<Kind> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            r#"SELECT id, user_id, name, icon, template, attributes, created_at, updated_at
+            r#"SELECT id, user_id, name, icon, template, attributes, commentable, show_existing_comments, created_at, updated_at
                FROM kinds WHERE id = ?1"#,
         )?;
 
@@ -1782,6 +1819,8 @@ impl Store {
                 icon: row.get("icon")?,
                 template: row.get("template")?,
                 attributes,
+                commentable: row.get::<_, i32>("commentable").unwrap_or(0) != 0,
+                show_existing_comments: row.get::<_, i32>("show_existing_comments").unwrap_or(0) != 0,
                 created_at: parse_datetime(row.get::<_, String>("created_at")?),
                 updated_at: parse_datetime(row.get::<_, String>("updated_at")?),
             })
@@ -1798,13 +1837,15 @@ impl Store {
         let attributes_json = serde_json::to_string(&kind.attributes).unwrap_or_else(|_| "[]".to_string());
 
         let rows = conn.execute(
-            r#"UPDATE kinds SET name = ?1, icon = ?2, template = ?3, attributes = ?4, updated_at = ?5
-               WHERE id = ?6"#,
+            r#"UPDATE kinds SET name = ?1, icon = ?2, template = ?3, attributes = ?4, commentable = ?5, show_existing_comments = ?6, updated_at = ?7
+               WHERE id = ?8"#,
             params![
                 &kind.name,
                 &kind.icon,
                 &kind.template,
                 &attributes_json,
+                kind.commentable,
+                kind.show_existing_comments,
                 kind.updated_at.to_rfc3339(),
                 &kind.id,
             ],
@@ -1823,6 +1864,20 @@ impl Store {
             return Err(StoreError::NotFound("Kind not found".to_string()));
         }
         Ok(())
+    }
+
+    /// Get the Kind ID associated with a Thing
+    pub fn get_thing_kind(&self, thing_id: &str) -> StoreResult<Option<String>> {
+        let conn = self.conn.lock().unwrap();
+        match conn.query_row(
+            "SELECT kind_id FROM thing_kinds WHERE thing_id = ?1",
+            params![thing_id],
+            |row| row.get::<_, String>(0),
+        ) {
+            Ok(kind_id) => Ok(Some(kind_id)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(StoreError::Database(e)),
+        }
     }
 
     /// Get owner profile (first admin user's public information)
@@ -1852,14 +1907,14 @@ impl Store {
         Ok(user)
     }
 
-    /// Get public things (visibility = 'public')
+    /// Get public things (visibility = 'public'), excluding comments
     pub fn get_public_things(&self, limit: usize, offset: usize) -> StoreResult<Vec<Thing>> {
         let mut things = Vec::new();
         {
             let conn = self.conn.lock().unwrap();
             let mut stmt = conn.prepare(
                 r#"SELECT * FROM things
-                   WHERE visibility = 'public' AND deleted_at IS NULL
+                   WHERE visibility = 'public' AND deleted_at IS NULL AND type != 'comment'
                    ORDER BY created_at DESC
                    LIMIT ?1 OFFSET ?2"#
             )?;
@@ -1880,6 +1935,109 @@ impl Store {
         }
 
         Ok(things)
+    }
+
+    // ==================== Comment Query Operations ====================
+
+    /// Get all comments (Things with type="comment") for a given Thing
+    pub fn get_comments_for_thing(&self, thing_id: &str) -> StoreResult<Vec<Thing>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            r#"SELECT * FROM things
+               WHERE type = 'comment'
+               AND metadata ->> 'root_id' = ?1
+               ORDER BY created_at ASC"#,
+        )?;
+
+        let mut things = Vec::new();
+        let rows = stmt.query_map(params![thing_id], |row| {
+            self.row_to_thing(row)
+        })?;
+
+        for row in rows {
+            things.push(row?);
+        }
+
+        Ok(things)
+    }
+
+    /// Get direct replies to a specific comment
+    pub fn get_replies(&self, comment_id: &str) -> StoreResult<Vec<Thing>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            r#"SELECT * FROM things
+               WHERE type = 'comment'
+               AND metadata ->> 'parent_id' = ?1
+               AND deleted_at IS NULL
+               ORDER BY created_at ASC"#,
+        )?;
+
+        let mut things = Vec::new();
+        let rows = stmt.query_map(params![comment_id], |row| {
+            self.row_to_thing(row)
+        })?;
+
+        for row in rows {
+            things.push(row?);
+        }
+
+        Ok(things)
+    }
+
+    /// Get entire comment thread (root Thing + all comments with metadata)
+    pub fn get_comment_thread(&self, root_id: &str) -> StoreResult<Vec<Thing>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            r#"SELECT * FROM things
+               WHERE (id = ?1 OR metadata ->> 'root_id' = ?1)
+               AND deleted_at IS NULL
+               ORDER BY created_at ASC"#,
+        )?;
+
+        let mut things = Vec::new();
+        let rows = stmt.query_map(params![root_id], |row| {
+            self.row_to_thing(row)
+        })?;
+
+        for row in rows {
+            things.push(row?);
+        }
+
+        Ok(things)
+    }
+
+    /// Get the owner of the root Thing for a comment (for deletion auth checks)
+    pub fn get_root_thing_owner(&self, thing_id: &str) -> StoreResult<Option<String>> {
+        let conn = self.conn.lock().unwrap();
+
+        // Get the current Thing
+        let thing = conn
+            .query_row("SELECT * FROM things WHERE id = ?1", params![thing_id], |row| {
+                self.row_to_thing(row)
+            })
+            .ok();
+
+        if let Some(thing) = thing {
+            // If it's not a comment, it's the root
+            if thing.thing_type != "comment" {
+                return Ok(Some(thing.user_id));
+            }
+
+            // It's a comment, so find the root_id from metadata
+            if let Some(root_id_val) = thing.metadata.get("root_id") {
+                if let Some(root_id) = root_id_val.as_str() {
+                    if let Ok(root_thing) = conn.query_row(
+                        "SELECT * FROM things WHERE id = ?1",
+                        params![root_id],
+                        |row| self.row_to_thing(row),
+                    ) {
+                        return Ok(Some(root_thing.user_id));
+                    }
+                }
+            }
+        }
+
+        Ok(None)
     }
 
     // ==================== Follow Token Operations ====================
@@ -1926,6 +2084,51 @@ impl Store {
     pub fn cleanup_expired_tokens(&self) {
         let now = Utc::now();
         let mut tokens = self.follow_tokens.lock().unwrap();
+        tokens.retain(|_, token| now < token.expires_at);
+    }
+
+    // ==================== Comment Token Operations ====================
+
+    /// Create a comment token for federated comments
+    pub fn create_comment_token(&self, user_id: &str, endpoint: &str) -> StoreResult<String> {
+        let token = Uuid::new_v4().to_string();
+        let now = Utc::now();
+        let expires_at = now + chrono::Duration::minutes(5);
+
+        let comment_token = CommentToken {
+            token: token.clone(),
+            user_id: user_id.to_string(),
+            endpoint: endpoint.to_string(),
+            created_at: now,
+            expires_at,
+        };
+
+        let mut tokens = self.comment_tokens.lock().unwrap();
+        tokens.insert(token.clone(), comment_token);
+
+        Ok(token)
+    }
+
+    /// Verify a comment token
+    /// Returns (valid, user_id, endpoint) if valid, otherwise (false, None, None)
+    pub fn verify_comment_token(&self, token: &str) -> (bool, Option<String>, Option<String>) {
+        let tokens = self.comment_tokens.lock().unwrap();
+
+        if let Some(comment_token) = tokens.get(token) {
+            let now = Utc::now();
+            if now < comment_token.expires_at {
+                return (true, Some(comment_token.user_id.clone()), Some(comment_token.endpoint.clone()));
+            }
+        }
+
+        (false, None, None)
+    }
+
+    /// Clean up expired comment tokens
+    /// Should be called periodically to prevent memory bloat
+    pub fn cleanup_expired_comment_tokens(&self) {
+        let now = Utc::now();
+        let mut tokens = self.comment_tokens.lock().unwrap();
         tokens.retain(|_, token| now < token.expires_at);
     }
 

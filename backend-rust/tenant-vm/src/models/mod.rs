@@ -106,6 +106,10 @@ pub struct Kind {
     pub icon: String,
     pub template: String,
     pub attributes: Vec<Attribute>,
+    #[serde(default)]
+    pub commentable: bool,
+    #[serde(default)]
+    pub show_existing_comments: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -504,6 +508,10 @@ pub struct CreateKindRequest {
     pub template: String,
     #[serde(default)]
     pub attributes: Vec<Attribute>,
+    #[serde(default)]
+    pub commentable: bool,
+    #[serde(default)]
+    pub show_existing_comments: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -512,6 +520,8 @@ pub struct UpdateKindRequest {
     pub icon: Option<String>,
     pub template: Option<String>,
     pub attributes: Option<Vec<Attribute>>,
+    pub commentable: Option<bool>,
+    pub show_existing_comments: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -598,6 +608,90 @@ pub struct NotifyFollowRequest {
     pub follower_user_id: String,    // Who is following (the sender's user ID)
     pub follower_endpoint: String,   // Where the follower lives (e.g., "https://russ.tenant.social")
     pub follow_token: String,        // Token to verify authenticity
+}
+
+// ============================================================
+// COMMENTS (Phase 3)
+// ============================================================
+
+/// Comment token for secure federated comment creation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommentToken {
+    pub token: String,
+    pub user_id: String,
+    pub endpoint: String,
+    pub created_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+}
+
+/// Request to create a comment
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateCommentRequest {
+    pub content: String,
+    #[serde(default)]
+    pub metadata: HashMap<String, serde_json::Value>,
+    #[serde(default = "default_visibility")]
+    pub visibility: String,
+    /// Optional parent_id for replies. If None, this is a top-level comment on the Thing.
+    pub parent_id: Option<String>,
+}
+
+/// Request to verify a comment token
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommentVerifyTokenRequest {
+    pub comment_token: String,
+}
+
+/// Response to comment token verification
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommentVerifyTokenResponse {
+    pub valid: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub endpoint: Option<String>,
+}
+
+/// Response for creating a comment token
+#[derive(Debug, Clone, Serialize)]
+pub struct CreateCommentTokenResponse {
+    pub comment_token: String,
+    pub expires_in: u64,  // Seconds (300 = 5 minutes)
+}
+
+/// Request to notify a remote server of a new comment on their Thing
+#[derive(Debug, Clone, Deserialize)]
+pub struct NotifyCommentRequest {
+    pub commenter_user_id: String,    // Who commented (the sender's user ID)
+    pub commenter_endpoint: String,   // Where the commenter lives
+    pub thing_id: String,             // What Thing this comment is on (root Thing)
+    pub content: String,
+    #[serde(default)]
+    pub metadata: HashMap<String, serde_json::Value>,
+    pub comment_token: String,        // Token to verify authenticity
+    /// Optional parent_id for replies. If None, this is a top-level comment.
+    pub parent_id: Option<String>,
+}
+
+/// Author info for display in comments
+#[derive(Debug, Clone, Serialize)]
+pub struct CommentAuthor {
+    pub user_id: String,
+    pub username: String,
+    pub display_name: String,
+}
+
+/// Comment with author info for API responses
+#[derive(Debug, Clone, Serialize)]
+pub struct CommentWithAuthor {
+    #[serde(flatten)]
+    pub comment: Thing,
+    pub author: Option<CommentAuthor>,
+    /// Content of the parent comment (for "replying to" context)
+    pub parent_content: Option<String>,
+    /// Author of the parent comment
+    pub parent_author: Option<CommentAuthor>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
