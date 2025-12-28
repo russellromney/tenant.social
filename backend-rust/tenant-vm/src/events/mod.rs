@@ -369,9 +369,12 @@ impl EventProcessor {
             visibility: visibility.to_string(),
             version: 1,
             deleted_at: None,
+            edited_at: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             photos: Vec::new(),
+            comment_count: None,
+            top_replies: None,
         };
 
         self.store.create_thing(&mut thing)

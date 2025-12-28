@@ -408,6 +408,70 @@ impl Store {
             conn.execute("ALTER TABLE kinds ADD COLUMN show_existing_comments INTEGER DEFAULT 0", [])?;
         }
 
+        // Migration: Update reactions table for new schema (target_type, emoji)
+        let has_target_type: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM pragma_table_info('reactions') WHERE name = 'target_type'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+
+        if !has_target_type {
+            // Add new columns
+            conn.execute("ALTER TABLE reactions ADD COLUMN target_type TEXT DEFAULT 'thing'", [])?;
+            conn.execute("ALTER TABLE reactions ADD COLUMN emoji TEXT", [])?;
+            // Rename thing_id to target_id by creating new table (SQLite doesn't support RENAME COLUMN in older versions)
+            // For now, we'll keep thing_id and add target_id as alias via queries
+            // Actually, let's add target_id and copy data
+            conn.execute("ALTER TABLE reactions ADD COLUMN target_id TEXT", [])?;
+            conn.execute("UPDATE reactions SET target_id = thing_id WHERE target_id IS NULL", [])?;
+            // Update existing reactions to have reaction_type 'like' if they don't have emoji
+            conn.execute("UPDATE reactions SET reaction_type = 'like' WHERE emoji IS NULL AND reaction_type NOT IN ('like', 'emoji')", [])?;
+        }
+
+        // Migration: Create bookmarks table
+        conn.execute(
+            r#"CREATE TABLE IF NOT EXISTS bookmarks (
+                id TEXT PRIMARY KEY,
+                thing_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (thing_id) REFERENCES things(id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                UNIQUE(thing_id, user_id)
+            )"#,
+            [],
+        )?;
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_bookmarks_user ON bookmarks(user_id)", [])?;
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_bookmarks_thing ON bookmarks(thing_id)", [])?;
+
+        // Migration: Create edit_history table
+        conn.execute(
+            r#"CREATE TABLE IF NOT EXISTS edit_history (
+                id TEXT PRIMARY KEY,
+                target_id TEXT NOT NULL,
+                target_type TEXT NOT NULL CHECK(target_type IN ('thing', 'comment')),
+                content TEXT NOT NULL,
+                edited_at TEXT NOT NULL
+            )"#,
+            [],
+        )?;
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_edit_history_target ON edit_history(target_id, target_type)", [])?;
+
+        // Migration: Add edited_at to things table
+        let has_edited_at: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM pragma_table_info('things') WHERE name = 'edited_at'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+
+        if !has_edited_at {
+            conn.execute("ALTER TABLE things ADD COLUMN edited_at TEXT", [])?;
+        }
+
         Ok(())
     }
 
@@ -1081,8 +1145,12 @@ impl Store {
 
         if let Some(t) = thing_type {
             let mut stmt = conn.prepare(
-                r#"SELECT * FROM things WHERE user_id = ?1 AND type = ?2 AND deleted_at IS NULL
-                   ORDER BY created_at DESC LIMIT ?3 OFFSET ?4"#
+                r#"SELECT t.*,
+                   (SELECT COUNT(*) FROM things c WHERE c.type = 'comment'
+                    AND c.deleted_at IS NULL
+                    AND json_extract(c.metadata, '$.root_id') = t.id) as comment_count
+                   FROM things t WHERE t.user_id = ?1 AND t.type = ?2 AND t.deleted_at IS NULL
+                   ORDER BY t.created_at DESC LIMIT ?3 OFFSET ?4"#
             )?;
             let rows = stmt.query_map(params![user_id, t, limit, offset], |row| {
                 self.row_to_thing(row)
@@ -1093,8 +1161,12 @@ impl Store {
         } else {
             // Exclude comments from the general feed - they should only appear under posts
             let mut stmt = conn.prepare(
-                r#"SELECT * FROM things WHERE user_id = ?1 AND deleted_at IS NULL AND type != 'comment'
-                   ORDER BY created_at DESC LIMIT ?2 OFFSET ?3"#
+                r#"SELECT t.*,
+                   (SELECT COUNT(*) FROM things c WHERE c.type = 'comment'
+                    AND c.deleted_at IS NULL
+                    AND json_extract(c.metadata, '$.root_id') = t.id) as comment_count
+                   FROM things t WHERE t.user_id = ?1 AND t.deleted_at IS NULL AND t.type != 'comment'
+                   ORDER BY t.created_at DESC LIMIT ?2 OFFSET ?3"#
             )?;
             let rows = stmt.query_map(params![user_id, limit, offset], |row| {
                 self.row_to_thing(row)
@@ -1112,7 +1184,71 @@ impl Store {
             }
         }
 
+        // Load top 2 replies for each thing
+        self.populate_top_replies(&mut things)?;
+
         Ok(things)
+    }
+
+    /// Populate top_replies field with the 2 most recent top-level comments for each thing
+    fn populate_top_replies(&self, things: &mut [Thing]) -> StoreResult<()> {
+        if things.is_empty() {
+            return Ok(());
+        }
+
+        // Get thing IDs
+        let thing_ids: Vec<String> = things.iter().map(|t| t.id.clone()).collect();
+
+        // Group replies by root thing ID, keeping only first 2
+        let mut replies_map: std::collections::HashMap<String, Vec<Thing>> = std::collections::HashMap::new();
+
+        {
+            let conn = self.conn.lock().unwrap();
+
+            // Build query with placeholders
+            let placeholders: Vec<String> = thing_ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
+            let query = format!(
+                r#"SELECT c.*, json_extract(c.metadata, '$.root_id') as root_thing_id
+                   FROM things c
+                   WHERE c.type = 'comment'
+                   AND c.deleted_at IS NULL
+                   AND json_extract(c.metadata, '$.depth') = 0
+                   AND json_extract(c.metadata, '$.root_id') IN ({})
+                   ORDER BY c.created_at ASC"#,
+                placeholders.join(", ")
+            );
+
+            let mut stmt = conn.prepare(&query)?;
+
+            // Build params
+            let params: Vec<&dyn rusqlite::ToSql> = thing_ids.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
+
+            let rows = stmt.query_map(params.as_slice(), |row| {
+                let root_id: String = row.get("root_thing_id")?;
+                let comment = self.row_to_thing(row)?;
+                Ok((root_id, comment))
+            })?;
+
+            for row_result in rows {
+                if let Ok((root_id, comment)) = row_result {
+                    let replies = replies_map.entry(root_id).or_insert_with(Vec::new);
+                    if replies.len() < 2 {
+                        replies.push(comment);
+                    }
+                }
+            }
+        } // conn and stmt dropped here
+
+        // Assign top_replies to each thing
+        for thing in things.iter_mut() {
+            if let Some(replies) = replies_map.remove(&thing.id) {
+                if !replies.is_empty() {
+                    thing.top_replies = Some(replies);
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// Get all Things that link to the given Thing via link-type attributes in metadata
@@ -1186,6 +1322,10 @@ impl Store {
             serde_json::from_str(&metadata_str).unwrap_or_default();
 
         let deleted_at: Option<String> = row.get("deleted_at")?;
+        let edited_at: Option<String> = row.get("edited_at").ok().flatten();
+
+        // Try to get comment_count if present in query
+        let comment_count: Option<i64> = row.get("comment_count").ok();
 
         Ok(Thing {
             id: row.get("id")?,
@@ -1196,9 +1336,12 @@ impl Store {
             visibility: row.get("visibility")?,
             version: row.get("version")?,
             deleted_at: deleted_at.map(parse_datetime),
+            edited_at: edited_at.map(parse_datetime),
             created_at: parse_datetime(row.get::<_, String>("created_at")?),
             updated_at: parse_datetime(row.get::<_, String>("updated_at")?),
             photos: Vec::new(),
+            comment_count,
+            top_replies: None,
         })
     }
 
@@ -1913,9 +2056,13 @@ impl Store {
         {
             let conn = self.conn.lock().unwrap();
             let mut stmt = conn.prepare(
-                r#"SELECT * FROM things
-                   WHERE visibility = 'public' AND deleted_at IS NULL AND type != 'comment'
-                   ORDER BY created_at DESC
+                r#"SELECT t.*,
+                   (SELECT COUNT(*) FROM things c WHERE c.type = 'comment'
+                    AND c.deleted_at IS NULL
+                    AND json_extract(c.metadata, '$.root_id') = t.id) as comment_count
+                   FROM things t
+                   WHERE t.visibility = 'public' AND t.deleted_at IS NULL AND t.type != 'comment'
+                   ORDER BY t.created_at DESC
                    LIMIT ?1 OFFSET ?2"#
             )?;
 
@@ -1933,6 +2080,9 @@ impl Store {
                 thing.photos = self.get_photos_by_thing_id(&thing.id)?;
             }
         }
+
+        // Load top 2 replies for each thing
+        self.populate_top_replies(&mut things)?;
 
         Ok(things)
     }
@@ -2872,27 +3022,31 @@ impl Store {
 
     // ==================== Reaction Operations ====================
 
+    /// Add a reaction (like or emoji) to a thing or comment
     pub fn add_reaction(&self, reaction: &Reaction) -> StoreResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            r#"INSERT INTO reactions (id, user_id, thing_id, reaction_type, created_at)
-               VALUES (?1, ?2, ?3, ?4, ?5)"#,
+            r#"INSERT INTO reactions (id, user_id, target_id, target_type, reaction_type, emoji, created_at, thing_id)
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?3)"#,
             params![
                 &reaction.id,
                 &reaction.user_id,
-                &reaction.thing_id,
+                &reaction.target_id,
+                reaction.target_type.as_str(),
                 &reaction.reaction_type,
+                &reaction.emoji,
                 reaction.created_at.to_rfc3339(),
             ],
         )?;
         Ok(())
     }
 
-    pub fn remove_reaction(&self, user_id: &str, thing_id: &str, reaction_type: &str) -> StoreResult<()> {
+    /// Remove a reaction by type (like or emoji)
+    pub fn remove_reaction(&self, user_id: &str, target_id: &str, target_type: &ReactionTargetType, reaction_type: &str) -> StoreResult<()> {
         let conn = self.conn.lock().unwrap();
         let rows = conn.execute(
-            "DELETE FROM reactions WHERE user_id = ?1 AND thing_id = ?2 AND reaction_type = ?3",
-            params![user_id, thing_id, reaction_type],
+            "DELETE FROM reactions WHERE user_id = ?1 AND target_id = ?2 AND target_type = ?3 AND reaction_type = ?4",
+            params![user_id, target_id, target_type.as_str(), reaction_type],
         )?;
         if rows == 0 {
             return Err(StoreError::NotFound("Reaction not found".to_string()));
@@ -2900,13 +3054,14 @@ impl Store {
         Ok(())
     }
 
-    pub fn get_reactions_for_thing(&self, thing_id: &str) -> StoreResult<Vec<Reaction>> {
+    /// Get all reactions for a target (thing or comment)
+    pub fn get_reactions_for_target(&self, target_id: &str, target_type: &ReactionTargetType) -> StoreResult<Vec<Reaction>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT * FROM reactions WHERE thing_id = ?1 ORDER BY created_at DESC"
+            "SELECT id, user_id, target_id, target_type, reaction_type, emoji, created_at FROM reactions WHERE target_id = ?1 AND target_type = ?2 ORDER BY created_at DESC"
         )?;
 
-        let rows = stmt.query_map(params![thing_id], |row| self.row_to_reaction(row))?;
+        let rows = stmt.query_map(params![target_id, target_type.as_str()], |row| self.row_to_reaction(row))?;
         let mut reactions = Vec::new();
         for row in rows {
             reactions.push(row?);
@@ -2914,31 +3069,41 @@ impl Store {
         Ok(reactions)
     }
 
-    pub fn get_reaction_counts(&self, thing_id: &str) -> StoreResult<HashMap<String, i64>> {
+    /// Get reaction counts for a target { "like": 5, "🔥": 2 }
+    pub fn get_reaction_counts(&self, target_id: &str, target_type: &ReactionTargetType) -> StoreResult<HashMap<String, i64>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT reaction_type, COUNT(*) as count FROM reactions WHERE thing_id = ?1 GROUP BY reaction_type"
+            r#"SELECT
+                CASE WHEN reaction_type = 'like' THEN 'like' ELSE emoji END as reaction_key,
+                COUNT(*) as count
+               FROM reactions
+               WHERE target_id = ?1 AND target_type = ?2
+               GROUP BY reaction_key"#
         )?;
 
-        let rows = stmt.query_map(params![thing_id], |row| {
+        let rows = stmt.query_map(params![target_id, target_type.as_str()], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
         })?;
 
         let mut counts = HashMap::new();
         for row in rows {
-            let (reaction_type, count) = row?;
-            counts.insert(reaction_type, count);
+            let (key, count) = row?;
+            counts.insert(key, count);
         }
         Ok(counts)
     }
 
-    pub fn get_user_reactions(&self, user_id: &str, thing_id: &str) -> StoreResult<Vec<String>> {
+    /// Get what reactions the user has on a target
+    pub fn get_user_reactions(&self, user_id: &str, target_id: &str, target_type: &ReactionTargetType) -> StoreResult<Vec<String>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT reaction_type FROM reactions WHERE user_id = ?1 AND thing_id = ?2"
+            r#"SELECT
+                CASE WHEN reaction_type = 'like' THEN 'like' ELSE emoji END as reaction_key
+               FROM reactions
+               WHERE user_id = ?1 AND target_id = ?2 AND target_type = ?3"#
         )?;
 
-        let rows = stmt.query_map(params![user_id, thing_id], |row| row.get(0))?;
+        let rows = stmt.query_map(params![user_id, target_id, target_type.as_str()], |row| row.get(0))?;
         let mut reactions = Vec::new();
         for row in rows {
             reactions.push(row?);
@@ -2946,23 +3111,177 @@ impl Store {
         Ok(reactions)
     }
 
-    pub fn get_reaction_summary(&self, thing_id: &str, user_id: Option<&str>) -> StoreResult<ReactionSummary> {
-        let counts = self.get_reaction_counts(thing_id)?;
+    /// Get reaction summary (counts + user's reactions) for a target
+    pub fn get_reaction_summary(&self, target_id: &str, target_type: &ReactionTargetType, user_id: Option<&str>) -> StoreResult<ReactionSummary> {
+        let counts = self.get_reaction_counts(target_id, target_type)?;
         let user_reactions = match user_id {
-            Some(uid) => self.get_user_reactions(uid, thing_id)?,
+            Some(uid) => self.get_user_reactions(uid, target_id, target_type)?,
             None => Vec::new(),
         };
         Ok(ReactionSummary { counts, user_reactions })
     }
 
+    /// Update emoji reaction (replace existing emoji with new one)
+    pub fn update_emoji_reaction(&self, user_id: &str, target_id: &str, target_type: &ReactionTargetType, new_emoji: &str) -> StoreResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let rows = conn.execute(
+            "UPDATE reactions SET emoji = ?1 WHERE user_id = ?2 AND target_id = ?3 AND target_type = ?4 AND reaction_type = 'emoji'",
+            params![new_emoji, user_id, target_id, target_type.as_str()],
+        )?;
+        if rows == 0 {
+            return Err(StoreError::NotFound("Emoji reaction not found".to_string()));
+        }
+        Ok(())
+    }
+
     fn row_to_reaction(&self, row: &rusqlite::Row) -> rusqlite::Result<Reaction> {
+        let target_type_str: String = row.get("target_type")?;
         Ok(Reaction {
             id: row.get("id")?,
             user_id: row.get("user_id")?,
-            thing_id: row.get("thing_id")?,
+            target_id: row.get("target_id")?,
+            target_type: ReactionTargetType::from_str(&target_type_str).unwrap_or(ReactionTargetType::Thing),
             reaction_type: row.get("reaction_type")?,
+            emoji: row.get("emoji")?,
             created_at: parse_datetime(row.get("created_at")?),
         })
+    }
+
+    // ==================== Bookmark Operations ====================
+
+    /// Add a bookmark
+    pub fn add_bookmark(&self, bookmark: &Bookmark) -> StoreResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            r#"INSERT INTO bookmarks (id, thing_id, user_id, created_at)
+               VALUES (?1, ?2, ?3, ?4)"#,
+            params![
+                &bookmark.id,
+                &bookmark.thing_id,
+                &bookmark.user_id,
+                bookmark.created_at.to_rfc3339(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Remove a bookmark
+    pub fn remove_bookmark(&self, user_id: &str, thing_id: &str) -> StoreResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let rows = conn.execute(
+            "DELETE FROM bookmarks WHERE user_id = ?1 AND thing_id = ?2",
+            params![user_id, thing_id],
+        )?;
+        if rows == 0 {
+            return Err(StoreError::NotFound("Bookmark not found".to_string()));
+        }
+        Ok(())
+    }
+
+    /// Check if user has bookmarked a thing
+    pub fn is_bookmarked(&self, user_id: &str, thing_id: &str) -> StoreResult<bool> {
+        let conn = self.conn.lock().unwrap();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM bookmarks WHERE user_id = ?1 AND thing_id = ?2",
+            params![user_id, thing_id],
+            |row| row.get(0),
+        )?;
+        Ok(count > 0)
+    }
+
+    /// Get all bookmarks for a user (returns thing IDs)
+    pub fn get_user_bookmarks(&self, user_id: &str) -> StoreResult<Vec<Bookmark>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, thing_id, user_id, created_at FROM bookmarks WHERE user_id = ?1 ORDER BY created_at DESC"
+        )?;
+
+        let rows = stmt.query_map(params![user_id], |row| {
+            Ok(Bookmark {
+                id: row.get("id")?,
+                thing_id: row.get("thing_id")?,
+                user_id: row.get("user_id")?,
+                created_at: parse_datetime(row.get("created_at")?),
+            })
+        })?;
+
+        let mut bookmarks = Vec::new();
+        for row in rows {
+            bookmarks.push(row?);
+        }
+        Ok(bookmarks)
+    }
+
+    /// Get bookmarked things for a user (full Thing objects)
+    pub fn get_bookmarked_things(&self, user_id: &str) -> StoreResult<Vec<Thing>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            r#"SELECT t.* FROM things t
+               INNER JOIN bookmarks b ON t.id = b.thing_id
+               WHERE b.user_id = ?1 AND t.deleted_at IS NULL
+               ORDER BY b.created_at DESC"#
+        )?;
+
+        let rows = stmt.query_map(params![user_id], |row| self.row_to_thing(row))?;
+        let mut things = Vec::new();
+        for row in rows {
+            things.push(row?);
+        }
+        Ok(things)
+    }
+
+    // ==================== Edit History Operations ====================
+
+    /// Save content to edit history before an edit
+    pub fn save_edit_history(&self, entry: &EditHistoryEntry) -> StoreResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            r#"INSERT INTO edit_history (id, target_id, target_type, content, edited_at)
+               VALUES (?1, ?2, ?3, ?4, ?5)"#,
+            params![
+                &entry.id,
+                &entry.target_id,
+                entry.target_type.as_str(),
+                &entry.content,
+                entry.edited_at.to_rfc3339(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Get edit history for a target (thing or comment)
+    pub fn get_edit_history(&self, target_id: &str, target_type: &ReactionTargetType) -> StoreResult<Vec<EditHistoryEntry>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, target_id, target_type, content, edited_at FROM edit_history WHERE target_id = ?1 AND target_type = ?2 ORDER BY edited_at DESC"
+        )?;
+
+        let rows = stmt.query_map(params![target_id, target_type.as_str()], |row| {
+            let target_type_str: String = row.get("target_type")?;
+            Ok(EditHistoryEntry {
+                id: row.get("id")?,
+                target_id: row.get("target_id")?,
+                target_type: ReactionTargetType::from_str(&target_type_str).unwrap_or(ReactionTargetType::Thing),
+                content: row.get("content")?,
+                edited_at: parse_datetime(row.get("edited_at")?),
+            })
+        })?;
+
+        let mut entries = Vec::new();
+        for row in rows {
+            entries.push(row?);
+        }
+        Ok(entries)
+    }
+
+    /// Update thing's edited_at timestamp
+    pub fn set_thing_edited_at(&self, thing_id: &str, edited_at: DateTime<Utc>) -> StoreResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE things SET edited_at = ?1 WHERE id = ?2",
+            params![edited_at.to_rfc3339(), thing_id],
+        )?;
+        Ok(())
     }
 }
 
@@ -3030,9 +3349,12 @@ mod tests {
             visibility: "private".to_string(),
             version: 0,
             deleted_at: None,
+            edited_at: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             photos: Vec::new(),
+            comment_count: None,
+            top_replies: None,
         };
 
         store.create_thing(&mut thing).unwrap();
@@ -3072,9 +3394,12 @@ mod tests {
             visibility: "public".to_string(),
             version: 0,
             deleted_at: None,
+            edited_at: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             photos: Vec::new(),
+            comment_count: None,
+            top_replies: None,
         };
         store.create_thing(&mut gallery).unwrap();
 
@@ -3321,9 +3646,12 @@ mod tests {
             visibility: "private".to_string(),
             version: 0,
             deleted_at: None,
+            edited_at: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             photos: Vec::new(),
+            comment_count: None,
+            top_replies: None,
         };
         store.create_thing(&mut private_thing).unwrap();
 
@@ -3336,9 +3664,12 @@ mod tests {
             visibility: "friends".to_string(),
             version: 0,
             deleted_at: None,
+            edited_at: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             photos: Vec::new(),
+            comment_count: None,
+            top_replies: None,
         };
         store.create_thing(&mut friends_thing).unwrap();
 
@@ -3351,9 +3682,12 @@ mod tests {
             visibility: "public".to_string(),
             version: 0,
             deleted_at: None,
+            edited_at: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             photos: Vec::new(),
+            comment_count: None,
+            top_replies: None,
         };
         store.create_thing(&mut public_thing).unwrap();
 
@@ -4108,9 +4442,12 @@ mod tests {
             visibility: "public".to_string(),
             version: 1,
             deleted_at: None,
+            edited_at: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             photos: Vec::new(),
+            comment_count: None,
+            top_replies: None,
         };
         store.create_thing(&mut thing).unwrap();
 
@@ -4118,16 +4455,20 @@ mod tests {
         let reaction1 = Reaction {
             id: uuid::Uuid::new_v4().to_string(),
             user_id: user.id.clone(),
-            thing_id: thing.id.clone(),
+            target_id: thing.id.clone(),
+            target_type: ReactionTargetType::Thing,
             reaction_type: "like".to_string(),
+            emoji: None,
             created_at: Utc::now(),
         };
 
         let reaction2 = Reaction {
             id: uuid::Uuid::new_v4().to_string(),
             user_id: user.id.clone(),
-            thing_id: thing.id.clone(),
-            reaction_type: "👍".to_string(),
+            target_id: thing.id.clone(),
+            target_type: ReactionTargetType::Thing,
+            reaction_type: "emoji".to_string(),
+            emoji: Some("👍".to_string()),
             created_at: Utc::now(),
         };
 
@@ -4135,11 +4476,11 @@ mod tests {
         store.add_reaction(&reaction2).unwrap();
 
         // Get reactions
-        let reactions = store.get_reactions_for_thing(&thing.id).unwrap();
+        let reactions = store.get_reactions_for_target(&thing.id, &ReactionTargetType::Thing).unwrap();
         assert_eq!(reactions.len(), 2);
 
         // Get user reactions
-        let user_reactions = store.get_user_reactions(&user.id, &thing.id).unwrap();
+        let user_reactions = store.get_user_reactions(&user.id, &thing.id, &ReactionTargetType::Thing).unwrap();
         assert_eq!(user_reactions.len(), 2);
         assert!(user_reactions.contains(&"like".to_string()));
         assert!(user_reactions.contains(&"👍".to_string()));
@@ -4191,9 +4532,12 @@ mod tests {
             visibility: "public".to_string(),
             version: 1,
             deleted_at: None,
+            edited_at: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             photos: Vec::new(),
+            comment_count: None,
+            top_replies: None,
         };
         store.create_thing(&mut thing).unwrap();
 
@@ -4201,16 +4545,20 @@ mod tests {
         store.add_reaction(&Reaction {
             id: uuid::Uuid::new_v4().to_string(),
             user_id: user1.id.clone(),
-            thing_id: thing.id.clone(),
+            target_id: thing.id.clone(),
+            target_type: ReactionTargetType::Thing,
             reaction_type: "like".to_string(),
+            emoji: None,
             created_at: Utc::now(),
         }).unwrap();
 
         store.add_reaction(&Reaction {
             id: uuid::Uuid::new_v4().to_string(),
             user_id: user2.id.clone(),
-            thing_id: thing.id.clone(),
+            target_id: thing.id.clone(),
+            target_type: ReactionTargetType::Thing,
             reaction_type: "like".to_string(),
+            emoji: None,
             created_at: Utc::now(),
         }).unwrap();
 
@@ -4218,13 +4566,15 @@ mod tests {
         store.add_reaction(&Reaction {
             id: uuid::Uuid::new_v4().to_string(),
             user_id: user1.id.clone(),
-            thing_id: thing.id.clone(),
-            reaction_type: "🎉".to_string(),
+            target_id: thing.id.clone(),
+            target_type: ReactionTargetType::Thing,
+            reaction_type: "emoji".to_string(),
+            emoji: Some("🎉".to_string()),
             created_at: Utc::now(),
         }).unwrap();
 
         // Get counts
-        let counts = store.get_reaction_counts(&thing.id).unwrap();
+        let counts = store.get_reaction_counts(&thing.id, &ReactionTargetType::Thing).unwrap();
         assert_eq!(counts.get("like"), Some(&2));
         assert_eq!(counts.get("🎉"), Some(&1));
     }
@@ -4258,9 +4608,12 @@ mod tests {
             visibility: "public".to_string(),
             version: 1,
             deleted_at: None,
+            edited_at: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             photos: Vec::new(),
+            comment_count: None,
+            top_replies: None,
         };
         store.create_thing(&mut thing).unwrap();
 
@@ -4268,17 +4621,19 @@ mod tests {
         store.add_reaction(&Reaction {
             id: uuid::Uuid::new_v4().to_string(),
             user_id: user.id.clone(),
-            thing_id: thing.id.clone(),
+            target_id: thing.id.clone(),
+            target_type: ReactionTargetType::Thing,
             reaction_type: "like".to_string(),
+            emoji: None,
             created_at: Utc::now(),
         }).unwrap();
 
-        assert_eq!(store.get_reactions_for_thing(&thing.id).unwrap().len(), 1);
+        assert_eq!(store.get_reactions_for_target(&thing.id, &ReactionTargetType::Thing).unwrap().len(), 1);
 
         // Remove reaction
-        store.remove_reaction(&user.id, &thing.id, "like").unwrap();
+        store.remove_reaction(&user.id, &thing.id, &ReactionTargetType::Thing, "like").unwrap();
 
-        assert_eq!(store.get_reactions_for_thing(&thing.id).unwrap().len(), 0);
+        assert_eq!(store.get_reactions_for_target(&thing.id, &ReactionTargetType::Thing).unwrap().len(), 0);
     }
 
     #[test]
@@ -4310,9 +4665,12 @@ mod tests {
             visibility: "public".to_string(),
             version: 1,
             deleted_at: None,
+            edited_at: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             photos: Vec::new(),
+            comment_count: None,
+            top_replies: None,
         };
         store.create_thing(&mut thing).unwrap();
 
@@ -4320,8 +4678,10 @@ mod tests {
         store.add_reaction(&Reaction {
             id: uuid::Uuid::new_v4().to_string(),
             user_id: user.id.clone(),
-            thing_id: thing.id.clone(),
+            target_id: thing.id.clone(),
+            target_type: ReactionTargetType::Thing,
             reaction_type: "like".to_string(),
+            emoji: None,
             created_at: Utc::now(),
         }).unwrap();
 
@@ -4329,8 +4689,10 @@ mod tests {
         let result = store.add_reaction(&Reaction {
             id: uuid::Uuid::new_v4().to_string(),
             user_id: user.id.clone(),
-            thing_id: thing.id.clone(),
+            target_id: thing.id.clone(),
+            target_type: ReactionTargetType::Thing,
             reaction_type: "like".to_string(),
+            emoji: None,
             created_at: Utc::now(),
         });
         assert!(result.is_err());
@@ -4381,9 +4743,12 @@ mod tests {
             visibility: "public".to_string(),
             version: 1,
             deleted_at: None,
+            edited_at: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             photos: Vec::new(),
+            comment_count: None,
+            top_replies: None,
         };
         store.create_thing(&mut thing).unwrap();
 
@@ -4391,8 +4756,10 @@ mod tests {
         store.add_reaction(&Reaction {
             id: uuid::Uuid::new_v4().to_string(),
             user_id: user1.id.clone(),
-            thing_id: thing.id.clone(),
+            target_id: thing.id.clone(),
+            target_type: ReactionTargetType::Thing,
             reaction_type: "like".to_string(),
+            emoji: None,
             created_at: Utc::now(),
         }).unwrap();
 
@@ -4400,20 +4767,24 @@ mod tests {
         store.add_reaction(&Reaction {
             id: uuid::Uuid::new_v4().to_string(),
             user_id: user2.id.clone(),
-            thing_id: thing.id.clone(),
+            target_id: thing.id.clone(),
+            target_type: ReactionTargetType::Thing,
             reaction_type: "like".to_string(),
+            emoji: None,
             created_at: Utc::now(),
         }).unwrap();
         store.add_reaction(&Reaction {
             id: uuid::Uuid::new_v4().to_string(),
             user_id: user2.id.clone(),
-            thing_id: thing.id.clone(),
-            reaction_type: "❤️".to_string(),
+            target_id: thing.id.clone(),
+            target_type: ReactionTargetType::Thing,
+            reaction_type: "emoji".to_string(),
+            emoji: Some("❤️".to_string()),
             created_at: Utc::now(),
         }).unwrap();
 
         // Get summary as user1
-        let summary = store.get_reaction_summary(&thing.id, Some(&user1.id)).unwrap();
+        let summary = store.get_reaction_summary(&thing.id, &ReactionTargetType::Thing, Some(&user1.id)).unwrap();
         let total: i64 = summary.counts.values().sum();
         assert_eq!(total, 3);
         assert_eq!(summary.counts.get("like"), Some(&2));
@@ -4422,15 +4793,251 @@ mod tests {
         assert!(!summary.user_reactions.contains(&"❤️".to_string()));
 
         // Get summary as user2
-        let summary = store.get_reaction_summary(&thing.id, Some(&user2.id)).unwrap();
+        let summary = store.get_reaction_summary(&thing.id, &ReactionTargetType::Thing, Some(&user2.id)).unwrap();
         assert!(summary.user_reactions.contains(&"like".to_string()));
         assert!(summary.user_reactions.contains(&"❤️".to_string()));
 
         // Get summary without user context
-        let summary = store.get_reaction_summary(&thing.id, None).unwrap();
+        let summary = store.get_reaction_summary(&thing.id, &ReactionTargetType::Thing, None).unwrap();
         let total: i64 = summary.counts.values().sum();
         assert_eq!(total, 3);
         assert!(summary.user_reactions.is_empty());
+    }
+
+    // ==================== Bookmark Tests ====================
+
+    #[test]
+    fn test_bookmark_crud() {
+        let store = Store::in_memory().unwrap();
+
+        // Create user
+        let mut user = User {
+            id: String::new(),
+            username: "alice".to_string(),
+            email: "alice@example.com".to_string(),
+            password_hash: "hash".to_string(),
+            display_name: String::new(),
+            bio: String::new(),
+            avatar_url: String::new(),
+            is_admin: false,
+            is_locked: false,
+            recovery_hash: String::new(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        store.create_user(&mut user).unwrap();
+
+        // Create thing
+        let mut thing = Thing {
+            id: String::new(),
+            user_id: user.id.clone(),
+            thing_type: "note".to_string(),
+            content: "Test note".to_string(),
+            metadata: HashMap::new(),
+            visibility: "public".to_string(),
+            version: 1,
+            deleted_at: None,
+            edited_at: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            photos: Vec::new(),
+            comment_count: None,
+            top_replies: None,
+        };
+        store.create_thing(&mut thing).unwrap();
+
+        // Initially not bookmarked
+        assert!(!store.is_bookmarked(&user.id, &thing.id).unwrap());
+
+        // Add bookmark
+        let bookmark = Bookmark {
+            id: uuid::Uuid::new_v4().to_string(),
+            thing_id: thing.id.clone(),
+            user_id: user.id.clone(),
+            created_at: Utc::now(),
+        };
+        store.add_bookmark(&bookmark).unwrap();
+
+        // Now it's bookmarked
+        assert!(store.is_bookmarked(&user.id, &thing.id).unwrap());
+
+        // Get bookmarks
+        let bookmarks = store.get_user_bookmarks(&user.id).unwrap();
+        assert_eq!(bookmarks.len(), 1);
+
+        // Get bookmarked things
+        let things = store.get_bookmarked_things(&user.id).unwrap();
+        assert_eq!(things.len(), 1);
+        assert_eq!(things[0].id, thing.id);
+
+        // Remove bookmark
+        store.remove_bookmark(&user.id, &thing.id).unwrap();
+
+        // No longer bookmarked
+        assert!(!store.is_bookmarked(&user.id, &thing.id).unwrap());
+    }
+
+    // ==================== Edit History Tests ====================
+
+    #[test]
+    fn test_edit_history_crud() {
+        let store = Store::in_memory().unwrap();
+
+        // Create user
+        let mut user = User {
+            id: String::new(),
+            username: "alice".to_string(),
+            email: "alice@example.com".to_string(),
+            password_hash: "hash".to_string(),
+            display_name: String::new(),
+            bio: String::new(),
+            avatar_url: String::new(),
+            is_admin: false,
+            is_locked: false,
+            recovery_hash: String::new(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        store.create_user(&mut user).unwrap();
+
+        // Create thing
+        let mut thing = Thing {
+            id: String::new(),
+            user_id: user.id.clone(),
+            thing_type: "note".to_string(),
+            content: "Original content".to_string(),
+            metadata: HashMap::new(),
+            visibility: "public".to_string(),
+            version: 1,
+            deleted_at: None,
+            edited_at: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            photos: Vec::new(),
+            comment_count: None,
+            top_replies: None,
+        };
+        store.create_thing(&mut thing).unwrap();
+
+        // Initially no history
+        let history = store.get_edit_history(&thing.id, &ReactionTargetType::Thing).unwrap();
+        assert!(history.is_empty());
+
+        // Save first edit
+        let entry1 = EditHistoryEntry {
+            id: uuid::Uuid::new_v4().to_string(),
+            target_id: thing.id.clone(),
+            target_type: ReactionTargetType::Thing,
+            content: "Original content".to_string(),
+            edited_at: Utc::now(),
+        };
+        store.save_edit_history(&entry1).unwrap();
+
+        // Save second edit
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        let entry2 = EditHistoryEntry {
+            id: uuid::Uuid::new_v4().to_string(),
+            target_id: thing.id.clone(),
+            target_type: ReactionTargetType::Thing,
+            content: "First edit".to_string(),
+            edited_at: Utc::now(),
+        };
+        store.save_edit_history(&entry2).unwrap();
+
+        // Get history (should be ordered by edited_at desc)
+        let history = store.get_edit_history(&thing.id, &ReactionTargetType::Thing).unwrap();
+        assert_eq!(history.len(), 2);
+        assert_eq!(history[0].content, "First edit");
+        assert_eq!(history[1].content, "Original content");
+    }
+
+    #[test]
+    fn test_comment_reactions() {
+        let store = Store::in_memory().unwrap();
+
+        // Create user
+        let mut user = User {
+            id: String::new(),
+            username: "alice".to_string(),
+            email: "alice@example.com".to_string(),
+            password_hash: "hash".to_string(),
+            display_name: String::new(),
+            bio: String::new(),
+            avatar_url: String::new(),
+            is_admin: false,
+            is_locked: false,
+            recovery_hash: String::new(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        store.create_user(&mut user).unwrap();
+
+        // Create post
+        let mut post = Thing {
+            id: String::new(),
+            user_id: user.id.clone(),
+            thing_type: "note".to_string(),
+            content: "Post content".to_string(),
+            metadata: HashMap::new(),
+            visibility: "public".to_string(),
+            version: 1,
+            deleted_at: None,
+            edited_at: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            photos: Vec::new(),
+            comment_count: None,
+            top_replies: None,
+        };
+        store.create_thing(&mut post).unwrap();
+
+        // Create comment
+        let mut comment_metadata = HashMap::new();
+        comment_metadata.insert("root_id".to_string(), serde_json::json!(post.id.clone()));
+        comment_metadata.insert("parent_id".to_string(), serde_json::json!(post.id.clone()));
+        comment_metadata.insert("depth".to_string(), serde_json::json!(0));
+
+        let mut comment = Thing {
+            id: String::new(),
+            user_id: user.id.clone(),
+            thing_type: "comment".to_string(),
+            content: "Comment content".to_string(),
+            metadata: comment_metadata,
+            visibility: "public".to_string(),
+            version: 1,
+            deleted_at: None,
+            edited_at: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            photos: Vec::new(),
+            comment_count: None,
+            top_replies: None,
+        };
+        store.create_thing(&mut comment).unwrap();
+
+        // Add reaction to comment
+        let reaction = Reaction {
+            id: uuid::Uuid::new_v4().to_string(),
+            user_id: user.id.clone(),
+            target_id: comment.id.clone(),
+            target_type: ReactionTargetType::Comment,
+            reaction_type: "like".to_string(),
+            emoji: None,
+            created_at: Utc::now(),
+        };
+        store.add_reaction(&reaction).unwrap();
+
+        // Get reaction summary for comment
+        let summary = store.get_reaction_summary(&comment.id, &ReactionTargetType::Comment, Some(&user.id)).unwrap();
+        assert_eq!(summary.counts.get("like"), Some(&1));
+        assert!(summary.user_reactions.contains(&"like".to_string()));
+
+        // Remove reaction
+        store.remove_reaction(&user.id, &comment.id, &ReactionTargetType::Comment, "like").unwrap();
+
+        // Verify removed
+        let summary = store.get_reaction_summary(&comment.id, &ReactionTargetType::Comment, Some(&user.id)).unwrap();
+        assert!(summary.counts.is_empty() || summary.counts.get("like").is_none() || summary.counts.get("like") == Some(&0));
     }
 
     // ==================== Backlink Tests (ported from Go) ====================
@@ -4465,9 +5072,12 @@ mod tests {
             visibility: "private".to_string(),
             version: 1,
             deleted_at: None,
+            edited_at: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             photos: Vec::new(),
+            comment_count: None,
+            top_replies: None,
         };
         store.create_thing(&mut thing_a).unwrap();
 
@@ -4480,9 +5090,12 @@ mod tests {
             visibility: "private".to_string(),
             version: 1,
             deleted_at: None,
+            edited_at: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             photos: Vec::new(),
+            comment_count: None,
+            top_replies: None,
         };
         store.create_thing(&mut thing_b).unwrap();
 
@@ -4508,9 +5121,12 @@ mod tests {
             visibility: "private".to_string(),
             version: 1,
             deleted_at: None,
+            edited_at: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             photos: Vec::new(),
+            comment_count: None,
+            top_replies: None,
         };
         store.create_thing(&mut thing_d).unwrap();
 
@@ -4555,9 +5171,12 @@ mod tests {
             visibility: "private".to_string(),
             version: 1,
             deleted_at: None,
+            edited_at: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             photos: Vec::new(),
+            comment_count: None,
+            top_replies: None,
         };
         store.create_thing(&mut thing_a).unwrap();
 
@@ -4570,9 +5189,12 @@ mod tests {
             visibility: "private".to_string(),
             version: 1,
             deleted_at: None,
+            edited_at: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             photos: Vec::new(),
+            comment_count: None,
+            top_replies: None,
         };
         store.create_thing(&mut thing_b).unwrap();
 
@@ -4598,9 +5220,12 @@ mod tests {
             visibility: "private".to_string(),
             version: 1,
             deleted_at: None,
+            edited_at: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             photos: Vec::new(),
+            comment_count: None,
+            top_replies: None,
         };
         store.create_thing(&mut thing_e).unwrap();
 
@@ -4644,9 +5269,12 @@ mod tests {
             visibility: "private".to_string(),
             version: 1,
             deleted_at: None,
+            edited_at: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             photos: Vec::new(),
+            comment_count: None,
+            top_replies: None,
         };
         store.create_thing(&mut thing_a).unwrap();
 
@@ -4668,9 +5296,12 @@ mod tests {
             visibility: "private".to_string(),
             version: 1,
             deleted_at: None,
+            edited_at: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             photos: Vec::new(),
+            comment_count: None,
+            top_replies: None,
         };
         store.create_thing(&mut thing_d).unwrap();
 
@@ -4692,9 +5323,12 @@ mod tests {
             visibility: "private".to_string(),
             version: 1,
             deleted_at: None,
+            edited_at: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             photos: Vec::new(),
+            comment_count: None,
+            top_replies: None,
         };
         store.create_thing(&mut thing_e).unwrap();
 
@@ -4738,9 +5372,12 @@ mod tests {
             visibility: "private".to_string(),
             version: 1,
             deleted_at: None,
+            edited_at: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             photos: Vec::new(),
+            comment_count: None,
+            top_replies: None,
         };
         store.create_thing(&mut thing_a).unwrap();
 
@@ -4762,9 +5399,12 @@ mod tests {
             visibility: "private".to_string(),
             version: 1,
             deleted_at: None,
+            edited_at: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             photos: Vec::new(),
+            comment_count: None,
+            top_replies: None,
         };
         store.create_thing(&mut thing_d).unwrap();
 
@@ -4827,9 +5467,12 @@ mod tests {
             visibility: "private".to_string(),
             version: 1,
             deleted_at: None,
+            edited_at: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             photos: Vec::new(),
+            comment_count: None,
+            top_replies: None,
         };
         store.create_thing(&mut thing_a).unwrap();
 
@@ -4843,9 +5486,12 @@ mod tests {
             visibility: "private".to_string(),
             version: 1,
             deleted_at: None,
+            edited_at: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             photos: Vec::new(),
+            comment_count: None,
+            top_replies: None,
         };
         store.create_thing(&mut thing_b).unwrap();
 
@@ -4867,9 +5513,12 @@ mod tests {
             visibility: "private".to_string(),
             version: 1,
             deleted_at: None,
+            edited_at: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             photos: Vec::new(),
+            comment_count: None,
+            top_replies: None,
         };
         store.create_thing(&mut thing_c).unwrap();
 
@@ -4940,9 +5589,12 @@ mod tests {
             visibility: "private".to_string(),
             version: 1,
             deleted_at: None,
+            edited_at: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             photos: Vec::new(),
+            comment_count: None,
+            top_replies: None,
         };
         store.create_thing(&mut thing_a).unwrap();
 
@@ -4964,9 +5616,12 @@ mod tests {
             visibility: "private".to_string(),
             version: 1,
             deleted_at: None,
+            edited_at: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             photos: Vec::new(),
+            comment_count: None,
+            top_replies: None,
         };
         store.create_thing(&mut thing_d).unwrap();
 
@@ -5008,9 +5663,12 @@ mod tests {
             visibility: "private".to_string(),
             version: 1,
             deleted_at: None,
+            edited_at: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             photos: Vec::new(),
+            comment_count: None,
+            top_replies: None,
         };
         store.create_thing(&mut gallery).unwrap();
 
@@ -5095,9 +5753,12 @@ mod tests {
             visibility: String::new(), // Empty - should default to private
             version: 1,
             deleted_at: None,
+            edited_at: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             photos: Vec::new(),
+            comment_count: None,
+            top_replies: None,
         };
         store.create_thing(&mut thing).unwrap();
 
@@ -5141,9 +5802,12 @@ mod tests {
             visibility: "private".to_string(),
             version: 1,
             deleted_at: None,
+            edited_at: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             photos: Vec::new(),
+            comment_count: None,
+            top_replies: None,
         };
         store.create_thing(&mut gallery).unwrap();
 

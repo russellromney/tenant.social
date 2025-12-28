@@ -340,9 +340,12 @@ pub async fn create_thing(
         visibility: body.visibility.clone(),
         version: 0,
         deleted_at: None,
+        edited_at: None,
         created_at: Utc::now(),
         updated_at: Utc::now(),
         photos: Vec::new(),
+        comment_count: None,
+        top_replies: None,
     };
 
     match state.store.create_thing(&mut thing) {
@@ -375,6 +378,29 @@ pub async fn update_thing(
         return HttpResponse::NotFound().json(serde_json::json!({"error": "Thing not found"}));
     }
 
+    // Check if content is being updated - save old content to history
+    let content_changed = body.content.as_ref().map(|c| c != &thing.content).unwrap_or(false);
+    if content_changed {
+        // Save current content to edit history before updating
+        let target_type = if thing.thing_type == "comment" {
+            crate::models::ReactionTargetType::Comment
+        } else {
+            crate::models::ReactionTargetType::Thing
+        };
+
+        let history_entry = crate::models::EditHistoryEntry {
+            id: uuid::Uuid::new_v4().to_string(),
+            target_id: thing.id.clone(),
+            target_type,
+            content: thing.content.clone(),
+            edited_at: Utc::now(),
+        };
+
+        if let Err(e) = state.store.save_edit_history(&history_entry) {
+            log::error!("Failed to save edit history: {}", e);
+        }
+    }
+
     // Apply updates
     if let Some(ref t) = body.thing_type {
         thing.thing_type = t.clone();
@@ -387,6 +413,11 @@ pub async fn update_thing(
     }
     if let Some(ref v) = body.visibility {
         thing.visibility = v.clone();
+    }
+
+    // Set edited_at if content was changed
+    if content_changed {
+        thing.edited_at = Some(Utc::now());
     }
 
     match state.store.update_thing(&mut thing) {
@@ -591,9 +622,12 @@ pub async fn upload_photo(
         visibility,
         version: 0,
         deleted_at: None,
+        edited_at: None,
         created_at: Utc::now(),
         updated_at: Utc::now(),
         photos: Vec::new(),
+        comment_count: None,
+        top_replies: None,
     };
 
     if let Err(e) = state.store.create_thing(&mut thing) {
@@ -1432,9 +1466,12 @@ pub async fn notify_comment(
         visibility: root_thing.visibility.clone(), // Inherit root visibility
         version: 0,
         deleted_at: None,
+        edited_at: None,
         created_at: Utc::now(),
         updated_at: Utc::now(),
         photos: Vec::new(),
+        comment_count: None,
+        top_replies: None,
     };
 
     if let Err(e) = state.store.create_thing(&mut comment) {
@@ -1564,9 +1601,12 @@ pub async fn create_local_comment(
         visibility: root_thing.visibility.clone(), // Inherit root visibility
         version: 0,
         deleted_at: None,
+        edited_at: None,
         created_at: Utc::now(),
         updated_at: Utc::now(),
         photos: Vec::new(),
+        comment_count: None,
+        top_replies: None,
     };
 
     if let Err(e) = state.store.create_thing(&mut comment) {
@@ -1961,9 +2001,16 @@ pub async fn add_reaction(
     let thing_id = path.into_inner();
 
     // Validate reaction type
-    if !crate::models::ALLOWED_REACTIONS.contains(&body.reaction_type.as_str()) {
+    if body.reaction_type != "like" && body.reaction_type != "emoji" {
         return HttpResponse::BadRequest().json(ApiResponse::<()>::error(
-            format!("Invalid reaction type. Allowed: {:?}", crate::models::ALLOWED_REACTIONS)
+            "Invalid reaction type. Must be 'like' or 'emoji'"
+        ));
+    }
+
+    // If emoji type, must have an emoji
+    if body.reaction_type == "emoji" && body.emoji.is_none() {
+        return HttpResponse::BadRequest().json(ApiResponse::<()>::error(
+            "Emoji reaction requires 'emoji' field"
         ));
     }
 
@@ -1981,15 +2028,17 @@ pub async fn add_reaction(
     let reaction = crate::models::Reaction {
         id: uuid::Uuid::new_v4().to_string(),
         user_id: auth_user.user_id.clone(),
-        thing_id: thing_id.clone(),
+        target_id: thing_id.clone(),
+        target_type: crate::models::ReactionTargetType::Thing,
         reaction_type: body.reaction_type.clone(),
+        emoji: body.emoji.clone(),
         created_at: Utc::now(),
     };
 
     match state.store.add_reaction(&reaction) {
         Ok(_) => {
             // Get updated summary
-            match state.store.get_reaction_summary(&thing_id, Some(&auth_user.user_id)) {
+            match state.store.get_reaction_summary(&thing_id, &crate::models::ReactionTargetType::Thing, Some(&auth_user.user_id)) {
                 Ok(summary) => HttpResponse::Created().json(ApiResponse::success(summary)),
                 Err(_) => HttpResponse::Created().json(ApiResponse::<()>::success(())),
             }
@@ -2009,9 +2058,9 @@ pub async fn remove_reaction(
 ) -> impl Responder {
     let (thing_id, reaction_type) = path.into_inner();
 
-    match state.store.remove_reaction(&auth_user.user_id, &thing_id, &reaction_type) {
+    match state.store.remove_reaction(&auth_user.user_id, &thing_id, &crate::models::ReactionTargetType::Thing, &reaction_type) {
         Ok(_) => {
-            match state.store.get_reaction_summary(&thing_id, Some(&auth_user.user_id)) {
+            match state.store.get_reaction_summary(&thing_id, &crate::models::ReactionTargetType::Thing, Some(&auth_user.user_id)) {
                 Ok(summary) => HttpResponse::Ok().json(ApiResponse::success(summary)),
                 Err(_) => HttpResponse::Ok().json(ApiResponse::<()>::success(())),
             }
@@ -2031,8 +2080,255 @@ pub async fn get_reactions(
 ) -> impl Responder {
     let thing_id = path.into_inner();
 
-    match state.store.get_reaction_summary(&thing_id, Some(&auth_user.user_id)) {
+    match state.store.get_reaction_summary(&thing_id, &crate::models::ReactionTargetType::Thing, Some(&auth_user.user_id)) {
         Ok(summary) => HttpResponse::Ok().json(ApiResponse::success(summary)),
+        Err(_) => HttpResponse::InternalServerError().json(ApiResponse::<()>::error("Database error")),
+    }
+}
+
+// ==================== COMMENT REACTIONS ====================
+
+/// POST /api/comments/{id}/reactions - Add a reaction to a comment
+pub async fn add_comment_reaction(
+    state: web::Data<AppState>,
+    auth_user: AuthUser,
+    path: web::Path<String>,
+    body: web::Json<crate::models::AddReactionRequest>,
+) -> impl Responder {
+    let comment_id = path.into_inner();
+
+    // Validate reaction type
+    if body.reaction_type != "like" && body.reaction_type != "emoji" {
+        return HttpResponse::BadRequest().json(ApiResponse::<()>::error(
+            "Invalid reaction type. Must be 'like' or 'emoji'"
+        ));
+    }
+
+    // If emoji type, must have an emoji
+    if body.reaction_type == "emoji" && body.emoji.is_none() {
+        return HttpResponse::BadRequest().json(ApiResponse::<()>::error(
+            "Emoji reaction requires 'emoji' field"
+        ));
+    }
+
+    // Check comment exists
+    match state.store.get_thing(&comment_id) {
+        Ok(thing) => {
+            if thing.thing_type != "comment" {
+                return HttpResponse::BadRequest().json(ApiResponse::<()>::error("Not a comment"));
+            }
+        }
+        Err(StoreError::NotFound(_)) => {
+            return HttpResponse::NotFound().json(ApiResponse::<()>::error("Comment not found"));
+        }
+        Err(_) => {
+            return HttpResponse::InternalServerError().json(ApiResponse::<()>::error("Database error"));
+        }
+    }
+
+    let reaction = crate::models::Reaction {
+        id: uuid::Uuid::new_v4().to_string(),
+        user_id: auth_user.user_id.clone(),
+        target_id: comment_id.clone(),
+        target_type: crate::models::ReactionTargetType::Comment,
+        reaction_type: body.reaction_type.clone(),
+        emoji: body.emoji.clone(),
+        created_at: Utc::now(),
+    };
+
+    match state.store.add_reaction(&reaction) {
+        Ok(_) => {
+            match state.store.get_reaction_summary(&comment_id, &crate::models::ReactionTargetType::Comment, Some(&auth_user.user_id)) {
+                Ok(summary) => HttpResponse::Created().json(ApiResponse::success(summary)),
+                Err(_) => HttpResponse::Created().json(ApiResponse::<()>::success(())),
+            }
+        }
+        Err(crate::store::StoreError::Database(e)) if e.to_string().contains("UNIQUE") => {
+            HttpResponse::Conflict().json(ApiResponse::<()>::error("Already reacted with this type"))
+        }
+        Err(_) => HttpResponse::InternalServerError().json(ApiResponse::<()>::error("Database error")),
+    }
+}
+
+/// DELETE /api/comments/{comment_id}/reactions/{reaction_type} - Remove a reaction from a comment
+pub async fn remove_comment_reaction(
+    state: web::Data<AppState>,
+    auth_user: AuthUser,
+    path: web::Path<(String, String)>,
+) -> impl Responder {
+    let (comment_id, reaction_type) = path.into_inner();
+
+    match state.store.remove_reaction(&auth_user.user_id, &comment_id, &crate::models::ReactionTargetType::Comment, &reaction_type) {
+        Ok(_) => {
+            match state.store.get_reaction_summary(&comment_id, &crate::models::ReactionTargetType::Comment, Some(&auth_user.user_id)) {
+                Ok(summary) => HttpResponse::Ok().json(ApiResponse::success(summary)),
+                Err(_) => HttpResponse::Ok().json(ApiResponse::<()>::success(())),
+            }
+        }
+        Err(StoreError::NotFound(_)) => {
+            HttpResponse::NotFound().json(ApiResponse::<()>::error("Reaction not found"))
+        }
+        Err(_) => HttpResponse::InternalServerError().json(ApiResponse::<()>::error("Database error")),
+    }
+}
+
+/// GET /api/comments/{id}/reactions - Get reactions for a comment
+pub async fn get_comment_reactions(
+    state: web::Data<AppState>,
+    auth_user: AuthUser,
+    path: web::Path<String>,
+) -> impl Responder {
+    let comment_id = path.into_inner();
+
+    match state.store.get_reaction_summary(&comment_id, &crate::models::ReactionTargetType::Comment, Some(&auth_user.user_id)) {
+        Ok(summary) => HttpResponse::Ok().json(ApiResponse::success(summary)),
+        Err(_) => HttpResponse::InternalServerError().json(ApiResponse::<()>::error("Database error")),
+    }
+}
+
+// ==================== BOOKMARKS ====================
+
+/// POST /api/bookmarks - Add a bookmark
+pub async fn add_bookmark(
+    state: web::Data<AppState>,
+    auth_user: AuthUser,
+    body: web::Json<serde_json::Value>,
+) -> impl Responder {
+    let thing_id = match body.get("thing_id").and_then(|v| v.as_str()) {
+        Some(id) => id.to_string(),
+        None => return HttpResponse::BadRequest().json(ApiResponse::<()>::error("Missing thing_id")),
+    };
+
+    // Check thing exists
+    match state.store.get_thing(&thing_id) {
+        Ok(_) => {}
+        Err(StoreError::NotFound(_)) => {
+            return HttpResponse::NotFound().json(ApiResponse::<()>::error("Thing not found"));
+        }
+        Err(_) => {
+            return HttpResponse::InternalServerError().json(ApiResponse::<()>::error("Database error"));
+        }
+    }
+
+    let bookmark = crate::models::Bookmark {
+        id: uuid::Uuid::new_v4().to_string(),
+        thing_id: thing_id.clone(),
+        user_id: auth_user.user_id.clone(),
+        created_at: Utc::now(),
+    };
+
+    match state.store.add_bookmark(&bookmark) {
+        Ok(_) => HttpResponse::Created().json(ApiResponse::success(serde_json::json!({
+            "thing_id": thing_id,
+            "bookmarked": true
+        }))),
+        Err(crate::store::StoreError::Database(e)) if e.to_string().contains("UNIQUE") => {
+            HttpResponse::Conflict().json(ApiResponse::<()>::error("Already bookmarked"))
+        }
+        Err(_) => HttpResponse::InternalServerError().json(ApiResponse::<()>::error("Database error")),
+    }
+}
+
+/// DELETE /api/bookmarks/{thing_id} - Remove a bookmark
+pub async fn remove_bookmark(
+    state: web::Data<AppState>,
+    auth_user: AuthUser,
+    path: web::Path<String>,
+) -> impl Responder {
+    let thing_id = path.into_inner();
+
+    match state.store.remove_bookmark(&auth_user.user_id, &thing_id) {
+        Ok(_) => HttpResponse::Ok().json(ApiResponse::success(serde_json::json!({
+            "thing_id": thing_id,
+            "bookmarked": false
+        }))),
+        Err(StoreError::NotFound(_)) => {
+            HttpResponse::NotFound().json(ApiResponse::<()>::error("Bookmark not found"))
+        }
+        Err(_) => HttpResponse::InternalServerError().json(ApiResponse::<()>::error("Database error")),
+    }
+}
+
+/// GET /api/bookmarks - Get user's bookmarked things
+pub async fn get_bookmarks(
+    state: web::Data<AppState>,
+    auth_user: AuthUser,
+) -> impl Responder {
+    match state.store.get_bookmarked_things(&auth_user.user_id) {
+        Ok(things) => HttpResponse::Ok().json(ApiResponse::success(things)),
+        Err(_) => HttpResponse::InternalServerError().json(ApiResponse::<()>::error("Database error")),
+    }
+}
+
+/// GET /api/things/{id}/bookmark - Check if thing is bookmarked
+pub async fn check_bookmark(
+    state: web::Data<AppState>,
+    auth_user: AuthUser,
+    path: web::Path<String>,
+) -> impl Responder {
+    let thing_id = path.into_inner();
+
+    match state.store.is_bookmarked(&auth_user.user_id, &thing_id) {
+        Ok(bookmarked) => HttpResponse::Ok().json(ApiResponse::success(serde_json::json!({
+            "thing_id": thing_id,
+            "bookmarked": bookmarked
+        }))),
+        Err(_) => HttpResponse::InternalServerError().json(ApiResponse::<()>::error("Database error")),
+    }
+}
+
+// ==================== EDIT HISTORY ====================
+
+/// GET /api/things/{id}/history - Get edit history for a thing
+pub async fn get_thing_history(
+    state: web::Data<AppState>,
+    _auth_user: AuthUser,
+    path: web::Path<String>,
+) -> impl Responder {
+    let thing_id = path.into_inner();
+
+    // Check thing exists
+    match state.store.get_thing(&thing_id) {
+        Ok(_) => {}
+        Err(StoreError::NotFound(_)) => {
+            return HttpResponse::NotFound().json(ApiResponse::<()>::error("Thing not found"));
+        }
+        Err(_) => {
+            return HttpResponse::InternalServerError().json(ApiResponse::<()>::error("Database error"));
+        }
+    }
+
+    match state.store.get_edit_history(&thing_id, &crate::models::ReactionTargetType::Thing) {
+        Ok(history) => HttpResponse::Ok().json(ApiResponse::success(history)),
+        Err(_) => HttpResponse::InternalServerError().json(ApiResponse::<()>::error("Database error")),
+    }
+}
+
+/// GET /api/comments/{id}/history - Get edit history for a comment
+pub async fn get_comment_history(
+    state: web::Data<AppState>,
+    _auth_user: AuthUser,
+    path: web::Path<String>,
+) -> impl Responder {
+    let comment_id = path.into_inner();
+
+    // Check comment exists
+    match state.store.get_thing(&comment_id) {
+        Ok(thing) => {
+            if thing.thing_type != "comment" {
+                return HttpResponse::BadRequest().json(ApiResponse::<()>::error("Not a comment"));
+            }
+        }
+        Err(StoreError::NotFound(_)) => {
+            return HttpResponse::NotFound().json(ApiResponse::<()>::error("Comment not found"));
+        }
+        Err(_) => {
+            return HttpResponse::InternalServerError().json(ApiResponse::<()>::error("Database error"));
+        }
+    }
+
+    match state.store.get_edit_history(&comment_id, &crate::models::ReactionTargetType::Comment) {
+        Ok(history) => HttpResponse::Ok().json(ApiResponse::success(history)),
         Err(_) => HttpResponse::InternalServerError().json(ApiResponse::<()>::error("Database error")),
     }
 }
@@ -2372,9 +2668,12 @@ async fn upsert_thing(
         visibility: body.get("visibility").and_then(|v| v.as_str()).unwrap_or("private").to_string(),
         version: 1,
         deleted_at: None,
+        edited_at: None,
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
         photos: vec![],
+        comment_count: None,
+        top_replies: None,
     };
 
     match state.store.upsert_thing(&auth_user.user_id, &thing_type, &match_field, &match_value, &mut thing) {
@@ -2438,9 +2737,12 @@ async fn bulk_create_things(
             visibility,
             version: 0,
             deleted_at: None,
+            edited_at: None,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
             photos: Vec::new(),
+            comment_count: None,
+            top_replies: None,
         });
     }
 
@@ -2501,9 +2803,12 @@ async fn bulk_update_things(
             visibility,
             version,
             deleted_at: None,
+            edited_at: None,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
             photos: vec![],
+            comment_count: None,
+            top_replies: None,
         });
     }
 
@@ -3014,9 +3319,12 @@ async fn import_data(
                 visibility: "private".to_string(),
                 version: 1,
                 deleted_at: None,
+                edited_at: None,
                 created_at: chrono::Utc::now(),
                 updated_at: chrono::Utc::now(),
                 photos: vec![],
+                comment_count: None,
+                top_replies: None,
             };
 
             if state.store.create_thing(&mut thing).is_ok() {
@@ -3266,10 +3574,25 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         .route("/api/notifications/{id}/read", web::put().to(mark_notification_read))
         .route("/api/notifications/{id}", web::delete().to(delete_notification))
 
-        // Reactions
+        // Reactions (Things)
         .route("/api/things/{id}/reactions", web::get().to(get_reactions))
         .route("/api/things/{id}/reactions", web::post().to(add_reaction))
         .route("/api/things/{thing_id}/reactions/{reaction_type}", web::delete().to(remove_reaction))
+
+        // Reactions (Comments)
+        .route("/api/comments/{id}/reactions", web::get().to(get_comment_reactions))
+        .route("/api/comments/{id}/reactions", web::post().to(add_comment_reaction))
+        .route("/api/comments/{comment_id}/reactions/{reaction_type}", web::delete().to(remove_comment_reaction))
+
+        // Bookmarks
+        .route("/api/bookmarks", web::get().to(get_bookmarks))
+        .route("/api/bookmarks", web::post().to(add_bookmark))
+        .route("/api/bookmarks/{thing_id}", web::delete().to(remove_bookmark))
+        .route("/api/things/{id}/bookmark", web::get().to(check_bookmark))
+
+        // Edit History
+        .route("/api/things/{id}/history", web::get().to(get_thing_history))
+        .route("/api/comments/{id}/history", web::get().to(get_comment_history))
 
         // Frontend assets and SPA routing
         .route("/assets/{path:.*}", web::get().to(serve_assets))

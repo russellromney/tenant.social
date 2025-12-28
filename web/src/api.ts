@@ -1,5 +1,5 @@
 // Known app routes - used to distinguish routes from base path
-const APP_ROUTES = ['/', '/feed', '/friends', '/settings', '/kinds', '/data', '/keys', '/about', '/docs', '/guides', '/login', '/post']
+const APP_ROUTES = ['/', '/feed', '/friends', '/settings', '/kinds', '/data', '/keys', '/about', '/docs', '/guides', '/login', '/post', '/bookmarks']
 
 // Get the base path for API calls (e.g., '/sandbox' from '/sandbox/friends')
 // This allows the frontend to work both standalone and under apartment's /{username} prefix

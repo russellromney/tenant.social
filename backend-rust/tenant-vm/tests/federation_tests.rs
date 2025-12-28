@@ -65,6 +65,9 @@ async fn create_thing_with_visibility(
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
         photos: Vec::new(),
+        comment_count: None,
+        edited_at: None,
+        top_replies: None,
     };
 
     store.create_thing(&mut thing).unwrap();

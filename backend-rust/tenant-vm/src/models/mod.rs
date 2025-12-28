@@ -45,10 +45,16 @@ pub struct Thing {
     pub visibility: String,
     pub version: i32,
     pub deleted_at: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub edited_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub photos: Vec<Photo>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub comment_count: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub top_replies: Option<Vec<Thing>>,
 }
 
 /// ThingVersion stores historical versions of a Thing.
@@ -437,43 +443,75 @@ pub struct InboundNotificationResponse {
 // REACTIONS
 // ============================================================
 
-/// Reaction on a Thing (like, heart, fire, etc.)
+/// Target type for reactions (thing or comment)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum ReactionTargetType {
+    Thing,
+    Comment,
+}
+
+impl ReactionTargetType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ReactionTargetType::Thing => "thing",
+            ReactionTargetType::Comment => "comment",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "thing" => Some(ReactionTargetType::Thing),
+            "comment" => Some(ReactionTargetType::Comment),
+            _ => None,
+        }
+    }
+}
+
+/// Reaction on a Thing or Comment (like or one emoji)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Reaction {
     pub id: String,
     pub user_id: String,
-    pub thing_id: String,
-    pub reaction_type: String,           // 'like', 'heart', 'fire', 'laugh', 'sad', 'celebrate'
+    pub target_id: String,               // thing_id or comment_id
+    pub target_type: ReactionTargetType, // 'thing' or 'comment'
+    pub reaction_type: String,           // 'like' or 'emoji'
+    pub emoji: Option<String>,           // the emoji if reaction_type is 'emoji'
     pub created_at: DateTime<Utc>,
 }
 
-/// Allowed reaction types - text-based names and popular emojis
-pub const ALLOWED_REACTIONS: &[&str] = &[
-    // Text-based reaction names
-    "like",      // thumbs up
-    "heart",     // love
-    "fire",      // hot/good
-    "laugh",     // funny
-    "sad",       // sad
-    "celebrate", // party/congrats
-    // Popular emojis (50 most commonly used)
-    "👍", "👎", "❤️", "🔥", "😂",
-    "😍", "😢", "😮", "😡", "🎉",
-    "👏", "🙏", "💯", "✨", "🎊",
-    "💪", "🤔", "😊", "😎", "🥳",
-    "😭", "🤣", "💕", "✅", "❌",
-    "🚀", "💡", "⭐", "🌟", "💫",
-    "🙌", "🤝", "👋", "💖", "💗",
-    "💓", "💘", "💝", "🥰", "😇",
-    "🤩", "😻", "💙", "💚", "💛",
-    "💜", "🖤", "🤍", "🧡", "💔",
-];
-
-/// Reaction counts and user's reactions for a Thing
+/// Reaction counts and user's reactions for a Thing/Comment
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReactionSummary {
-    pub counts: HashMap<String, i64>,
-    pub user_reactions: Vec<String>,
+    pub counts: HashMap<String, i64>,    // { "like": 5, "🔥": 2, "😂": 1 }
+    pub user_reactions: Vec<String>,     // ["like", "🔥"] - what current user reacted with
+}
+
+// ============================================================
+// BOOKMARKS
+// ============================================================
+
+/// Bookmark - private save of a Thing for later
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Bookmark {
+    pub id: String,
+    pub thing_id: String,
+    pub user_id: String,
+    pub created_at: DateTime<Utc>,
+}
+
+// ============================================================
+// EDIT HISTORY
+// ============================================================
+
+/// Edit history entry - stores content BEFORE an edit
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EditHistoryEntry {
+    pub id: String,
+    pub target_id: String,               // thing_id or comment_id
+    pub target_type: ReactionTargetType, // reuse enum: 'thing' or 'comment'
+    pub content: String,                 // the content BEFORE this edit
+    pub edited_at: DateTime<Utc>,        // when the edit happened
 }
 
 // Request/Response types for API
@@ -769,7 +807,8 @@ pub struct UpdateNotificationSettingsRequest {
 #[derive(Debug, Deserialize)]
 pub struct AddReactionRequest {
     #[serde(rename = "type")]
-    pub reaction_type: String,
+    pub reaction_type: String,  // "like" or "emoji"
+    pub emoji: Option<String>,  // required if reaction_type is "emoji"
 }
 
 /// Response for listing notifications

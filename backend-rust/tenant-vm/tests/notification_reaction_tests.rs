@@ -53,9 +53,12 @@ async fn create_test_thing(store: &Arc<Store>, user_id: &str, content: &str) -> 
         visibility: "public".to_string(),
         version: 1,
         deleted_at: None,
+        edited_at: None,
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
         photos: Vec::new(),
+        comment_count: None,
+        top_replies: None,
     };
 
     store.create_thing(&mut thing).unwrap();

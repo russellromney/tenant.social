@@ -58,9 +58,26 @@ interface Thing {
   visibility: 'private' | 'friends' | 'public'
   created_at: string
   updated_at: string
+  edited_at?: string | null
   photos?: Photo[]
   deleted_at?: string | null
   user_id?: string
+  comment_count?: number
+  top_replies?: Thing[]
+}
+
+// Reaction system types
+interface ReactionSummary {
+  counts: Record<string, number>
+  user_reactions: string[]
+}
+
+interface EditHistoryEntry {
+  id: string
+  target_id: string
+  target_type: 'thing' | 'comment'
+  content: string
+  edited_at: string
 }
 
 // Author info for comments
@@ -1064,13 +1081,24 @@ function App() {
   const [editingThing, setEditingThing] = useState<Thing | null>(null)
   const [editingKind, setEditingKind] = useState<Kind | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [defaultKindId, setDefaultKindId] = useState<string | null>(() => {
+    try { return localStorage.getItem('defaultKindId') } catch { return null }
+  })
 
-  const isKindsPage = route === '/kinds'
-  const isSettingsPage = route === '/settings' || route === '/data' || route === '/keys' // aliases
-  const isFriendsPage = route === '/friends'
+  const isSettingsPage = route === '/settings' || route === '/data' || route === '/keys' || route === '/kinds' || route === '/friends' // aliases
   const isFeedPage = route === '/feed'
+  const isBookmarksPage = route === '/bookmarks'
   const isProfilePage = route === '/' || route === '' || route === '/profile'
-  const isSubPage = isKindsPage || isSettingsPage
+  const isSubPage = isSettingsPage
+
+  // Save defaultKindId to localStorage
+  function handleSetDefaultKind(id: string | null) {
+    setDefaultKindId(id)
+    try {
+      if (id) localStorage.setItem('defaultKindId', id)
+      else localStorage.removeItem('defaultKindId')
+    } catch {}
+  }
 
   // Check authentication on mount
   useEffect(() => {
@@ -1171,6 +1199,20 @@ function App() {
       fetchThings()
     }
   }, [isAuthenticated])
+
+  // Set default Kind when kinds load or defaultKindId changes
+  useEffect(() => {
+    if (kinds.length === 0) return
+    if (defaultKindId) {
+      const defaultKind = kinds.find(k => k.id === defaultKindId)
+      if (defaultKind) {
+        setNewType(defaultKind.name)
+        return
+      }
+    }
+    // Fallback to first kind
+    setNewType(kinds[0].name)
+  }, [kinds, defaultKindId])
 
   useEffect(() => {
     if (!isAuthenticated) return
@@ -1614,33 +1656,34 @@ function App() {
                 {isMobile ? '👤' : 'Profile'}
               </a>
               <a
-                href={routeHref('/friends')}
+                href={routeHref('/bookmarks')}
                 style={{
                   padding: isMobile ? '6px 10px' : '8px 16px',
-                  background: isFriendsPage ? theme.accent : theme.bgHover,
-                  color: isFriendsPage ? theme.accentText : theme.textSecondary,
+                  background: isBookmarksPage ? theme.accent : theme.bgHover,
+                  color: isBookmarksPage ? theme.accentText : theme.textSecondary,
                   border: 'none',
                   borderRadius: 6,
                   fontSize: isMobile ? 13 : 14,
                   cursor: 'pointer',
                   textDecoration: 'none',
-                  fontWeight: isFriendsPage ? 600 : 400,
+                  fontWeight: isBookmarksPage ? 600 : 400,
                 }}
               >
-                {isMobile ? '👥' : 'Friends'}
+                {isMobile ? '🔖' : 'Bookmarks'}
               </a>
               <span style={{ color: theme.textMuted, margin: '0 4px' }}>|</span>
               <a
                 href={routeHref('/settings')}
                 style={{
                   padding: isMobile ? '6px 10px' : '8px 16px',
-                  background: theme.bgHover,
-                  color: theme.textSecondary,
+                  background: isSettingsPage ? theme.accent : theme.bgHover,
+                  color: isSettingsPage ? theme.accentText : theme.textSecondary,
                   border: 'none',
                   borderRadius: 6,
                   fontSize: isMobile ? 13 : 14,
                   cursor: 'pointer',
                   textDecoration: 'none',
+                  fontWeight: isSettingsPage ? 600 : 400,
                 }}
               >
                 ⚙️
@@ -1664,27 +1707,27 @@ function App() {
         </div>
       </div>
 
-      {isKindsPage ? (
-        <KindsPanel
+      {isSettingsPage ? (
+        <SettingsPage
+          theme={theme}
           kinds={kinds}
-          onCreateKind={createKind}
-          onDeleteKind={deleteKind}
-          setEditingKind={setEditingKind}
-          usedEmojis={getUsedEmojis()}
-          theme={theme}
-        />
-      ) : isSettingsPage ? (
-        <DataPanel
-          theme={theme}
           onImportComplete={() => {
             initializeKinds()
             fetchThings()
           }}
+          onCreateKind={createKind}
+          onDeleteKind={deleteKind}
+          setEditingKind={setEditingKind}
+          usedEmojis={getUsedEmojis()}
+          isMobile={isMobile}
+          defaultKindId={defaultKindId}
+          onSetDefaultKind={handleSetDefaultKind}
+          initialTab={route === '/friends' ? 'friends' : route === '/kinds' ? 'kinds' : route === '/keys' ? 'keys' : route === '/data' ? 'data' : 'kinds'}
         />
-      ) : isFriendsPage ? (
-        <FriendsView theme={theme} isMobile={isMobile} />
       ) : isFeedPage ? (
         <FeedView theme={theme} kinds={kinds} />
+      ) : isBookmarksPage ? (
+        <BookmarksView theme={theme} kinds={kinds} />
       ) : (
         <>
           {/* Search & Filter */}
@@ -2309,6 +2352,448 @@ function KindSelector({
   )
 }
 
+// ==================== REACTION & BOOKMARK COMPONENTS ====================
+
+// Format relative time (e.g., "2h ago", "3d ago")
+function formatRelativeTime(dateString: string): string {
+  const date = new Date(dateString)
+  const now = new Date()
+  const diffMs = now.getTime() - date.getTime()
+  const diffMins = Math.floor(diffMs / 60000)
+  const diffHours = Math.floor(diffMs / 3600000)
+  const diffDays = Math.floor(diffMs / 86400000)
+
+  if (diffMins < 1) return 'just now'
+  if (diffMins < 60) return `${diffMins}m ago`
+  if (diffHours < 24) return `${diffHours}h ago`
+  if (diffDays < 7) return `${diffDays}d ago`
+  return date.toLocaleDateString()
+}
+
+// Common emoji reactions for quick picker
+const QUICK_EMOJIS = ['❤️', '👍', '😂', '😮', '😢', '🔥', '👏', '🎉']
+
+// ReactionBar - shows and manages reactions for a thing or comment
+function ReactionBar({
+  targetId,
+  targetType,
+  reactions,
+  onReactionsChange,
+  theme,
+  compact = false,
+}: {
+  targetId: string
+  targetType: 'thing' | 'comment'
+  reactions: ReactionSummary | null
+  onReactionsChange: (reactions: ReactionSummary) => void
+  theme: Theme
+  compact?: boolean
+}) {
+  const [loading, setLoading] = useState(false)
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false)
+
+  const likeCount = reactions?.counts?.['like'] || 0
+  const hasLiked = reactions?.user_reactions?.includes('like') || false
+
+  // Get emoji reactions (excluding 'like')
+  const emojiReactions = Object.entries(reactions?.counts || {})
+    .filter(([key]) => key !== 'like')
+    .sort((a, b) => b[1] - a[1])
+
+  const endpoint = targetType === 'thing'
+    ? `/api/things/${targetId}/reactions`
+    : `/api/comments/${targetId}/reactions`
+
+  const toggleLike = async () => {
+    if (loading) return
+    setLoading(true)
+    try {
+      if (hasLiked) {
+        const resp = await fetch(apiUrl(`${endpoint}/like`), { method: 'DELETE', credentials: 'include' })
+        if (resp.ok) {
+          const data = await resp.json()
+          onReactionsChange(data.data)
+        }
+      } else {
+        const resp = await fetch(apiUrl(endpoint), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ reaction_type: 'like' }),
+        })
+        if (resp.ok) {
+          const data = await resp.json()
+          onReactionsChange(data.data)
+        }
+      }
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const addEmojiReaction = async (emoji: string) => {
+    if (loading) return
+    setLoading(true)
+    setShowEmojiPicker(false)
+    try {
+      // Check if user already has this emoji
+      const hasEmoji = reactions?.user_reactions?.includes(emoji)
+      if (hasEmoji) {
+        // Remove it
+        const resp = await fetch(apiUrl(`${endpoint}/${encodeURIComponent(emoji)}`), {
+          method: 'DELETE',
+          credentials: 'include',
+        })
+        if (resp.ok) {
+          const data = await resp.json()
+          onReactionsChange(data.data)
+        }
+      } else {
+        // Add it
+        const resp = await fetch(apiUrl(endpoint), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ reaction_type: 'emoji', emoji }),
+        })
+        if (resp.ok) {
+          const data = await resp.json()
+          onReactionsChange(data.data)
+        }
+      }
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const buttonStyle = {
+    background: 'none',
+    border: 'none',
+    cursor: loading ? 'wait' : 'pointer',
+    padding: compact ? '2px 6px' : '4px 8px',
+    borderRadius: 4,
+    fontSize: compact ? 13 : 14,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 4,
+    color: theme.textMuted,
+    transition: 'background 0.15s',
+  }
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: compact ? 6 : 10, flexWrap: 'wrap' }}>
+      {/* Like button */}
+      <button
+        onClick={toggleLike}
+        style={{
+          ...buttonStyle,
+          color: hasLiked ? '#e25555' : theme.textMuted,
+          background: hasLiked ? 'rgba(226, 85, 85, 0.1)' : 'transparent',
+        }}
+        onMouseEnter={e => { if (!hasLiked) e.currentTarget.style.background = theme.bgMuted }}
+        onMouseLeave={e => { if (!hasLiked) e.currentTarget.style.background = 'transparent' }}
+        title={hasLiked ? 'Unlike' : 'Like'}
+      >
+        <span>{hasLiked ? '❤️' : '🤍'}</span>
+        {likeCount > 0 && <span>{likeCount}</span>}
+      </button>
+
+      {/* Emoji reactions */}
+      {emojiReactions.map(([emoji, count]) => {
+        const hasReacted = reactions?.user_reactions?.includes(emoji)
+        return (
+          <button
+            key={emoji}
+            onClick={() => addEmojiReaction(emoji)}
+            style={{
+              ...buttonStyle,
+              background: hasReacted ? 'rgba(100, 100, 100, 0.15)' : 'transparent',
+            }}
+            onMouseEnter={e => e.currentTarget.style.background = theme.bgMuted}
+            onMouseLeave={e => e.currentTarget.style.background = hasReacted ? 'rgba(100, 100, 100, 0.15)' : 'transparent'}
+          >
+            <span>{emoji}</span>
+            {count > 0 && <span>{count}</span>}
+          </button>
+        )
+      })}
+
+      {/* Add emoji button */}
+      <div style={{ position: 'relative' }}>
+        <button
+          onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+          style={{
+            ...buttonStyle,
+            fontSize: compact ? 11 : 12,
+          }}
+          onMouseEnter={e => e.currentTarget.style.background = theme.bgMuted}
+          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+          title="Add reaction"
+        >
+          +
+        </button>
+
+        {/* Emoji picker dropdown */}
+        {showEmojiPicker && (
+          <div
+            style={{
+              position: 'absolute',
+              bottom: '100%',
+              left: 0,
+              marginBottom: 4,
+              background: theme.bgCard,
+              border: `1px solid ${theme.border}`,
+              borderRadius: 8,
+              padding: 8,
+              display: 'grid',
+              gridTemplateColumns: 'repeat(4, 1fr)',
+              gap: 4,
+              zIndex: 100,
+              boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+            }}
+          >
+            {QUICK_EMOJIS.map(emoji => (
+              <button
+                key={emoji}
+                onClick={() => addEmojiReaction(emoji)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: 18,
+                  padding: 4,
+                  borderRadius: 4,
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = theme.bgMuted}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// BookmarkButton - toggle bookmark for a thing
+function BookmarkButton({
+  thingId,
+  isBookmarked,
+  onBookmarkChange,
+  theme,
+}: {
+  thingId: string
+  isBookmarked: boolean
+  onBookmarkChange: (bookmarked: boolean) => void
+  theme: Theme
+}) {
+  const [loading, setLoading] = useState(false)
+
+  const toggleBookmark = async () => {
+    if (loading) return
+    setLoading(true)
+    try {
+      if (isBookmarked) {
+        const resp = await fetch(apiUrl(`/api/bookmarks/${thingId}`), {
+          method: 'DELETE',
+          credentials: 'include',
+        })
+        if (resp.ok) {
+          onBookmarkChange(false)
+        }
+      } else {
+        const resp = await fetch(apiUrl('/api/bookmarks'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ thing_id: thingId }),
+        })
+        if (resp.ok) {
+          onBookmarkChange(true)
+        }
+      }
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <button
+      onClick={(e) => {
+        e.stopPropagation()
+        toggleBookmark()
+      }}
+      style={{
+        background: 'none',
+        border: 'none',
+        color: isBookmarked ? theme.accent : theme.textDisabled,
+        cursor: loading ? 'wait' : 'pointer',
+        fontSize: 16,
+        padding: '4px 8px',
+        flexShrink: 0,
+      }}
+      onMouseEnter={e => { if (!isBookmarked) e.currentTarget.style.color = theme.accent }}
+      onMouseLeave={e => { if (!isBookmarked) e.currentTarget.style.color = theme.textDisabled }}
+      title={isBookmarked ? 'Remove bookmark' : 'Bookmark'}
+    >
+      {isBookmarked ? '🔖' : '🏷️'}
+    </button>
+  )
+}
+
+// EditedIndicator - shows "edited" with click to view history
+function EditedIndicator({
+  editedAt,
+  onClick,
+  theme,
+}: {
+  editedAt: string
+  onClick: () => void
+  theme: Theme
+}) {
+  return (
+    <button
+      onClick={(e) => {
+        e.stopPropagation()
+        onClick()
+      }}
+      style={{
+        background: 'none',
+        border: 'none',
+        color: theme.textMuted,
+        cursor: 'pointer',
+        fontSize: 11,
+        padding: '2px 4px',
+        textDecoration: 'underline',
+        textDecorationStyle: 'dotted',
+      }}
+      title="View edit history"
+    >
+      edited {formatRelativeTime(editedAt)}
+    </button>
+  )
+}
+
+// EditHistoryModal - shows all previous versions of content
+function EditHistoryModal({
+  targetId,
+  targetType,
+  onClose,
+  theme,
+}: {
+  targetId: string
+  targetType: 'thing' | 'comment'
+  onClose: () => void
+  theme: Theme
+}) {
+  const [history, setHistory] = useState<EditHistoryEntry[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const fetchHistory = async () => {
+      try {
+        const endpoint = targetType === 'thing'
+          ? `/api/things/${targetId}/history`
+          : `/api/comments/${targetId}/history`
+        const resp = await fetch(apiUrl(endpoint), { credentials: 'include' })
+        if (resp.ok) {
+          const data = await resp.json()
+          setHistory(data.data || [])
+        }
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchHistory()
+  }, [targetId, targetType])
+
+  // Close on escape
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
+
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: 'rgba(0, 0, 0, 0.6)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 1000,
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          background: theme.bgCard,
+          borderRadius: 12,
+          padding: 24,
+          maxWidth: 600,
+          width: '90%',
+          maxHeight: '80vh',
+          overflow: 'auto',
+          boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <h3 style={{ margin: 0, color: theme.text }}>Edit History</h3>
+          <button
+            onClick={onClose}
+            style={{
+              background: 'none',
+              border: 'none',
+              fontSize: 20,
+              cursor: 'pointer',
+              color: theme.textMuted,
+            }}
+          >
+            ×
+          </button>
+        </div>
+
+        {loading ? (
+          <div style={{ color: theme.textMuted, textAlign: 'center', padding: 20 }}>Loading...</div>
+        ) : history.length === 0 ? (
+          <div style={{ color: theme.textMuted, textAlign: 'center', padding: 20 }}>No edit history available</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {history.map((entry, index) => (
+              <div
+                key={entry.id}
+                style={{
+                  padding: 12,
+                  background: theme.bgMuted,
+                  borderRadius: 8,
+                  border: `1px solid ${theme.border}`,
+                }}
+              >
+                <div style={{ fontSize: 11, color: theme.textMuted, marginBottom: 8 }}>
+                  {index === 0 ? 'Previous version' : `Version ${history.length - index}`} • {formatRelativeTime(entry.edited_at)}
+                </div>
+                <div style={{ color: theme.text, whiteSpace: 'pre-wrap', fontSize: 14 }}>
+                  {entry.content}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ThingCard Component - renders a Thing based on its Kind's template
 function ThingCard({
   thing,
@@ -2334,6 +2819,35 @@ function ThingCard({
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0)
   const [viewerOpen, setViewerOpen] = useState(false)
   const [captionExpanded, setCaptionExpanded] = useState(false)
+
+  // Reactions, bookmarks, and edit history state
+  const [reactions, setReactions] = useState<ReactionSummary | null>(null)
+  const [isBookmarked, setIsBookmarked] = useState(false)
+  const [showHistoryModal, setShowHistoryModal] = useState(false)
+
+  // Fetch reactions and bookmark status on mount
+  useEffect(() => {
+    const fetchReactionsAndBookmark = async () => {
+      try {
+        // Fetch reactions
+        const reactionsResp = await fetch(apiUrl(`/api/things/${thing.id}/reactions`), { credentials: 'include' })
+        if (reactionsResp.ok) {
+          const data = await reactionsResp.json()
+          setReactions(data.data)
+        }
+
+        // Fetch bookmark status
+        const bookmarkResp = await fetch(apiUrl(`/api/things/${thing.id}/bookmark`), { credentials: 'include' })
+        if (bookmarkResp.ok) {
+          const data = await bookmarkResp.json()
+          setIsBookmarked(data.data?.bookmarked || false)
+        }
+      } catch (e) {
+        console.error('Failed to fetch reactions/bookmark:', e)
+      }
+    }
+    fetchReactionsAndBookmark()
+  }, [thing.id])
 
   // Photo Viewer Modal - keyboard navigation
   useEffect(() => {
@@ -3221,45 +3735,84 @@ function ThingCard({
 
   // DEFAULT template - standard card
   return (
-    <div
-      onClick={handleCardClick}
-      style={{
-        padding: 16,
-        background: theme.bgCard,
-        borderRadius: 8,
-        border: `1px solid ${theme.border}`,
-        cursor: 'pointer',
-        transition: 'box-shadow 0.15s',
-      }}
-      onMouseEnter={e => (e.currentTarget.style.boxShadow = `0 2px 8px ${theme.shadow}`)}
-      onMouseLeave={e => (e.currentTarget.style.boxShadow = 'none')}
-    >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
-        <div style={{ flex: 1 }}>
-          <span
-            style={{
-              display: 'inline-block',
-              padding: '3px 10px',
-              background: theme.bgMuted,
-              color: theme.textMuted,
-              borderRadius: 4,
-              fontSize: 12,
-              fontWeight: 500,
-              marginBottom: 8,
-            }}
-          >
-            {icon} {thing.type}
-          </span>
-          <Markdown content={thing.content} theme={theme} className="markdown-content" />
-          <AttributesDisplay />
-          <LinkedThingsDisplay />
-          <p style={{ fontSize: 12, color: theme.textSubtle, margin: '8px 0 0' }}>
-            {new Date(thing.created_at).toLocaleString()}
-          </p>
+    <>
+      <div
+        onClick={handleCardClick}
+        style={{
+          padding: 16,
+          background: theme.bgCard,
+          borderRadius: 8,
+          border: `1px solid ${theme.border}`,
+          cursor: 'pointer',
+          transition: 'box-shadow 0.15s',
+        }}
+        onMouseEnter={e => (e.currentTarget.style.boxShadow = `0 2px 8px ${theme.shadow}`)}
+        onMouseLeave={e => (e.currentTarget.style.boxShadow = 'none')}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
+          <div style={{ flex: 1 }}>
+            <span
+              style={{
+                display: 'inline-block',
+                padding: '3px 10px',
+                background: theme.bgMuted,
+                color: theme.textMuted,
+                borderRadius: 4,
+                fontSize: 12,
+                fontWeight: 500,
+                marginBottom: 8,
+              }}
+            >
+              {icon} {thing.type}
+            </span>
+            <Markdown content={thing.content} theme={theme} className="markdown-content" />
+            <AttributesDisplay />
+            <LinkedThingsDisplay />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+              <span style={{ fontSize: 12, color: theme.textSubtle }}>
+                {new Date(thing.created_at).toLocaleString()}
+              </span>
+              {thing.edited_at && (
+                <EditedIndicator
+                  editedAt={thing.edited_at}
+                  onClick={() => setShowHistoryModal(true)}
+                  theme={theme}
+                />
+              )}
+            </div>
+            {/* Reactions */}
+            <div style={{ marginTop: 12 }} onClick={e => e.stopPropagation()}>
+              <ReactionBar
+                targetId={thing.id}
+                targetType="thing"
+                reactions={reactions}
+                onReactionsChange={setReactions}
+                theme={theme}
+              />
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            <BookmarkButton
+              thingId={thing.id}
+              isBookmarked={isBookmarked}
+              onBookmarkChange={setIsBookmarked}
+              theme={theme}
+            />
+            <EditButton />
+          </div>
         </div>
-        <EditButton />
       </div>
-    </div>
+
+      {/* Edit History Modal */}
+      {showHistoryModal && (
+        <EditHistoryModal
+          targetId={thing.id}
+          targetType="thing"
+          onClose={() => setShowHistoryModal(false)}
+          theme={theme}
+        />
+      )}
+    </>
   )
 }
 
@@ -3678,6 +4231,8 @@ function KindsPanel({
   setEditingKind,
   usedEmojis,
   theme,
+  defaultKindId,
+  onSetDefaultKind,
 }: {
   kinds: Kind[]
   onCreateKind: (k: Partial<Kind>) => Promise<Kind | undefined>
@@ -3685,6 +4240,8 @@ function KindsPanel({
   setEditingKind: (k: Kind | null) => void
   usedEmojis: string[]
   theme: Theme
+  defaultKindId: string | null
+  onSetDefaultKind: (id: string | null) => void
 }) {
   const [newName, setNewName] = useState('')
   const [newIcon, setNewIcon] = useState('')
@@ -3700,6 +4257,40 @@ function KindsPanel({
   return (
     <div>
       <h2 style={{ fontSize: 20, margin: '0 0 16px', color: theme.text }}>Kinds</h2>
+
+      {/* Default Kind Selector */}
+      <div style={{
+        padding: 16,
+        background: theme.bgCard,
+        borderRadius: 12,
+        border: `1px solid ${theme.border}`,
+        marginBottom: 24,
+      }}>
+        <label style={{ display: 'block', fontSize: 14, color: theme.textMuted, marginBottom: 8 }}>
+          Default Kind
+        </label>
+        <select
+          value={defaultKindId || ''}
+          onChange={e => onSetDefaultKind(e.currentTarget.value || null)}
+          style={{
+            width: '100%',
+            padding: '10px 14px',
+            border: `1px solid ${theme.borderInput}`,
+            borderRadius: 6,
+            background: theme.bgInput,
+            color: theme.text,
+            fontSize: 14,
+          }}
+        >
+          <option value="">First in list</option>
+          {kinds.map(k => (
+            <option key={k.id} value={k.id}>{k.icon} {k.name}</option>
+          ))}
+        </select>
+        <p style={{ fontSize: 12, color: theme.textMuted, marginTop: 8, marginBottom: 0 }}>
+          This Kind will be pre-selected when creating new Things.
+        </p>
+      </div>
 
       {/* Create new kind */}
       <form onSubmit={handleCreate} style={{ marginBottom: 24 }}>
@@ -3745,7 +4336,7 @@ function KindsPanel({
               padding: 16,
               background: theme.bgCard,
               borderRadius: 8,
-              border: `1px solid ${theme.border}`,
+              border: defaultKindId === kind.id ? `2px solid ${theme.accent}` : `1px solid ${theme.border}`,
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
@@ -3767,9 +4358,15 @@ function KindsPanel({
                 {kind.icon || '•'}
               </span>
               <div>
-                <div style={{ fontWeight: 600, color: theme.text }}>{kind.name}</div>
+                <div style={{ fontWeight: 600, color: theme.text }}>
+                  {kind.name}
+                  {defaultKindId === kind.id && (
+                    <span style={{ marginLeft: 8, fontSize: 11, color: theme.accent, fontWeight: 500 }}>DEFAULT</span>
+                  )}
+                </div>
                 <div style={{ fontSize: 12, color: theme.textSubtle }}>
                   {kind.attributes?.length || 0} attributes
+                  {kind.commentable && ' • replies enabled'}
                 </div>
               </div>
             </div>
@@ -3823,8 +4420,8 @@ interface APIKey {
   created_at: string
 }
 
-// Data Management Panel (Import/Export + API Keys)
-function DataPanel({
+// Data Export/Import Panel
+function DataExportPanel({
   theme,
   onImportComplete,
 }: {
@@ -3834,84 +4431,6 @@ function DataPanel({
   const [importing, setImporting] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
-
-  // API Keys state
-  const [apiKeys, setApiKeys] = useState<APIKey[]>([])
-  const [availableScopes, setAvailableScopes] = useState<string[]>([])
-  const [showCreateKey, setShowCreateKey] = useState(false)
-  const [newKeyName, setNewKeyName] = useState('')
-  const [newKeyScopes, setNewKeyScopes] = useState<string[]>([])
-  const [isAdminKey, setIsAdminKey] = useState(true)
-  const [createdKey, setCreatedKey] = useState<string | null>(null)
-  const [keyCopied, setKeyCopied] = useState(false)
-
-  // Fetch API keys on mount
-  useEffect(() => {
-    fetchAPIKeys()
-  }, [])
-
-  async function fetchAPIKeys() {
-    try {
-      const res = await fetch(apiUrl('/api/keys'), { credentials: 'include' })
-      if (res.ok) {
-        const data = await res.json()
-        setApiKeys(data.keys || [])
-        setAvailableScopes(data.availableScopes || [])
-      }
-    } catch (err) {
-      console.error('Failed to fetch API keys:', err)
-    }
-  }
-
-  async function createAPIKey(e: Event) {
-    e.preventDefault()
-    if (!newKeyName.trim()) return
-
-    try {
-      const res = await fetch(apiUrl('/api/keys'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          name: newKeyName,
-          scopes: isAdminKey ? [] : newKeyScopes, // empty = all scopes
-        }),
-      })
-
-      if (!res.ok) throw new Error('Failed to create key')
-
-      const data = await res.json()
-      setCreatedKey(data.key) // Show the key once!
-      setNewKeyName('')
-      setNewKeyScopes([])
-      setIsAdminKey(true)
-      fetchAPIKeys()
-    } catch (err) {
-      setMessage({ type: 'error', text: 'Failed to create API key' })
-    }
-  }
-
-  async function deleteAPIKey(id: string) {
-    if (!confirm('Delete this API key? This cannot be undone.')) return
-
-    try {
-      await fetch(apiUrl(`/api/keys/${id}`), {
-        method: 'DELETE',
-        credentials: 'include',
-      })
-      fetchAPIKeys()
-    } catch (err) {
-      setMessage({ type: 'error', text: 'Failed to delete API key' })
-    }
-  }
-
-  function copyKey() {
-    if (createdKey) {
-      navigator.clipboard.writeText(createdKey)
-      setKeyCopied(true)
-      setTimeout(() => setKeyCopied(false), 2000)
-    }
-  }
 
   async function handleExport() {
     setExporting(true)
@@ -3975,10 +4494,9 @@ function DataPanel({
 
   return (
     <div>
-      <h2 style={{ fontSize: 20, margin: '0 0 16px', color: theme.text }}>Settings</h2>
-
+      <h2 style={{ fontSize: 20, margin: '0 0 16px', color: theme.text }}>Data</h2>
       <p style={{ color: theme.textSecondary, marginBottom: 24, lineHeight: 1.6 }}>
-        Manage your data exports, imports, and API keys.
+        Export and import your things and kinds.
       </p>
 
       {/* Export Section */}
@@ -3989,7 +4507,7 @@ function DataPanel({
         border: `1px solid ${theme.border}`,
         marginBottom: 16,
       }}>
-        <h3 style={{ fontSize: 16, margin: '0 0 8px', color: theme.text }}>Export Data</h3>
+        <h3 style={{ fontSize: 16, margin: '0 0 8px', color: theme.text }}>Export</h3>
         <p style={{ fontSize: 14, color: theme.textMuted, margin: '0 0 16px' }}>
           Download all your things and kinds as a JSON file.
         </p>
@@ -4018,7 +4536,7 @@ function DataPanel({
         border: `1px solid ${theme.border}`,
         marginBottom: 16,
       }}>
-        <h3 style={{ fontSize: 16, margin: '0 0 8px', color: theme.text }}>Import Data</h3>
+        <h3 style={{ fontSize: 16, margin: '0 0 8px', color: theme.text }}>Import</h3>
         <p style={{ fontSize: 14, color: theme.textMuted, margin: '0 0 16px' }}>
           Import things and kinds from a tenant export file. Duplicates will be skipped.
         </p>
@@ -4051,19 +4569,116 @@ function DataPanel({
           color: message.type === 'success' ? theme.successText : theme.errorText,
           borderRadius: 8,
           fontSize: 14,
-          marginBottom: 24,
+        }}>
+          {message.text}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// API Keys Panel
+function APIKeysPanel({ theme }: { theme: Theme }) {
+  const [apiKeys, setApiKeys] = useState<APIKey[]>([])
+  const [availableScopes, setAvailableScopes] = useState<string[]>([])
+  const [showCreateKey, setShowCreateKey] = useState(false)
+  const [newKeyName, setNewKeyName] = useState('')
+  const [newKeyScopes, setNewKeyScopes] = useState<string[]>([])
+  const [isAdminKey, setIsAdminKey] = useState(true)
+  const [createdKey, setCreatedKey] = useState<string | null>(null)
+  const [keyCopied, setKeyCopied] = useState(false)
+  const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
+
+  useEffect(() => {
+    fetchAPIKeys()
+  }, [])
+
+  async function fetchAPIKeys() {
+    try {
+      const res = await fetch(apiUrl('/api/keys'), { credentials: 'include' })
+      if (res.ok) {
+        const data = await res.json()
+        setApiKeys(data.keys || [])
+        setAvailableScopes(data.availableScopes || [])
+      }
+    } catch (err) {
+      console.error('Failed to fetch API keys:', err)
+    }
+  }
+
+  async function createAPIKey(e: Event) {
+    e.preventDefault()
+    if (!newKeyName.trim()) return
+
+    try {
+      const res = await fetch(apiUrl('/api/keys'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          name: newKeyName,
+          scopes: isAdminKey ? [] : newKeyScopes,
+        }),
+      })
+
+      if (!res.ok) throw new Error('Failed to create key')
+
+      const data = await res.json()
+      setCreatedKey(data.key)
+      setNewKeyName('')
+      setNewKeyScopes([])
+      setIsAdminKey(true)
+      setShowCreateKey(false)
+      fetchAPIKeys()
+    } catch (err) {
+      setMessage({ type: 'error', text: 'Failed to create API key' })
+    }
+  }
+
+  async function deleteAPIKey(id: string) {
+    if (!confirm('Delete this API key? This cannot be undone.')) return
+
+    try {
+      await fetch(apiUrl(`/api/keys/${id}`), {
+        method: 'DELETE',
+        credentials: 'include',
+      })
+      fetchAPIKeys()
+    } catch (err) {
+      setMessage({ type: 'error', text: 'Failed to delete API key' })
+    }
+  }
+
+  function copyKey() {
+    if (createdKey) {
+      navigator.clipboard.writeText(createdKey)
+      setKeyCopied(true)
+      setTimeout(() => setKeyCopied(false), 2000)
+    }
+  }
+
+  return (
+    <div>
+      <h2 style={{ fontSize: 20, margin: '0 0 16px', color: theme.text }}>API Keys</h2>
+      <p style={{ color: theme.textSecondary, marginBottom: 24, lineHeight: 1.6 }}>
+        Create API keys for programmatic access. Keys can have full admin access or be scoped to specific permissions.
+      </p>
+
+      {/* Status Message */}
+      {message && (
+        <div style={{
+          padding: 12,
+          background: message.type === 'success' ? theme.success : theme.errorBg,
+          color: message.type === 'success' ? theme.successText : theme.errorText,
+          borderRadius: 8,
+          fontSize: 14,
+          marginBottom: 16,
         }}>
           {message.text}
         </div>
       )}
 
-      {/* API Keys Section */}
-      <h2 style={{ fontSize: 20, margin: '32px 0 16px', color: theme.text }}>API Keys</h2>
-      <p style={{ color: theme.textSecondary, marginBottom: 24, lineHeight: 1.6 }}>
-        Create API keys for programmatic access. Keys can have full admin access or be scoped to specific permissions.
-      </p>
-
-      {/* Created Key Display (only shown once!) */}
+      {/* Created Key Display */}
       {createdKey && (
         <div style={{
           padding: 16,
@@ -4317,6 +4932,86 @@ function DataPanel({
             </div>
           ))}
         </div>
+      )}
+    </div>
+  )
+}
+
+// Settings Page with Tabs
+function SettingsPage({
+  theme,
+  kinds,
+  onImportComplete,
+  onCreateKind,
+  onDeleteKind,
+  setEditingKind,
+  usedEmojis,
+  isMobile,
+  defaultKindId,
+  onSetDefaultKind,
+  initialTab = 'kinds',
+}: {
+  theme: Theme
+  kinds: Kind[]
+  onImportComplete: () => void
+  onCreateKind: (k: Partial<Kind>) => Promise<Kind | undefined>
+  onDeleteKind: (id: string) => void
+  setEditingKind: (k: Kind | null) => void
+  usedEmojis: string[]
+  isMobile: boolean
+  defaultKindId: string | null
+  onSetDefaultKind: (id: string | null) => void
+  initialTab?: 'kinds' | 'data' | 'keys' | 'friends'
+}) {
+  const [activeTab, setActiveTab] = useState<'kinds' | 'data' | 'keys' | 'friends'>(initialTab)
+
+  const tabStyle = (isActive: boolean) => ({
+    padding: '8px 16px',
+    background: isActive ? theme.accent : 'transparent',
+    color: isActive ? theme.accentText : theme.textMuted,
+    border: 'none',
+    borderRadius: 6,
+    cursor: 'pointer',
+    fontSize: 14,
+    fontWeight: isActive ? 600 : 400,
+  })
+
+  return (
+    <div>
+      {/* Tab Navigation */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 24, background: theme.bgMuted, padding: 4, borderRadius: 8, width: 'fit-content', flexWrap: 'wrap' }}>
+        <button onClick={() => setActiveTab('kinds')} style={tabStyle(activeTab === 'kinds')}>
+          Kinds
+        </button>
+        <button onClick={() => setActiveTab('friends')} style={tabStyle(activeTab === 'friends')}>
+          Friends
+        </button>
+        <button onClick={() => setActiveTab('data')} style={tabStyle(activeTab === 'data')}>
+          Data
+        </button>
+        <button onClick={() => setActiveTab('keys')} style={tabStyle(activeTab === 'keys')}>
+          API Keys
+        </button>
+      </div>
+
+      {/* Tab Content */}
+      {activeTab === 'kinds' ? (
+        <KindsPanel
+          kinds={kinds}
+          onCreateKind={onCreateKind}
+          onDeleteKind={onDeleteKind}
+          setEditingKind={setEditingKind}
+          usedEmojis={usedEmojis}
+          theme={theme}
+          defaultKindId={defaultKindId}
+          onSetDefaultKind={onSetDefaultKind}
+        />
+      ) : activeTab === 'friends' ? (
+        <FriendsView theme={theme} isMobile={isMobile} />
+      ) : activeTab === 'data' ? (
+        <DataExportPanel theme={theme} onImportComplete={onImportComplete} />
+      ) : (
+        <APIKeysPanel theme={theme} />
       )}
     </div>
   )
@@ -5455,6 +6150,17 @@ function CommentItem({
   const shouldAutoCollapse = depth >= 2 && totalComments > 10
   const [expanded, setExpanded] = useState(!shouldAutoCollapse)
   const [deleting, setDeleting] = useState(false)
+  const [reactions, setReactions] = useState<ReactionSummary | null>(null)
+  const [showHistoryModal, setShowHistoryModal] = useState(false)
+
+  // Fetch reactions for this comment
+  useEffect(() => {
+    if (isDeleted) return
+    fetch(apiUrl(`/api/comments/${comment.id}/reactions`), { credentials: 'include' })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => data && setReactions(data.data))
+      .catch(() => {})
+  }, [comment.id, isDeleted])
 
   // Get display name from author info, fallback to user_id
   const authorName = isDeleted
@@ -5539,18 +6245,18 @@ function CommentItem({
       {/* Comment body */}
       <div
         style={{
-          padding: 12,
+          padding: '8px 10px',
           borderLeft: depth > 0 ? `3px solid ${theme.border}` : `1px solid ${theme.border}`,
           borderRight: `1px solid ${theme.border}`,
           borderBottom: `1px solid ${theme.border}`,
           borderTop: depth > 0 && comment.parent_content ? 'none' : `1px solid ${theme.border}`,
           borderRadius: depth > 0 && comment.parent_content ? '0 0 6px 6px' : 6,
-          marginBottom: 8,
+          marginBottom: 6,
           background: theme.bg,
         }}
       >
         {/* Header: user + time */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
           <span style={{ fontWeight: 600, color: isDeleted ? theme.textMuted : theme.text, fontSize: 13 }}>
             {authorName}
           </span>
@@ -5571,7 +6277,24 @@ function CommentItem({
 
         {/* Actions */}
         {!isDeleted && (
-          <div style={{ display: 'flex', gap: 16, marginTop: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 6 }}>
+            {/* Reactions */}
+            {currentUserId && (
+              <ReactionBar
+                targetId={comment.id}
+                targetType="comment"
+                reactions={reactions}
+                onReactionsChange={setReactions}
+                theme={theme}
+                compact={true}
+              />
+            )}
+            {/* Show reaction counts even when not logged in */}
+            {!currentUserId && reactions && (reactions.counts?.['like'] > 0 || Object.keys(reactions.counts || {}).length > 1) && (
+              <span style={{ fontSize: 12, color: theme.textMuted }}>
+                {reactions.counts?.['like'] > 0 && `${reactions.counts['like']} like${reactions.counts['like'] !== 1 ? 's' : ''}`}
+              </span>
+            )}
             {canReply && (
               <button
                 onClick={() => setReplyingTo(isReplyingToThis ? null : comment.id)}
@@ -5603,21 +6326,35 @@ function CommentItem({
                 {deleting ? 'Deleting...' : 'Delete'}
               </button>
             )}
+            {/* Edited indicator */}
+            {comment.edited_at && (
+              <EditedIndicator
+                editedAt={comment.edited_at}
+                onClick={() => setShowHistoryModal(true)}
+                theme={theme}
+              />
+            )}
           </div>
         )}
 
         {/* Reply form */}
         {isReplyingToThis && (
-          <div style={{ marginTop: 12 }}>
+          <div style={{ marginTop: 8 }}>
             <textarea
               autoFocus
               value={replyContent}
               onChange={(e) => setReplyContent((e.target as HTMLTextAreaElement).value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey && replyContent.trim()) {
+                  e.preventDefault()
+                  handleSubmitReply()
+                }
+              }}
               placeholder="Write a reply..."
               style={{
                 width: '100%',
-                minHeight: 60,
-                padding: 8,
+                minHeight: 40,
+                padding: '6px 8px',
                 borderRadius: 6,
                 border: `1px solid ${theme.border}`,
                 background: theme.bgCard,
@@ -5627,12 +6364,12 @@ function CommentItem({
                 fontFamily: 'inherit',
               }}
             />
-            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
               <button
                 onClick={handleSubmitReply}
                 disabled={submittingReply || !replyContent.trim()}
                 style={{
-                  padding: '6px 12px',
+                  padding: '4px 10px',
                   borderRadius: 6,
                   border: 'none',
                   background: theme.accent,
@@ -5647,7 +6384,7 @@ function CommentItem({
               <button
                 onClick={() => { setReplyingTo(null); setReplyContent('') }}
                 style={{
-                  padding: '6px 12px',
+                  padding: '4px 10px',
                   borderRadius: 6,
                   border: `1px solid ${theme.border}`,
                   background: 'transparent',
@@ -5686,6 +6423,16 @@ function CommentItem({
             />
           ))}
         </div>
+      )}
+
+      {/* Edit History Modal */}
+      {showHistoryModal && (
+        <EditHistoryModal
+          targetId={comment.id}
+          targetType="comment"
+          onClose={() => setShowHistoryModal(false)}
+          theme={theme}
+        />
       )}
     </div>
   )
@@ -5818,14 +6565,14 @@ function CommentsSection({
   const commentCount = comments.filter(c => !c.deleted_at).length
 
   return (
-    <div style={{ marginTop: 24, paddingTop: 24, borderTop: `1px solid ${theme.border}` }}>
+    <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${theme.border}` }}>
       {/* Header */}
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          marginBottom: 16,
+          marginBottom: 12,
           cursor: 'pointer',
         }}
         onClick={() => setExpanded(!expanded)}
@@ -5842,20 +6589,26 @@ function CommentsSection({
         <>
           {/* New reply form - only if commentable */}
           {commentable && currentUserId && (
-            <div style={{ marginBottom: 20 }}>
+            <div style={{ marginBottom: 12 }}>
               <textarea
                 value={newComment}
                 onChange={(e) => setNewComment((e.target as HTMLTextAreaElement).value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey && newComment.trim()) {
+                    e.preventDefault()
+                    submitComment(newComment)
+                  }
+                }}
                 placeholder="Write a reply..."
                 style={{
                   width: '100%',
-                  minHeight: 80,
-                  padding: 12,
-                  borderRadius: 8,
+                  minHeight: 44,
+                  padding: '8px 10px',
+                  borderRadius: 6,
                   border: `1px solid ${theme.border}`,
                   background: theme.bgCard,
                   color: theme.text,
-                  fontSize: 14,
+                  fontSize: 13,
                   resize: 'vertical',
                   fontFamily: 'inherit',
                 }}
@@ -5864,13 +6617,13 @@ function CommentsSection({
                 onClick={() => submitComment(newComment)}
                 disabled={submitting || !newComment.trim()}
                 style={{
-                  marginTop: 8,
-                  padding: '8px 16px',
+                  marginTop: 6,
+                  padding: '6px 12px',
                   borderRadius: 6,
                   border: 'none',
                   background: theme.accent,
                   color: theme.accentText,
-                  fontSize: 13,
+                  fontSize: 12,
                   cursor: submitting ? 'wait' : 'pointer',
                   opacity: submitting || !newComment.trim() ? 0.5 : 1,
                 }}
@@ -5919,6 +6672,103 @@ function CommentsSection({
             </div>
           )}
         </>
+      )}
+    </div>
+  )
+}
+
+// Bookmarks View
+function BookmarksView({
+  theme,
+  kinds,
+}: {
+  theme: Theme
+  kinds: Kind[]
+}) {
+  const [bookmarks, setBookmarks] = useState<Thing[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetchBookmarks()
+  }, [])
+
+  async function fetchBookmarks() {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch(apiUrl('/api/bookmarks'), { credentials: 'include' })
+      if (res.ok) {
+        const data = await res.json()
+        setBookmarks(data.data || [])
+      } else if (res.status === 401) {
+        setError('Please log in to view your bookmarks')
+      } else {
+        setError('Failed to load bookmarks')
+      }
+    } catch {
+      setError('Failed to load bookmarks')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const getKindForThing = (thing: Thing) => {
+    return kinds.find(k => k.name === thing.type)
+  }
+
+  if (loading) {
+    return (
+      <div style={{ padding: 32, textAlign: 'center', color: theme.textMuted }}>
+        Loading bookmarks...
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div style={{ padding: 32, textAlign: 'center', color: theme.error }}>
+        {error}
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <h2 style={{ color: theme.text, marginBottom: 16, fontSize: 20 }}>
+        Bookmarks
+      </h2>
+      {bookmarks.length === 0 ? (
+        <div style={{
+          padding: 32,
+          textAlign: 'center',
+          color: theme.textMuted,
+          background: theme.bgCard,
+          borderRadius: 12,
+          border: `1px solid ${theme.border}`,
+        }}>
+          <p style={{ marginBottom: 8 }}>No bookmarks yet</p>
+          <p style={{ fontSize: 14 }}>Bookmark things to save them for later</p>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {bookmarks.map(thing => (
+            <ThingCard
+              key={thing.id}
+              thing={thing}
+              kind={getKindForThing(thing)}
+              theme={theme}
+              onEdit={() => {}}
+              onDelete={() => {
+                // Remove from list when unbookmarked
+                setBookmarks(prev => prev.filter(b => b.id !== thing.id))
+              }}
+              onUpdateThing={(updated) => {
+                setBookmarks(prev => prev.map(b => b.id === updated.id ? updated : b))
+              }}
+            />
+          ))}
+        </div>
       )}
     </div>
   )
@@ -6150,9 +7000,55 @@ function FeedView({
                   </div>
                 )}
 
-                <div style={{ marginTop: 8, fontSize: 12, color: theme.textMuted }}>
-                  {item.visibility === 'public' ? '🌐 Public' : '👥 Friends'}
+                <div style={{ marginTop: 8, fontSize: 12, color: theme.textMuted, display: 'flex', gap: 12 }}>
+                  <span>{item.visibility === 'public' ? '🌐 Public' : '👥 Friends'}</span>
+                  {(item.comment_count ?? 0) > 0 && (
+                    <span>💬 {item.comment_count} {item.comment_count === 1 ? 'reply' : 'replies'}</span>
+                  )}
                 </div>
+
+                {/* Top Replies Preview */}
+                {item.top_replies && item.top_replies.length > 0 && (
+                  <div style={{
+                    marginTop: 12,
+                    padding: 12,
+                    background: theme.bgSubtle,
+                    borderRadius: 8,
+                    borderLeft: `3px solid ${theme.border}`,
+                  }}>
+                    {item.top_replies.map((reply, idx) => (
+                      <div key={reply.id} style={{
+                        paddingBottom: idx < item.top_replies!.length - 1 ? 8 : 0,
+                        marginBottom: idx < item.top_replies!.length - 1 ? 8 : 0,
+                        borderBottom: idx < item.top_replies!.length - 1 ? `1px solid ${theme.border}` : 'none',
+                      }}>
+                        <div style={{ fontSize: 12, color: theme.textMuted, marginBottom: 4 }}>
+                          {formatDate(reply.created_at)}
+                        </div>
+                        <div style={{ fontSize: 14, color: theme.text, lineHeight: 1.5 }}>
+                          {reply.content.length > 150 ? reply.content.slice(0, 150) + '...' : reply.content}
+                        </div>
+                      </div>
+                    ))}
+                    {(item.comment_count ?? 0) > 2 && (
+                      <a
+                        href={`${item.owner_endpoint}/post/${item.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          display: 'block',
+                          marginTop: 8,
+                          fontSize: 13,
+                          color: theme.link,
+                          textDecoration: 'none',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        View all {item.comment_count} replies →
+                      </a>
+                    )}
+                  </div>
+                )}
               </div>
             )
           })}
