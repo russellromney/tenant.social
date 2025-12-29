@@ -59,6 +59,7 @@ async fn create_test_thing(store: &Arc<Store>, user_id: &str, content: &str) -> 
         photos: Vec::new(),
         comment_count: None,
         top_replies: None,
+        source: None,
     };
 
     store.create_thing(&mut thing).unwrap();

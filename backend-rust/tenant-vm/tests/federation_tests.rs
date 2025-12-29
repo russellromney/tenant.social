@@ -68,6 +68,7 @@ async fn create_thing_with_visibility(
         comment_count: None,
         edited_at: None,
         top_replies: None,
+        source: None,
     };
 
     store.create_thing(&mut thing).unwrap();

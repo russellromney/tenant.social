@@ -3,6 +3,7 @@ use rusqlite::{params, Connection};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::models::*;
@@ -24,6 +25,7 @@ pub type StoreResult<T> = Result<T, StoreError>;
 pub struct ThingQuery {
     pub user_id: String,
     pub thing_type: Option<String>,
+    pub source_system: Option<String>,
     pub metadata_filter: HashMap<String, String>,
     pub sort: Option<String>,
     pub page: i64,
@@ -32,7 +34,7 @@ pub struct ThingQuery {
 }
 
 /// Result of a paginated thing query
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, serde::Serialize, ToSchema)]
 pub struct ThingQueryResult {
     pub things: Vec<Thing>,
     pub total: i64,
@@ -162,6 +164,7 @@ impl Store {
                 attributes TEXT DEFAULT '[]',
                 commentable INTEGER DEFAULT 0,
                 show_existing_comments INTEGER DEFAULT 0,
+                reactable INTEGER DEFAULT 1,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY (user_id) REFERENCES users(id)
@@ -246,6 +249,7 @@ impl Store {
                 source_id TEXT,
                 action_type TEXT NOT NULL,
                 action_config TEXT NOT NULL,
+                filter_config TEXT,
                 enabled INTEGER DEFAULT 1,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
@@ -266,6 +270,24 @@ impl Store {
                 created_at TEXT NOT NULL,
                 delivered_at TEXT
             );
+
+            -- Inbound webhooks: allow external systems to push data
+            CREATE TABLE IF NOT EXISTS inbound_webhooks (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                secret_token_hash TEXT NOT NULL,
+                token_prefix TEXT NOT NULL,
+                default_thing_type TEXT NOT NULL DEFAULT 'note',
+                default_visibility TEXT NOT NULL DEFAULT 'private',
+                source_system TEXT NOT NULL,
+                transform_config TEXT NOT NULL DEFAULT '{}',
+                enabled INTEGER DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_inbound_webhooks_user ON inbound_webhooks(user_id);
 
             -- ============================================================
             -- NOTIFICATIONS: Settings and stored notifications
@@ -408,6 +430,32 @@ impl Store {
             conn.execute("ALTER TABLE kinds ADD COLUMN show_existing_comments INTEGER DEFAULT 0", [])?;
         }
 
+        // Migration: Add reactable to kinds table (defaults to true for backwards compatibility)
+        let has_reactable: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM pragma_table_info('kinds') WHERE name = 'reactable'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+
+        if !has_reactable {
+            conn.execute("ALTER TABLE kinds ADD COLUMN reactable INTEGER DEFAULT 1", [])?;
+        }
+
+        // Migration: Add filter_config to subscriptions table
+        let has_filter_config: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM pragma_table_info('subscriptions') WHERE name = 'filter_config'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+
+        if !has_filter_config {
+            conn.execute("ALTER TABLE subscriptions ADD COLUMN filter_config TEXT", [])?;
+        }
+
         // Migration: Update reactions table for new schema (target_type, emoji)
         let has_target_type: bool = conn
             .query_row(
@@ -470,6 +518,29 @@ impl Store {
 
         if !has_edited_at {
             conn.execute("ALTER TABLE things ADD COLUMN edited_at TEXT", [])?;
+        }
+
+        // Migration: Add source attribution columns to things table
+        let has_source_system: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM pragma_table_info('things') WHERE name = 'source_system'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+
+        if !has_source_system {
+            conn.execute("ALTER TABLE things ADD COLUMN source_system TEXT", [])?;
+            conn.execute("ALTER TABLE things ADD COLUMN source_external_id TEXT", [])?;
+            conn.execute("ALTER TABLE things ADD COLUMN source_url TEXT", [])?;
+            conn.execute("ALTER TABLE things ADD COLUMN source_imported_at TEXT", [])?;
+            // Unique index for deduplication (only where source_system is not null)
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_things_source_dedup ON things(user_id, source_system, source_external_id) WHERE source_system IS NOT NULL AND source_external_id IS NOT NULL",
+                [],
+            )?;
+            // Index for filtering by source
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_things_source_system ON things(source_system)", [])?;
         }
 
         Ok(())
@@ -716,9 +787,22 @@ impl Store {
 
         let metadata_json = serde_json::to_string(&thing.metadata)?;
 
+        // Extract source fields if present
+        let (source_system, source_external_id, source_url, source_imported_at) =
+            match &thing.source {
+                Some(source) => (
+                    Some(source.system.clone()),
+                    source.external_id.clone(),
+                    source.url.clone(),
+                    Some(source.imported_at.to_rfc3339()),
+                ),
+                None => (None, None, None, None),
+            };
+
         conn.execute(
-            r#"INSERT INTO things (id, user_id, type, content, metadata, visibility, version, created_at, updated_at)
-               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)"#,
+            r#"INSERT INTO things (id, user_id, type, content, metadata, visibility, version, created_at, updated_at,
+               source_system, source_external_id, source_url, source_imported_at)
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)"#,
             params![
                 &thing.id,
                 &thing.user_id,
@@ -729,6 +813,10 @@ impl Store {
                 thing.version,
                 thing.created_at.to_rfc3339(),
                 thing.updated_at.to_rfc3339(),
+                &source_system,
+                &source_external_id,
+                &source_url,
+                &source_imported_at,
             ],
         )?;
         Ok(())
@@ -754,6 +842,34 @@ impl Store {
         }
 
         Ok(thing)
+    }
+
+    /// Get a thing by its source system and external ID for deduplication
+    pub fn get_thing_by_source(
+        &self,
+        user_id: &str,
+        source_system: &str,
+        source_external_id: &str,
+    ) -> StoreResult<Option<Thing>> {
+        let conn = self.conn.lock().unwrap();
+        let result = conn.query_row(
+            "SELECT * FROM things WHERE user_id = ?1 AND source_system = ?2 AND source_external_id = ?3 AND deleted_at IS NULL",
+            params![user_id, source_system, source_external_id],
+            |row| self.row_to_thing(row),
+        );
+
+        match result {
+            Ok(mut thing) => {
+                // Load photos if it's a gallery
+                if thing.thing_type == "gallery" {
+                    drop(conn);
+                    thing.photos = self.get_photos_by_thing_id(&thing.id)?;
+                }
+                Ok(Some(thing))
+            }
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(StoreError::Database(e)),
+        }
     }
 
     pub fn update_thing(&self, thing: &mut Thing) -> StoreResult<()> {
@@ -1033,6 +1149,12 @@ impl Store {
         if let Some(ref t) = q.thing_type {
             where_clauses.push(format!("type = ?{}", param_idx));
             args.push(Box::new(t.clone()));
+            param_idx += 1;
+        }
+
+        if let Some(ref system) = q.source_system {
+            where_clauses.push(format!("source_system = ?{}", param_idx));
+            args.push(Box::new(system.clone()));
             param_idx += 1;
         }
 
@@ -1327,6 +1449,20 @@ impl Store {
         // Try to get comment_count if present in query
         let comment_count: Option<i64> = row.get("comment_count").ok();
 
+        // Try to get source attribution if present
+        let source_system: Option<String> = row.get("source_system").ok().flatten();
+        let source = source_system.map(|system| {
+            let source_external_id: Option<String> = row.get("source_external_id").ok().flatten();
+            let source_url: Option<String> = row.get("source_url").ok().flatten();
+            let source_imported_at: Option<String> = row.get("source_imported_at").ok().flatten();
+            Source {
+                system,
+                external_id: source_external_id,
+                url: source_url,
+                imported_at: source_imported_at.map(parse_datetime).unwrap_or_else(Utc::now),
+            }
+        });
+
         Ok(Thing {
             id: row.get("id")?,
             user_id: row.get("user_id")?,
@@ -1342,6 +1478,7 @@ impl Store {
             photos: Vec::new(),
             comment_count,
             top_replies: None,
+            source,
         })
     }
 
@@ -1886,8 +2023,8 @@ impl Store {
         let attributes_json = serde_json::to_string(&kind.attributes).unwrap_or_else(|_| "[]".to_string());
 
         conn.execute(
-            r#"INSERT INTO kinds (id, user_id, name, icon, template, attributes, commentable, show_existing_comments, created_at, updated_at)
-               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"#,
+            r#"INSERT INTO kinds (id, user_id, name, icon, template, attributes, commentable, show_existing_comments, reactable, created_at, updated_at)
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)"#,
             params![
                 &kind.id,
                 &kind.user_id,
@@ -1897,6 +2034,7 @@ impl Store {
                 &attributes_json,
                 kind.commentable,
                 kind.show_existing_comments,
+                kind.reactable,
                 kind.created_at.to_rfc3339(),
                 kind.updated_at.to_rfc3339(),
             ],
@@ -1935,6 +2073,7 @@ impl Store {
                     attributes,
                     commentable: row.get::<_, i32>("commentable").unwrap_or(0) != 0,
                     show_existing_comments: row.get::<_, i32>("show_existing_comments").unwrap_or(0) != 0,
+                    reactable: row.get::<_, i32>("reactable").unwrap_or(1) != 0,
                     created_at: parse_datetime(row.get::<_, String>("created_at")?),
                     updated_at: parse_datetime(row.get::<_, String>("updated_at")?),
                 })
@@ -1964,6 +2103,7 @@ impl Store {
                 attributes,
                 commentable: row.get::<_, i32>("commentable").unwrap_or(0) != 0,
                 show_existing_comments: row.get::<_, i32>("show_existing_comments").unwrap_or(0) != 0,
+                reactable: row.get::<_, i32>("reactable").unwrap_or(1) != 0,
                 created_at: parse_datetime(row.get::<_, String>("created_at")?),
                 updated_at: parse_datetime(row.get::<_, String>("updated_at")?),
             })
@@ -1980,8 +2120,8 @@ impl Store {
         let attributes_json = serde_json::to_string(&kind.attributes).unwrap_or_else(|_| "[]".to_string());
 
         let rows = conn.execute(
-            r#"UPDATE kinds SET name = ?1, icon = ?2, template = ?3, attributes = ?4, commentable = ?5, show_existing_comments = ?6, updated_at = ?7
-               WHERE id = ?8"#,
+            r#"UPDATE kinds SET name = ?1, icon = ?2, template = ?3, attributes = ?4, commentable = ?5, show_existing_comments = ?6, reactable = ?7, updated_at = ?8
+               WHERE id = ?9"#,
             params![
                 &kind.name,
                 &kind.icon,
@@ -1989,6 +2129,7 @@ impl Store {
                 &attributes_json,
                 kind.commentable,
                 kind.show_existing_comments,
+                kind.reactable,
                 kind.updated_at.to_rfc3339(),
                 &kind.id,
             ],
@@ -2544,11 +2685,12 @@ impl Store {
     pub fn create_subscription(&self, sub: &Subscription) -> StoreResult<()> {
         let conn = self.conn.lock().unwrap();
         let config_json = serde_json::to_string(&sub.action_config)?;
+        let filter_json = sub.filter_config.as_ref().map(|f| serde_json::to_string(f).ok()).flatten();
 
         conn.execute(
             r#"INSERT INTO subscriptions (id, user_id, name, event_type, source_type, source_id,
-                action_type, action_config, enabled, created_at, updated_at)
-               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)"#,
+                action_type, action_config, filter_config, enabled, created_at, updated_at)
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)"#,
             params![
                 &sub.id,
                 &sub.user_id,
@@ -2558,6 +2700,7 @@ impl Store {
                 &sub.source_id,
                 &sub.action_type,
                 &config_json,
+                &filter_json,
                 sub.enabled,
                 sub.created_at.to_rfc3339(),
                 sub.updated_at.to_rfc3339(),
@@ -2596,11 +2739,12 @@ impl Store {
     pub fn update_subscription(&self, sub: &Subscription) -> StoreResult<()> {
         let conn = self.conn.lock().unwrap();
         let config_json = serde_json::to_string(&sub.action_config)?;
+        let filter_json = sub.filter_config.as_ref().map(|f| serde_json::to_string(f).ok()).flatten();
 
         let rows = conn.execute(
             r#"UPDATE subscriptions SET name = ?1, event_type = ?2, source_type = ?3,
-               source_id = ?4, action_type = ?5, action_config = ?6, enabled = ?7, updated_at = ?8
-               WHERE id = ?9"#,
+               source_id = ?4, action_type = ?5, action_config = ?6, filter_config = ?7, enabled = ?8, updated_at = ?9
+               WHERE id = ?10"#,
             params![
                 &sub.name,
                 &sub.event_type,
@@ -2608,6 +2752,7 @@ impl Store {
                 &sub.source_id,
                 &sub.action_type,
                 &config_json,
+                &filter_json,
                 sub.enabled,
                 sub.updated_at.to_rfc3339(),
                 &sub.id,
@@ -2666,6 +2811,12 @@ impl Store {
         let action_config: HashMap<String, serde_json::Value> =
             serde_json::from_str(&config_str).unwrap_or_default();
 
+        let filter_config: Option<crate::models::FilterConfig> = row
+            .get::<_, Option<String>>("filter_config")
+            .ok()
+            .flatten()
+            .and_then(|s| serde_json::from_str(&s).ok());
+
         Ok(Subscription {
             id: row.get("id")?,
             user_id: row.get("user_id")?,
@@ -2675,6 +2826,125 @@ impl Store {
             source_id: row.get("source_id")?,
             action_type: row.get("action_type")?,
             action_config,
+            filter_config,
+            enabled: row.get("enabled")?,
+            created_at: parse_datetime(row.get("created_at")?),
+            updated_at: parse_datetime(row.get("updated_at")?),
+        })
+    }
+
+    // ==================== Inbound Webhook Operations ====================
+
+    pub fn create_inbound_webhook(&self, webhook: &InboundWebhook) -> StoreResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let config_json = serde_json::to_string(&webhook.transform_config)?;
+
+        conn.execute(
+            r#"INSERT INTO inbound_webhooks (id, user_id, name, secret_token_hash, token_prefix,
+               default_thing_type, default_visibility, source_system, transform_config,
+               enabled, created_at, updated_at)
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)"#,
+            params![
+                &webhook.id,
+                &webhook.user_id,
+                &webhook.name,
+                &webhook.secret_token_hash,
+                &webhook.token_prefix,
+                &webhook.default_thing_type,
+                &webhook.default_visibility,
+                &webhook.source_system,
+                &config_json,
+                webhook.enabled,
+                webhook.created_at.to_rfc3339(),
+                webhook.updated_at.to_rfc3339(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_inbound_webhooks(&self, user_id: &str) -> StoreResult<Vec<InboundWebhook>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT * FROM inbound_webhooks WHERE user_id = ?1 ORDER BY created_at DESC"
+        )?;
+        let rows = stmt.query_map(params![user_id], |row| self.row_to_inbound_webhook(row))?;
+
+        let mut webhooks = Vec::new();
+        for row in rows {
+            webhooks.push(row?);
+        }
+        Ok(webhooks)
+    }
+
+    pub fn get_inbound_webhook(&self, id: &str) -> StoreResult<InboundWebhook> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT * FROM inbound_webhooks WHERE id = ?1",
+            params![id],
+            |row| self.row_to_inbound_webhook(row),
+        )
+        .map_err(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => {
+                StoreError::NotFound(format!("InboundWebhook {}", id))
+            }
+            _ => StoreError::Database(e),
+        })
+    }
+
+    pub fn update_inbound_webhook(&self, webhook: &InboundWebhook) -> StoreResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let config_json = serde_json::to_string(&webhook.transform_config)?;
+
+        let rows = conn.execute(
+            r#"UPDATE inbound_webhooks SET name = ?1, default_thing_type = ?2,
+               default_visibility = ?3, source_system = ?4, transform_config = ?5,
+               enabled = ?6, updated_at = ?7
+               WHERE id = ?8"#,
+            params![
+                &webhook.name,
+                &webhook.default_thing_type,
+                &webhook.default_visibility,
+                &webhook.source_system,
+                &config_json,
+                webhook.enabled,
+                webhook.updated_at.to_rfc3339(),
+                &webhook.id,
+            ],
+        )?;
+
+        if rows == 0 {
+            return Err(StoreError::NotFound(format!("InboundWebhook {}", webhook.id)));
+        }
+        Ok(())
+    }
+
+    pub fn delete_inbound_webhook(&self, id: &str, user_id: &str) -> StoreResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let rows = conn.execute(
+            "DELETE FROM inbound_webhooks WHERE id = ?1 AND user_id = ?2",
+            params![id, user_id],
+        )?;
+        if rows == 0 {
+            return Err(StoreError::NotFound(format!("InboundWebhook {}", id)));
+        }
+        Ok(())
+    }
+
+    fn row_to_inbound_webhook(&self, row: &rusqlite::Row) -> rusqlite::Result<InboundWebhook> {
+        let config_str: String = row.get("transform_config")?;
+        let transform_config: HashMap<String, serde_json::Value> =
+            serde_json::from_str(&config_str).unwrap_or_default();
+
+        Ok(InboundWebhook {
+            id: row.get("id")?,
+            user_id: row.get("user_id")?,
+            name: row.get("name")?,
+            secret_token_hash: row.get("secret_token_hash")?,
+            token_prefix: row.get("token_prefix")?,
+            default_thing_type: row.get("default_thing_type")?,
+            default_visibility: row.get("default_visibility")?,
+            source_system: row.get("source_system")?,
+            transform_config,
             enabled: row.get("enabled")?,
             created_at: parse_datetime(row.get("created_at")?),
             updated_at: parse_datetime(row.get("updated_at")?),
@@ -3355,6 +3625,7 @@ mod tests {
             photos: Vec::new(),
             comment_count: None,
             top_replies: None,
+            source: None,
         };
 
         store.create_thing(&mut thing).unwrap();
@@ -3400,6 +3671,7 @@ mod tests {
             photos: Vec::new(),
             comment_count: None,
             top_replies: None,
+            source: None,
         };
         store.create_thing(&mut gallery).unwrap();
 
@@ -3652,6 +3924,7 @@ mod tests {
             photos: Vec::new(),
             comment_count: None,
             top_replies: None,
+            source: None,
         };
         store.create_thing(&mut private_thing).unwrap();
 
@@ -3670,6 +3943,7 @@ mod tests {
             photos: Vec::new(),
             comment_count: None,
             top_replies: None,
+            source: None,
         };
         store.create_thing(&mut friends_thing).unwrap();
 
@@ -3688,6 +3962,7 @@ mod tests {
             photos: Vec::new(),
             comment_count: None,
             top_replies: None,
+            source: None,
         };
         store.create_thing(&mut public_thing).unwrap();
 
@@ -4448,6 +4723,7 @@ mod tests {
             photos: Vec::new(),
             comment_count: None,
             top_replies: None,
+            source: None,
         };
         store.create_thing(&mut thing).unwrap();
 
@@ -4538,6 +4814,7 @@ mod tests {
             photos: Vec::new(),
             comment_count: None,
             top_replies: None,
+            source: None,
         };
         store.create_thing(&mut thing).unwrap();
 
@@ -4614,6 +4891,7 @@ mod tests {
             photos: Vec::new(),
             comment_count: None,
             top_replies: None,
+            source: None,
         };
         store.create_thing(&mut thing).unwrap();
 
@@ -4671,6 +4949,7 @@ mod tests {
             photos: Vec::new(),
             comment_count: None,
             top_replies: None,
+            source: None,
         };
         store.create_thing(&mut thing).unwrap();
 
@@ -4749,6 +5028,7 @@ mod tests {
             photos: Vec::new(),
             comment_count: None,
             top_replies: None,
+            source: None,
         };
         store.create_thing(&mut thing).unwrap();
 
@@ -4843,6 +5123,7 @@ mod tests {
             photos: Vec::new(),
             comment_count: None,
             top_replies: None,
+            source: None,
         };
         store.create_thing(&mut thing).unwrap();
 
@@ -4916,6 +5197,7 @@ mod tests {
             photos: Vec::new(),
             comment_count: None,
             top_replies: None,
+            source: None,
         };
         store.create_thing(&mut thing).unwrap();
 
@@ -4988,6 +5270,7 @@ mod tests {
             photos: Vec::new(),
             comment_count: None,
             top_replies: None,
+            source: None,
         };
         store.create_thing(&mut post).unwrap();
 
@@ -5012,6 +5295,7 @@ mod tests {
             photos: Vec::new(),
             comment_count: None,
             top_replies: None,
+            source: None,
         };
         store.create_thing(&mut comment).unwrap();
 
@@ -5078,6 +5362,7 @@ mod tests {
             photos: Vec::new(),
             comment_count: None,
             top_replies: None,
+            source: None,
         };
         store.create_thing(&mut thing_a).unwrap();
 
@@ -5096,6 +5381,7 @@ mod tests {
             photos: Vec::new(),
             comment_count: None,
             top_replies: None,
+            source: None,
         };
         store.create_thing(&mut thing_b).unwrap();
 
@@ -5127,6 +5413,7 @@ mod tests {
             photos: Vec::new(),
             comment_count: None,
             top_replies: None,
+            source: None,
         };
         store.create_thing(&mut thing_d).unwrap();
 
@@ -5177,6 +5464,7 @@ mod tests {
             photos: Vec::new(),
             comment_count: None,
             top_replies: None,
+            source: None,
         };
         store.create_thing(&mut thing_a).unwrap();
 
@@ -5195,6 +5483,7 @@ mod tests {
             photos: Vec::new(),
             comment_count: None,
             top_replies: None,
+            source: None,
         };
         store.create_thing(&mut thing_b).unwrap();
 
@@ -5226,6 +5515,7 @@ mod tests {
             photos: Vec::new(),
             comment_count: None,
             top_replies: None,
+            source: None,
         };
         store.create_thing(&mut thing_e).unwrap();
 
@@ -5275,6 +5565,7 @@ mod tests {
             photos: Vec::new(),
             comment_count: None,
             top_replies: None,
+            source: None,
         };
         store.create_thing(&mut thing_a).unwrap();
 
@@ -5302,6 +5593,7 @@ mod tests {
             photos: Vec::new(),
             comment_count: None,
             top_replies: None,
+            source: None,
         };
         store.create_thing(&mut thing_d).unwrap();
 
@@ -5329,6 +5621,7 @@ mod tests {
             photos: Vec::new(),
             comment_count: None,
             top_replies: None,
+            source: None,
         };
         store.create_thing(&mut thing_e).unwrap();
 
@@ -5378,6 +5671,7 @@ mod tests {
             photos: Vec::new(),
             comment_count: None,
             top_replies: None,
+            source: None,
         };
         store.create_thing(&mut thing_a).unwrap();
 
@@ -5405,6 +5699,7 @@ mod tests {
             photos: Vec::new(),
             comment_count: None,
             top_replies: None,
+            source: None,
         };
         store.create_thing(&mut thing_d).unwrap();
 
@@ -5473,6 +5768,7 @@ mod tests {
             photos: Vec::new(),
             comment_count: None,
             top_replies: None,
+            source: None,
         };
         store.create_thing(&mut thing_a).unwrap();
 
@@ -5492,6 +5788,7 @@ mod tests {
             photos: Vec::new(),
             comment_count: None,
             top_replies: None,
+            source: None,
         };
         store.create_thing(&mut thing_b).unwrap();
 
@@ -5519,6 +5816,7 @@ mod tests {
             photos: Vec::new(),
             comment_count: None,
             top_replies: None,
+            source: None,
         };
         store.create_thing(&mut thing_c).unwrap();
 
@@ -5595,6 +5893,7 @@ mod tests {
             photos: Vec::new(),
             comment_count: None,
             top_replies: None,
+            source: None,
         };
         store.create_thing(&mut thing_a).unwrap();
 
@@ -5622,6 +5921,7 @@ mod tests {
             photos: Vec::new(),
             comment_count: None,
             top_replies: None,
+            source: None,
         };
         store.create_thing(&mut thing_d).unwrap();
 
@@ -5669,6 +5969,7 @@ mod tests {
             photos: Vec::new(),
             comment_count: None,
             top_replies: None,
+            source: None,
         };
         store.create_thing(&mut gallery).unwrap();
 
@@ -5759,6 +6060,7 @@ mod tests {
             photos: Vec::new(),
             comment_count: None,
             top_replies: None,
+            source: None,
         };
         store.create_thing(&mut thing).unwrap();
 
@@ -5808,6 +6110,7 @@ mod tests {
             photos: Vec::new(),
             comment_count: None,
             top_replies: None,
+            source: None,
         };
         store.create_thing(&mut gallery).unwrap();
 

@@ -65,6 +65,7 @@ async fn create_thing_with_visibility(
         comment_count: None,
         edited_at: None,
         top_replies: None,
+        source: None,
     };
 
     store.create_thing(&mut thing).unwrap();
@@ -569,6 +570,7 @@ async fn test_delete_comment_by_author() {
         comment_count: None,
         edited_at: None,
         top_replies: None,
+        source: None,
     };
 
     store.create_thing(&mut comment).unwrap();
@@ -627,6 +629,7 @@ async fn test_delete_comment_by_thing_owner() {
         comment_count: None,
         edited_at: None,
         top_replies: None,
+        source: None,
     };
 
     store.create_thing(&mut comment).unwrap();
@@ -686,6 +689,7 @@ async fn test_delete_comment_unauthorized_user() {
         comment_count: None,
         edited_at: None,
         top_replies: None,
+        source: None,
     };
 
     store.create_thing(&mut comment).unwrap();
@@ -1231,6 +1235,7 @@ async fn test_comment_depth_level_1() {
         comment_count: None,
         edited_at: None,
         top_replies: None,
+        source: None,
     };
     store.create_thing(&mut comment1).unwrap();
     let comment1_id = comment1.id.clone();
@@ -1257,6 +1262,7 @@ async fn test_comment_depth_level_1() {
         comment_count: None,
         edited_at: None,
         top_replies: None,
+        source: None,
     };
     store.create_thing(&mut comment2).unwrap();
 
@@ -1295,6 +1301,7 @@ async fn test_comment_depth_level_3_max() {
             comment_count: None,
             edited_at: None,
             top_replies: None,
+        source: None,
         };
         store.create_thing(&mut comment).unwrap();
         parent_ids.push(comment.id.clone());
@@ -1341,6 +1348,7 @@ async fn test_comment_depth_preserves_root_id() {
             comment_count: None,
             edited_at: None,
             top_replies: None,
+        source: None,
         };
         store.create_thing(&mut comment).unwrap();
         comment_ids.push(comment.id.clone());
@@ -1390,6 +1398,7 @@ async fn test_deleted_comment_preserved_in_thread() {
         comment_count: None,
         edited_at: None,
         top_replies: None,
+        source: None,
     };
     store.create_thing(&mut comment1).unwrap();
     let comment1_id = comment1.id.clone();
@@ -1416,6 +1425,7 @@ async fn test_deleted_comment_preserved_in_thread() {
         comment_count: None,
         edited_at: None,
         top_replies: None,
+        source: None,
     };
     store.create_thing(&mut comment2).unwrap();
 
@@ -1874,6 +1884,7 @@ async fn test_get_comments_returns_all() {
             comment_count: None,
             edited_at: None,
             top_replies: None,
+        source: None,
         };
         store.create_thing(&mut comment).unwrap();
     }
@@ -1926,6 +1937,7 @@ async fn test_get_comments_includes_deleted_by_default() {
         comment_count: None,
         edited_at: None,
         top_replies: None,
+        source: None,
     };
     store.create_thing(&mut comment1).unwrap();
     let comment1_id = comment1.id.clone();
@@ -1951,6 +1963,7 @@ async fn test_get_comments_includes_deleted_by_default() {
         comment_count: None,
         edited_at: None,
         top_replies: None,
+        source: None,
     };
     store.create_thing(&mut comment2).unwrap();
 
@@ -2033,6 +2046,7 @@ async fn test_comment_reply_chain_depth_0_to_3() {
             comment_count: None,
             edited_at: None,
             top_replies: None,
+        source: None,
         };
         store.create_thing(&mut comment).unwrap();
         comment_ids.push(comment.id.clone());
@@ -2083,6 +2097,7 @@ async fn test_comment_threading_structure_on_deletion() {
         comment_count: None,
         edited_at: None,
         top_replies: None,
+        source: None,
     };
     store.create_thing(&mut comment_a).unwrap();
     let a_id = comment_a.id.clone();
@@ -2108,6 +2123,7 @@ async fn test_comment_threading_structure_on_deletion() {
         comment_count: None,
         edited_at: None,
         top_replies: None,
+        source: None,
     };
     store.create_thing(&mut comment_b).unwrap();
     let b_id = comment_b.id.clone();
@@ -2133,6 +2149,7 @@ async fn test_comment_threading_structure_on_deletion() {
         comment_count: None,
         edited_at: None,
         top_replies: None,
+        source: None,
     };
     store.create_thing(&mut comment_c).unwrap();
 
@@ -2157,6 +2174,7 @@ async fn test_comment_threading_structure_on_deletion() {
         comment_count: None,
         edited_at: None,
         top_replies: None,
+        source: None,
     };
     store.create_thing(&mut comment_d).unwrap();
 
@@ -2223,6 +2241,7 @@ async fn test_concurrent_local_comments_on_same_post() {
             comment_count: None,
             edited_at: None,
             top_replies: None,
+        source: None,
         };
         store.create_thing(&mut thing_copy).unwrap();
     }
@@ -2584,6 +2603,7 @@ async fn test_deleted_comment_shows_in_list_with_timestamp() {
         comment_count: None,
         edited_at: None,
         top_replies: None,
+        source: None,
     };
     store.create_thing(&mut comment).unwrap();
     let comment_id = comment.id.clone();
@@ -2877,6 +2897,7 @@ async fn test_many_comments_on_post_all_retrievable() {
             comment_count: None,
             edited_at: None,
             top_replies: None,
+        source: None,
         };
         store.create_thing(&mut comment).unwrap();
     }
@@ -3035,6 +3056,7 @@ async fn test_cannot_exceed_max_depth_3() {
             comment_count: None,
             edited_at: None,
             top_replies: None,
+        source: None,
         };
         store.create_thing(&mut comment).unwrap();
         parent_id = comment.id.clone();
@@ -3267,6 +3289,7 @@ async fn test_federated_reply_to_reply_structure() {
         comment_count: None,
         edited_at: None,
         top_replies: None,
+        source: None,
     };
     store.create_thing(&mut comment1).unwrap();
     let c1_id = comment1.id.clone();
@@ -3293,6 +3316,7 @@ async fn test_federated_reply_to_reply_structure() {
         comment_count: None,
         edited_at: None,
         top_replies: None,
+        source: None,
     };
     store.create_thing(&mut comment2).unwrap();
     let c2_id = comment2.id.clone();
@@ -3319,6 +3343,7 @@ async fn test_federated_reply_to_reply_structure() {
         comment_count: None,
         edited_at: None,
         top_replies: None,
+        source: None,
     };
     store.create_thing(&mut comment3).unwrap();
 
@@ -3368,6 +3393,7 @@ async fn test_delete_same_comment_twice() {
         comment_count: None,
         edited_at: None,
         top_replies: None,
+        source: None,
     };
     store.create_thing(&mut comment).unwrap();
     let comment_id = comment.id.clone();
@@ -3462,6 +3488,7 @@ async fn test_cannot_reply_to_comment_from_different_root() {
         comment_count: None,
         edited_at: None,
         top_replies: None,
+        source: None,
     };
     store.create_thing(&mut comment1).unwrap();
     let c1_id = comment1.id.clone();
@@ -3489,6 +3516,7 @@ async fn test_cannot_reply_to_comment_from_different_root() {
         comment_count: None,
         edited_at: None,
         top_replies: None,
+        source: None,
     };
 
     // Store will accept it (no validation), but app logic should validate
@@ -3584,6 +3612,7 @@ async fn test_comment_deletion_idempotency() {
         comment_count: None,
         edited_at: None,
         top_replies: None,
+        source: None,
     };
 
     store.create_thing(&mut comment).unwrap();
@@ -3645,6 +3674,7 @@ async fn test_three_level_deep_reply_chain() {
         comment_count: None,
         edited_at: None,
         top_replies: None,
+        source: None,
     };
     store.create_thing(&mut level0).unwrap();
     let level0_id = level0.id.clone();
@@ -3671,6 +3701,7 @@ async fn test_three_level_deep_reply_chain() {
         comment_count: None,
         edited_at: None,
         top_replies: None,
+        source: None,
     };
     store.create_thing(&mut level1).unwrap();
     let level1_id = level1.id.clone();
@@ -3697,6 +3728,7 @@ async fn test_three_level_deep_reply_chain() {
         comment_count: None,
         edited_at: None,
         top_replies: None,
+        source: None,
     };
     store.create_thing(&mut level2).unwrap();
     let level2_id = level2.id.clone();
@@ -3723,6 +3755,7 @@ async fn test_three_level_deep_reply_chain() {
         comment_count: None,
         edited_at: None,
         top_replies: None,
+        source: None,
     };
     store.create_thing(&mut level3).unwrap();
     let level3_id = level3.id.clone();
@@ -3845,6 +3878,7 @@ async fn test_deleted_comment_children_still_visible() {
         comment_count: None,
         edited_at: None,
         top_replies: None,
+        source: None,
     };
     store.create_thing(&mut parent).unwrap();
     let parent_id = parent.id.clone();
@@ -3871,6 +3905,7 @@ async fn test_deleted_comment_children_still_visible() {
         comment_count: None,
         edited_at: None,
         top_replies: None,
+        source: None,
     };
     store.create_thing(&mut child).unwrap();
     let child_id = child.id.clone();
@@ -3919,6 +3954,7 @@ async fn test_comments_with_null_bytes_in_content() {
         comment_count: None,
         edited_at: None,
         top_replies: None,
+        source: None,
     };
 
     let result = store.create_thing(&mut comment);
@@ -3957,6 +3993,7 @@ async fn test_comment_permission_post_owner_deletes() {
         comment_count: None,
         edited_at: None,
         top_replies: None,
+        source: None,
     };
     store.create_thing(&mut comment).unwrap();
     let comment_id = comment.id.clone();
@@ -4045,6 +4082,7 @@ async fn test_unauthorized_user_cannot_delete_others_comment() {
         comment_count: None,
         edited_at: None,
         top_replies: None,
+        source: None,
     };
     store.create_thing(&mut comment).unwrap();
     let comment_id = comment.id.clone();
@@ -4152,6 +4190,7 @@ async fn test_comments_default_include_deleted_true() {
         comment_count: None,
         edited_at: None,
         top_replies: None,
+        source: None,
     };
     store.create_thing(&mut comment).unwrap();
     let comment_id = comment.id.clone();
@@ -4322,6 +4361,7 @@ async fn test_deeply_nested_comment_paths() {
             comment_count: None,
             edited_at: None,
             top_replies: None,
+        source: None,
         };
 
         store.create_thing(&mut comment).unwrap();

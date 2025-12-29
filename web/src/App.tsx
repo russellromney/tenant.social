@@ -24,6 +24,7 @@ interface Kind {
   attributes: Attribute[]
   commentable: boolean
   show_existing_comments: boolean
+  reactable: boolean
   created_at: string
   updated_at: string
   isDefault?: boolean // for UI-only default kinds
@@ -126,12 +127,12 @@ interface FriendFeedItem extends Thing {
 
 // Default kinds - will be created in DB on first load
 const DEFAULT_KINDS: Omit<Kind, 'created_at' | 'updated_at'>[] = [
-  { id: 'default-post', name: 'post', icon: '💬', template: 'default', attributes: [], commentable: true, show_existing_comments: false, isDefault: true },
-  { id: 'default-note', name: 'note', icon: '📝', template: 'default', attributes: [], commentable: false, show_existing_comments: false, isDefault: true },
-  { id: 'default-link', name: 'link', icon: '🔗', template: 'link', attributes: [{ name: 'url', type: 'url', required: true, options: '' }], commentable: false, show_existing_comments: false, isDefault: true },
-  { id: 'default-task', name: 'task', icon: '✅', template: 'checklist', attributes: [{ name: 'done', type: 'checkbox', required: false, options: '' }], commentable: false, show_existing_comments: false, isDefault: true },
-  { id: 'default-photo', name: 'photo', icon: '📷', template: 'photo', attributes: [], commentable: false, show_existing_comments: false, isDefault: true },
-  { id: 'default-gallery', name: 'gallery', icon: '🖼️', template: 'photo', attributes: [], commentable: false, show_existing_comments: false, isDefault: true },
+  { id: 'default-post', name: 'post', icon: '💬', template: 'default', attributes: [], commentable: true, show_existing_comments: false, reactable: true, isDefault: true },
+  { id: 'default-note', name: 'note', icon: '📝', template: 'default', attributes: [], commentable: false, show_existing_comments: false, reactable: false, isDefault: true },
+  { id: 'default-link', name: 'link', icon: '🔗', template: 'link', attributes: [{ name: 'url', type: 'url', required: true, options: '' }], commentable: false, show_existing_comments: false, reactable: true, isDefault: true },
+  { id: 'default-task', name: 'task', icon: '✅', template: 'checklist', attributes: [{ name: 'done', type: 'checkbox', required: false, options: '' }], commentable: false, show_existing_comments: false, reactable: false, isDefault: true },
+  { id: 'default-photo', name: 'photo', icon: '📷', template: 'photo', attributes: [], commentable: false, show_existing_comments: false, reactable: true, isDefault: true },
+  { id: 'default-gallery', name: 'gallery', icon: '🖼️', template: 'photo', attributes: [], commentable: false, show_existing_comments: false, reactable: true, isDefault: true },
 ]
 
 // Path-based routing
@@ -210,10 +211,19 @@ function AboutContent({ theme }: { theme: any }) {
       <ul style={{ marginTop: 16, paddingLeft: 24 }}>
         <li><strong>Store anything</strong> — Notes, links, tasks, bookmarks, photos, anything</li>
         <li><strong>Your own schema</strong> — Define custom types (Kinds) with your own attributes</li>
-        <li><strong>Multiple views</strong> — See the same data as a feed, table, board, or calendar</li>
+        <li><strong>Social features</strong> — Follow other Tenant users, share with friends or publicly</li>
         <li><strong>API-first</strong> — Full REST API with granular scopes for integrations</li>
         <li><strong>Version history</strong> — Never lose data, track every change</li>
         <li><strong>Cheap to run</strong> — Single binary, SQLite or Turso, minimal resources</li>
+      </ul>
+
+      <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>Social Features</h3>
+      <p>Tenant supports social interactions between instances:</p>
+      <ul style={{ marginTop: 16, paddingLeft: 24 }}>
+        <li><strong>Visibility</strong> — Mark things as private, friends-only, or public</li>
+        <li><strong>Follow users</strong> — Follow other Tenant users to see their shared content</li>
+        <li><strong>Friend feed</strong> — See things from people you follow in one place</li>
+        <li><strong>Public profiles</strong> — Share your public things with anyone</li>
       </ul>
 
       <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>Philosophy</h3>
@@ -316,6 +326,23 @@ GET    /api/views            # List views
 POST   /api/views            # Create view
 GET    /api/export           # Export all your data as JSON
 POST   /api/import           # Import data from JSON`}
+      </pre>
+
+      <h4 style={{ fontSize: 16, marginTop: 24, marginBottom: 8, color: theme.text }}>Social / Follows</h4>
+      <pre style={{ background: theme.bgMuted, padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13, color: theme.text }}>
+{`POST   /api/friends                  # Follow a user
+DELETE /api/follows/:user_id         # Unfollow a user
+GET    /api/follows/followers        # List your followers
+GET    /api/follows/following        # List users you follow
+GET    /api/follows/mutuals          # List mutual follows
+GET    /api/feed/friends             # Get friend feed (things from followed users)`}
+      </pre>
+
+      <h4 style={{ fontSize: 16, marginTop: 24, marginBottom: 8, color: theme.text }}>Public Endpoints</h4>
+      <pre style={{ background: theme.bgMuted, padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13, color: theme.text }}>
+{`GET    /api/public/profile          # Get owner's public profile
+GET    /api/public/things            # Get owner's public things
+GET    /api/fed/things/:user_id      # Federation: get friend-visible things`}
       </pre>
 
       <h4 style={{ fontSize: 16, marginTop: 24, marginBottom: 8, color: theme.text }}>Example: Create a Thing</h4>
@@ -534,6 +561,31 @@ Content-Type: multipart/form-data
 file: <binary image data>
 caption: "Beach sunset"
 order_index: 0`}
+      </pre>
+
+      <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>Social Features</h3>
+      <p>Tenant supports following other users and visibility controls.</p>
+
+      <h4 style={{ fontSize: 16, marginTop: 24, marginBottom: 8, color: theme.text }}>Visibility Levels</h4>
+      <ul style={{ paddingLeft: 24 }}>
+        <li><strong>private</strong> — Only you can see it (default)</li>
+        <li><strong>friends</strong> — Visible to users who follow you</li>
+        <li><strong>public</strong> — Visible to anyone</li>
+      </ul>
+
+      <h4 style={{ fontSize: 16, marginTop: 24, marginBottom: 8, color: theme.text }}>Follow a User</h4>
+      <pre style={{ background: theme.bgMuted, padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13, color: theme.text }}>
+{`POST /api/friends
+Content-Type: application/json
+
+{
+  "user_id": "target-user-uuid"
+}`}
+      </pre>
+
+      <h4 style={{ fontSize: 16, marginTop: 24, marginBottom: 8, color: theme.text }}>Get Friend Feed</h4>
+      <pre style={{ background: theme.bgMuted, padding: 16, borderRadius: 8, overflow: 'auto', fontSize: 13, color: theme.text }}>
+{`GET /api/feed/friends?limit=20&offset=0`}
       </pre>
 
       <h3 style={{ fontSize: 18, marginTop: 32, marginBottom: 12, color: theme.text }}>Best Practices</h3>
@@ -1085,7 +1137,7 @@ function App() {
     try { return localStorage.getItem('defaultKindId') } catch { return null }
   })
 
-  const isSettingsPage = route === '/settings' || route === '/data' || route === '/keys' || route === '/kinds' || route === '/friends' // aliases
+  const isSettingsPage = route === '/settings' || route === '/data' || route === '/keys' || route === '/kinds' || route === '/friends' || route === '/integrations' // aliases
   const isFeedPage = route === '/feed'
   const isBookmarksPage = route === '/bookmarks'
   const isProfilePage = route === '/' || route === '' || route === '/profile'
@@ -1581,131 +1633,179 @@ function App() {
     return <PublicHomePage theme={theme} onLogin={() => navigateTo('/login')} />
   }
 
+  const sidebarWidth = isMobile ? 60 : 200
+
+  // Navigation items for sidebar
+  const navItems = [
+    { href: '/', icon: '👤', label: 'Profile', active: isProfilePage },
+    { href: '/feed', icon: '📰', label: 'Feed', active: isFeedPage },
+    { href: '/bookmarks', icon: '🔖', label: 'Bookmarks', active: isBookmarksPage },
+    { href: '/settings', icon: '⚙️', label: 'Settings', active: isSettingsPage },
+  ]
+
   return (
-    <div style={{ maxWidth: 700, margin: '0 auto', padding: isMobile ? 12 : 20, fontFamily: 'system-ui, sans-serif', background: theme.bg, minHeight: '100vh', color: theme.text }}>
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: isMobile ? 16 : 24, gap: 8 }}>
-        <a href={routeHref('/')} style={{ textDecoration: 'none', color: theme.text }}>
-          <h1 style={{ fontSize: isMobile ? 22 : 28, fontWeight: 700, margin: 0 }}>tenant</h1>
+    <div style={{ display: 'flex', minHeight: '100vh', fontFamily: 'system-ui, sans-serif', background: theme.bg, color: theme.text }}>
+      {/* Side Menu */}
+      <div style={{
+        width: sidebarWidth,
+        flexShrink: 0,
+        background: theme.bgCard,
+        borderRight: `1px solid ${theme.border}`,
+        display: 'flex',
+        flexDirection: 'column',
+        position: 'fixed',
+        top: 0,
+        left: isMobile ? 0 : `calc(50% - ${350 + sidebarWidth}px)`,
+        bottom: 0,
+        zIndex: 100,
+      }}>
+        {/* Logo */}
+        <a
+          href={routeHref('/')}
+          style={{
+            padding: isMobile ? '16px 0' : '20px 16px',
+            textDecoration: 'none',
+            color: theme.text,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: isMobile ? 'center' : 'flex-start',
+            borderBottom: `1px solid ${theme.border}`,
+          }}
+        >
+          <span style={{ fontSize: isMobile ? 20 : 22, fontWeight: 700 }}>
+            {isMobile ? 't' : 'tenant'}
+          </span>
         </a>
-        <div style={{ display: 'flex', gap: isMobile ? 4 : 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+
+        {/* Navigation */}
+        <nav style={{ flex: 1, padding: '12px 0', display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {navItems.map(item => (
+            <a
+              key={item.href}
+              href={routeHref(item.href)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                padding: isMobile ? '12px 0' : '10px 16px',
+                justifyContent: isMobile ? 'center' : 'flex-start',
+                background: item.active ? theme.accent : 'transparent',
+                color: item.active ? theme.accentText : theme.text,
+                textDecoration: 'none',
+                borderRadius: isMobile ? 0 : 6,
+                margin: isMobile ? 0 : '0 8px',
+                fontSize: 14,
+                fontWeight: item.active ? 600 : 400,
+                transition: 'background 0.15s',
+              }}
+              onMouseEnter={e => !item.active && (e.currentTarget.style.background = theme.bgHover)}
+              onMouseLeave={e => !item.active && (e.currentTarget.style.background = 'transparent')}
+            >
+              <span style={{ fontSize: 18 }}>{item.icon}</span>
+              {!isMobile && <span>{item.label}</span>}
+            </a>
+          ))}
+        </nav>
+
+        {/* Bottom actions */}
+        <div style={{ padding: isMobile ? '12px 0' : '12px 8px', borderTop: `1px solid ${theme.border}`, display: 'flex', flexDirection: 'column', gap: 4 }}>
           <button
             onClick={toggleTheme}
             style={{
-              padding: isMobile ? '6px 10px' : '8px 12px',
-              background: theme.bgHover,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              padding: isMobile ? '12px 0' : '10px 16px',
+              justifyContent: isMobile ? 'center' : 'flex-start',
+              background: 'transparent',
               color: theme.textMuted,
               border: 'none',
-              borderRadius: 6,
-              fontSize: 16,
+              borderRadius: isMobile ? 0 : 6,
+              margin: isMobile ? 0 : '0 0',
+              fontSize: 14,
               cursor: 'pointer',
+              width: '100%',
             }}
             title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
           >
-            {isDark ? '☀️' : '🌙'}
+            <span style={{ fontSize: 18 }}>{isDark ? '☀️' : '🌙'}</span>
+            {!isMobile && <span>{isDark ? 'Light' : 'Dark'}</span>}
           </button>
-          {isSubPage ? (
+          <button
+            onClick={handleLogout}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              padding: isMobile ? '12px 0' : '10px 16px',
+              justifyContent: isMobile ? 'center' : 'flex-start',
+              background: 'transparent',
+              color: theme.textMuted,
+              border: 'none',
+              borderRadius: isMobile ? 0 : 6,
+              margin: isMobile ? 0 : '0 0',
+              fontSize: 14,
+              cursor: 'pointer',
+              width: '100%',
+            }}
+          >
+            <span style={{ fontSize: 18 }}>🚪</span>
+            {!isMobile && <span>Logout</span>}
+          </button>
+        </div>
+
+        {/* Footer Links */}
+        {!isMobile && (
+          <div style={{ padding: '12px 16px', borderTop: `1px solid ${theme.border}`, fontSize: 11, color: theme.textSubtle }}>
+            <div style={{ marginBottom: 8, color: theme.textMuted }}>
+              Your personal social data platform
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8 }}>
+              <a href={routeHref('/docs')} style={{ color: theme.textMuted, textDecoration: 'none' }}>About</a>
+              <a href={routeHref('/docs/api')} style={{ color: theme.textMuted, textDecoration: 'none' }}>API</a>
+              <a href={routeHref('/docs/deployment')} style={{ color: theme.textMuted, textDecoration: 'none' }}>Deploy</a>
+              <a href="https://github.com/russellromney/tenant.social" target="_blank" rel="noopener noreferrer" style={{ color: theme.textMuted, textDecoration: 'none' }}>GitHub</a>
+            </div>
+            <div>Made with ❤️ in NYC by <a href="https://russellromney.com" target="_blank" rel="noopener noreferrer" style={{ color: theme.link, textDecoration: 'none' }}>me</a></div>
+          </div>
+        )}
+      </div>
+
+      {/* Main Content */}
+      <div style={{
+        marginLeft: isMobile ? sidebarWidth : `calc(50% - ${350}px)`,
+        flex: 1,
+        display: 'flex',
+        justifyContent: isMobile ? 'center' : 'flex-start',
+      }}>
+      <div style={{
+        width: '100%',
+        maxWidth: 700,
+        padding: isMobile ? 12 : 20,
+      }}>
+        {/* Back button for sub-pages */}
+        {isSubPage && (
+          <div style={{ marginBottom: 16 }}>
             <a
               href={routeHref('/')}
               style={{
-                padding: isMobile ? '6px 12px' : '8px 16px',
-                background: theme.accent,
-                color: theme.accentText,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '8px 16px',
+                background: theme.bgHover,
+                color: theme.text,
                 border: 'none',
                 borderRadius: 6,
-                fontSize: isMobile ? 13 : 14,
+                fontSize: 14,
                 cursor: 'pointer',
                 textDecoration: 'none',
               }}
             >
-              ←{isMobile ? '' : ' Back'}
+              ← Back
             </a>
-          ) : (
-            <>
-              {/* Main tabs: Feed, Profile, Friends */}
-              <a
-                href={routeHref('/feed')}
-                style={{
-                  padding: isMobile ? '6px 10px' : '8px 16px',
-                  background: isFeedPage ? theme.accent : theme.bgHover,
-                  color: isFeedPage ? theme.accentText : theme.textSecondary,
-                  border: 'none',
-                  borderRadius: 6,
-                  fontSize: isMobile ? 13 : 14,
-                  cursor: 'pointer',
-                  textDecoration: 'none',
-                  fontWeight: isFeedPage ? 600 : 400,
-                }}
-              >
-                {isMobile ? '📰' : 'Feed'}
-              </a>
-              <a
-                href={routeHref('/')}
-                style={{
-                  padding: isMobile ? '6px 10px' : '8px 16px',
-                  background: isProfilePage ? theme.accent : theme.bgHover,
-                  color: isProfilePage ? theme.accentText : theme.textSecondary,
-                  border: 'none',
-                  borderRadius: 6,
-                  fontSize: isMobile ? 13 : 14,
-                  cursor: 'pointer',
-                  textDecoration: 'none',
-                  fontWeight: isProfilePage ? 600 : 400,
-                }}
-              >
-                {isMobile ? '👤' : 'Profile'}
-              </a>
-              <a
-                href={routeHref('/bookmarks')}
-                style={{
-                  padding: isMobile ? '6px 10px' : '8px 16px',
-                  background: isBookmarksPage ? theme.accent : theme.bgHover,
-                  color: isBookmarksPage ? theme.accentText : theme.textSecondary,
-                  border: 'none',
-                  borderRadius: 6,
-                  fontSize: isMobile ? 13 : 14,
-                  cursor: 'pointer',
-                  textDecoration: 'none',
-                  fontWeight: isBookmarksPage ? 600 : 400,
-                }}
-              >
-                {isMobile ? '🔖' : 'Bookmarks'}
-              </a>
-              <span style={{ color: theme.textMuted, margin: '0 4px' }}>|</span>
-              <a
-                href={routeHref('/settings')}
-                style={{
-                  padding: isMobile ? '6px 10px' : '8px 16px',
-                  background: isSettingsPage ? theme.accent : theme.bgHover,
-                  color: isSettingsPage ? theme.accentText : theme.textSecondary,
-                  border: 'none',
-                  borderRadius: 6,
-                  fontSize: isMobile ? 13 : 14,
-                  cursor: 'pointer',
-                  textDecoration: 'none',
-                  fontWeight: isSettingsPage ? 600 : 400,
-                }}
-              >
-                ⚙️
-              </a>
-            </>
-          )}
-          <button
-            onClick={handleLogout}
-            style={{
-              padding: isMobile ? '6px 10px' : '8px 16px',
-              background: theme.bgHover,
-              color: theme.textMuted,
-              border: 'none',
-              borderRadius: 6,
-              fontSize: isMobile ? 13 : 14,
-              cursor: 'pointer',
-            }}
-          >
-            {isMobile ? '🚪' : 'Logout'}
-          </button>
-        </div>
-      </div>
+          </div>
+        )}
 
       {isSettingsPage ? (
         <SettingsPage
@@ -1722,7 +1822,7 @@ function App() {
           isMobile={isMobile}
           defaultKindId={defaultKindId}
           onSetDefaultKind={handleSetDefaultKind}
-          initialTab={route === '/friends' ? 'friends' : route === '/kinds' ? 'kinds' : route === '/keys' ? 'keys' : route === '/data' ? 'data' : 'kinds'}
+          initialTab={route === '/friends' ? 'friends' : route === '/kinds' ? 'kinds' : route === '/keys' ? 'keys' : route === '/data' ? 'data' : route === '/integrations' ? 'integrations' : 'kinds'}
         />
       ) : isFeedPage ? (
         <FeedView theme={theme} kinds={kinds} />
@@ -1945,6 +2045,8 @@ function App() {
           )}
         </>
       )}
+      </div>
+      </div>
 
       {/* Edit Thing Modal */}
       {editingThing && (
@@ -2263,7 +2365,6 @@ function App() {
         </div>
       )}
 
-      <Footer theme={theme} />
     </div>
   )
 }
@@ -3780,16 +3881,18 @@ function ThingCard({
                 />
               )}
             </div>
-            {/* Reactions */}
-            <div style={{ marginTop: 12 }} onClick={e => e.stopPropagation()}>
-              <ReactionBar
-                targetId={thing.id}
-                targetType="thing"
-                reactions={reactions}
-                onReactionsChange={setReactions}
-                theme={theme}
-              />
-            </div>
+            {/* Reactions - only show if kind is reactable (defaults to true for backwards compatibility) */}
+            {kind?.reactable !== false && (
+              <div style={{ marginTop: 12 }} onClick={e => e.stopPropagation()}>
+                <ReactionBar
+                  targetId={thing.id}
+                  targetType="thing"
+                  reactions={reactions}
+                  onReactionsChange={setReactions}
+                  theme={theme}
+                />
+              </div>
+            )}
           </div>
           <div style={{ display: 'flex', alignItems: 'center' }}>
             <BookmarkButton
@@ -4937,6 +5040,1289 @@ function APIKeysPanel({ theme }: { theme: Theme }) {
   )
 }
 
+// ==================== INTEGRATIONS PANEL ====================
+
+interface FilterCondition {
+  field: string
+  op: string
+  value: any
+}
+
+interface FilterConfig {
+  kinds?: string[]
+  condition_groups?: FilterCondition[][]
+}
+
+interface OutboundWebhook {
+  id: string
+  name: string
+  url: string
+  event_types: string[]
+  signing_secret?: string
+  filter_config?: FilterConfig
+  enabled: boolean
+  created_at: string
+  updated_at: string
+}
+
+interface InboundWebhook {
+  id: string
+  name: string
+  source_system: string
+  default_thing_type: string
+  default_visibility: string
+  token_prefix: string
+  secret_token?: string
+  enabled: boolean
+  created_at: string
+  updated_at: string
+}
+
+interface WebhookTestResult {
+  success: boolean
+  status_code?: number
+  response_time_ms?: number
+  error?: string
+}
+
+function IntegrationsPanel({ theme, kinds }: { theme: Theme, kinds: Kind[] }) {
+  const [outboundWebhooks, setOutboundWebhooks] = useState<OutboundWebhook[]>([])
+  const [inboundWebhooks, setInboundWebhooks] = useState<InboundWebhook[]>([])
+  const [loading, setLoading] = useState(true)
+  const [showCreateOutbound, setShowCreateOutbound] = useState(false)
+  const [showCreateInbound, setShowCreateInbound] = useState(false)
+  const [testingWebhook, setTestingWebhook] = useState<string | null>(null)
+  const [testResult, setTestResult] = useState<{ id: string, result: WebhookTestResult } | null>(null)
+  const [expandedOutbound, setExpandedOutbound] = useState<string | null>(null)
+  const [expandedInbound, setExpandedInbound] = useState<string | null>(null)
+  const [revealedToken, setRevealedToken] = useState<string | null>(null)
+  const [copiedId, setCopiedId] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetchWebhooks()
+  }, [])
+
+  async function fetchWebhooks() {
+    setLoading(true)
+    try {
+      const [outboundRes, inboundRes] = await Promise.all([
+        fetch(apiUrl('/api/webhooks'), { credentials: 'include' }),
+        fetch(apiUrl('/api/webhooks/inbound'), { credentials: 'include' }),
+      ])
+
+      if (outboundRes.ok) {
+        const data = await outboundRes.json()
+        setOutboundWebhooks(Array.isArray(data) ? data : [])
+      }
+
+      if (inboundRes.ok) {
+        const data = await inboundRes.json()
+        setInboundWebhooks(Array.isArray(data) ? data : [])
+      }
+    } catch (err) {
+      console.error('Failed to fetch webhooks:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function toggleOutboundEnabled(webhook: OutboundWebhook) {
+    try {
+      const res = await fetch(apiUrl(`/api/webhooks/${webhook.id}`), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ enabled: !webhook.enabled }),
+      })
+      if (res.ok) {
+        setOutboundWebhooks(prev => prev.map(w =>
+          w.id === webhook.id ? { ...w, enabled: !w.enabled } : w
+        ))
+      }
+    } catch (err) {
+      console.error('Failed to toggle webhook:', err)
+    }
+  }
+
+  async function toggleInboundEnabled(webhook: InboundWebhook) {
+    try {
+      const res = await fetch(apiUrl(`/api/webhooks/inbound/${webhook.id}`), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ enabled: !webhook.enabled }),
+      })
+      if (res.ok) {
+        setInboundWebhooks(prev => prev.map(w =>
+          w.id === webhook.id ? { ...w, enabled: !w.enabled } : w
+        ))
+      }
+    } catch (err) {
+      console.error('Failed to toggle webhook:', err)
+    }
+  }
+
+  async function deleteOutboundWebhook(id: string) {
+    if (!confirm('Delete this webhook? This cannot be undone.')) return
+    try {
+      const res = await fetch(apiUrl(`/api/webhooks/${id}`), {
+        method: 'DELETE',
+        credentials: 'include',
+      })
+      if (res.ok) {
+        setOutboundWebhooks(prev => prev.filter(w => w.id !== id))
+      }
+    } catch (err) {
+      console.error('Failed to delete webhook:', err)
+    }
+  }
+
+  async function deleteInboundWebhook(id: string) {
+    if (!confirm('Delete this webhook? This cannot be undone.')) return
+    try {
+      const res = await fetch(apiUrl(`/api/webhooks/inbound/${id}`), {
+        method: 'DELETE',
+        credentials: 'include',
+      })
+      if (res.ok) {
+        setInboundWebhooks(prev => prev.filter(w => w.id !== id))
+      }
+    } catch (err) {
+      console.error('Failed to delete webhook:', err)
+    }
+  }
+
+  async function testWebhook(id: string) {
+    setTestingWebhook(id)
+    setTestResult(null)
+    try {
+      const start = Date.now()
+      const res = await fetch(apiUrl(`/api/webhooks/${id}/test`), {
+        method: 'POST',
+        credentials: 'include',
+      })
+      const elapsed = Date.now() - start
+      const data = await res.json()
+      setTestResult({
+        id,
+        result: {
+          success: res.ok && data.success,
+          status_code: data.status_code,
+          response_time_ms: elapsed,
+          error: data.error,
+        }
+      })
+      // Auto-dismiss after 10 seconds
+      setTimeout(() => setTestResult(prev => prev?.id === id ? null : prev), 10000)
+    } catch (err) {
+      setTestResult({
+        id,
+        result: { success: false, error: 'Failed to send test' }
+      })
+    } finally {
+      setTestingWebhook(null)
+    }
+  }
+
+  function copyToClipboard(text: string, id: string) {
+    navigator.clipboard.writeText(text)
+    setCopiedId(id)
+    setTimeout(() => setCopiedId(null), 2000)
+  }
+
+  const cardStyle = {
+    background: theme.bgCard,
+    border: `1px solid ${theme.border}`,
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 12,
+  }
+
+  const toggleStyle = (enabled: boolean) => ({
+    width: 40,
+    height: 22,
+    borderRadius: 11,
+    background: enabled ? theme.accent : theme.bgMuted,
+    border: 'none',
+    cursor: 'pointer',
+    position: 'relative' as const,
+    transition: 'background 0.2s',
+  })
+
+  const toggleKnobStyle = (enabled: boolean) => ({
+    position: 'absolute' as const,
+    top: 2,
+    left: enabled ? 20 : 2,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    background: 'white',
+    transition: 'left 0.2s',
+  })
+
+  if (loading) {
+    return <div style={{ color: theme.textMuted }}>Loading integrations...</div>
+  }
+
+  return (
+    <div>
+      {/* Outbound Webhooks Section */}
+      <div style={{ marginBottom: 32 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <h3 style={{ margin: 0, color: theme.text, fontSize: 16, fontWeight: 600 }}>
+            Outbound Webhooks
+          </h3>
+          <button
+            onClick={() => setShowCreateOutbound(true)}
+            style={{
+              padding: '6px 12px',
+              background: theme.bgHover,
+              color: theme.text,
+              border: `1px solid ${theme.border}`,
+              borderRadius: 6,
+              cursor: 'pointer',
+              fontSize: 13,
+            }}
+          >
+            + Add
+          </button>
+        </div>
+
+        {outboundWebhooks.length === 0 ? (
+          <div style={{ ...cardStyle, textAlign: 'center', color: theme.textMuted }}>
+            No outbound webhooks configured.
+            <br />
+            <span style={{ fontSize: 13 }}>Outbound webhooks send events to external URLs when things happen.</span>
+          </div>
+        ) : (
+          outboundWebhooks.map(webhook => (
+            <div key={webhook.id} style={cardStyle}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <span style={{ fontWeight: 600, color: theme.text }}>
+                      {webhook.name || 'Unnamed webhook'}
+                    </span>
+                    <button
+                      onClick={() => toggleOutboundEnabled(webhook)}
+                      style={toggleStyle(webhook.enabled)}
+                      title={webhook.enabled ? 'Enabled' : 'Disabled'}
+                    >
+                      <div style={toggleKnobStyle(webhook.enabled)} />
+                    </button>
+                  </div>
+                  <div style={{ fontSize: 13, color: theme.textMuted, marginBottom: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {webhook.url}
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {webhook.event_types?.map(evt => (
+                      <span
+                        key={evt}
+                        style={{
+                          fontSize: 11,
+                          padding: '2px 8px',
+                          background: theme.bgMuted,
+                          color: theme.textMuted,
+                          borderRadius: 12,
+                        }}
+                      >
+                        {evt}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <button
+                    onClick={() => testWebhook(webhook.id)}
+                    disabled={testingWebhook === webhook.id}
+                    style={{
+                      padding: '6px 12px',
+                      background: 'transparent',
+                      color: theme.accent,
+                      border: `1px solid ${theme.accent}`,
+                      borderRadius: 4,
+                      cursor: testingWebhook === webhook.id ? 'wait' : 'pointer',
+                      fontSize: 12,
+                      opacity: testingWebhook === webhook.id ? 0.6 : 1,
+                    }}
+                  >
+                    {testingWebhook === webhook.id ? '...' : 'Test'}
+                  </button>
+                  <button
+                    onClick={() => setExpandedOutbound(expandedOutbound === webhook.id ? null : webhook.id)}
+                    style={{
+                      padding: '6px 10px',
+                      background: 'transparent',
+                      color: theme.textMuted,
+                      border: 'none',
+                      cursor: 'pointer',
+                      fontSize: 14,
+                    }}
+                  >
+                    {expandedOutbound === webhook.id ? '▲' : '▼'}
+                  </button>
+                  <button
+                    onClick={() => deleteOutboundWebhook(webhook.id)}
+                    style={{
+                      padding: '6px 10px',
+                      background: 'transparent',
+                      color: theme.error,
+                      border: 'none',
+                      cursor: 'pointer',
+                      fontSize: 13,
+                    }}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+
+              {/* Test Result */}
+              {testResult?.id === webhook.id && (
+                <div
+                  style={{
+                    marginTop: 12,
+                    padding: 12,
+                    background: testResult.result.success ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                    borderRadius: 6,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                  }}
+                >
+                  <span style={{ fontSize: 16 }}>{testResult.result.success ? '✓' : '✗'}</span>
+                  <span style={{ fontSize: 13, color: testResult.result.success ? '#22c55e' : theme.error }}>
+                    {testResult.result.success
+                      ? `Success • ${testResult.result.status_code} • ${testResult.result.response_time_ms}ms`
+                      : testResult.result.error || 'Failed'}
+                  </span>
+                  <button
+                    onClick={() => setTestResult(null)}
+                    style={{
+                      marginLeft: 'auto',
+                      background: 'transparent',
+                      border: 'none',
+                      color: theme.textMuted,
+                      cursor: 'pointer',
+                      fontSize: 12,
+                    }}
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              )}
+
+              {/* Expanded Details */}
+              {expandedOutbound === webhook.id && (
+                <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${theme.border}` }}>
+                  <div style={{ fontSize: 13, color: theme.textMuted, marginBottom: 8 }}>
+                    <strong>URL:</strong> {webhook.url}
+                  </div>
+                  {webhook.signing_secret && (
+                    <div style={{ fontSize: 13, color: theme.textMuted, marginBottom: 8 }}>
+                      <strong>Signing Secret:</strong>{' '}
+                      <code style={{ background: theme.bgMuted, padding: '2px 6px', borderRadius: 4 }}>
+                        {revealedToken === webhook.id ? webhook.signing_secret : '••••••••••••'}
+                      </code>
+                      <button
+                        onClick={() => setRevealedToken(revealedToken === webhook.id ? null : webhook.id)}
+                        style={{
+                          marginLeft: 8,
+                          background: 'transparent',
+                          border: 'none',
+                          color: theme.accent,
+                          cursor: 'pointer',
+                          fontSize: 12,
+                        }}
+                      >
+                        {revealedToken === webhook.id ? 'Hide' : 'Reveal'}
+                      </button>
+                    </div>
+                  )}
+                  {(webhook.filter_config?.kinds?.length || webhook.filter_config?.condition_groups?.length) && (
+                    <div style={{ fontSize: 13, color: theme.textMuted, marginBottom: 8 }}>
+                      <strong>Filter:</strong>
+                      {webhook.filter_config?.kinds?.length && (
+                        <span> Kind in [{webhook.filter_config.kinds.join(', ')}]</span>
+                      )}
+                      {webhook.filter_config?.condition_groups?.length && webhook.filter_config.condition_groups[0]?.length && (
+                        <span>
+                          {webhook.filter_config.kinds?.length ? ' AND ' : ' '}
+                          {webhook.filter_config.condition_groups[0].map((c, i) => (
+                            <span key={i}>
+                              {i > 0 && ' AND '}
+                              {c.field} {c.op} {c.op !== 'exists' ? JSON.stringify(c.value) : ''}
+                            </span>
+                          ))}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  <div style={{ fontSize: 12, color: theme.textMuted }}>
+                    Created: {new Date(webhook.created_at).toLocaleDateString()}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Inbound Webhooks Section */}
+      <div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <h3 style={{ margin: 0, color: theme.text, fontSize: 16, fontWeight: 600 }}>
+            Inbound Webhooks
+          </h3>
+          <button
+            onClick={() => setShowCreateInbound(true)}
+            style={{
+              padding: '6px 12px',
+              background: theme.bgHover,
+              color: theme.text,
+              border: `1px solid ${theme.border}`,
+              borderRadius: 6,
+              cursor: 'pointer',
+              fontSize: 13,
+            }}
+          >
+            + Add
+          </button>
+        </div>
+
+        {inboundWebhooks.length === 0 ? (
+          <div style={{ ...cardStyle, textAlign: 'center', color: theme.textMuted }}>
+            No inbound webhooks configured.
+            <br />
+            <span style={{ fontSize: 13 }}>Inbound webhooks let external services create things in your account.</span>
+          </div>
+        ) : (
+          inboundWebhooks.map(webhook => (
+            <div key={webhook.id} style={cardStyle}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <span style={{ fontWeight: 600, color: theme.text }}>
+                      {webhook.name}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: 11,
+                        padding: '2px 8px',
+                        background: theme.bgMuted,
+                        color: theme.textMuted,
+                        borderRadius: 12,
+                      }}
+                    >
+                      {webhook.source_system}
+                    </span>
+                    <button
+                      onClick={() => toggleInboundEnabled(webhook)}
+                      style={toggleStyle(webhook.enabled)}
+                      title={webhook.enabled ? 'Enabled' : 'Disabled'}
+                    >
+                      <div style={toggleKnobStyle(webhook.enabled)} />
+                    </button>
+                  </div>
+                  <div style={{ fontSize: 13, color: theme.textMuted }}>
+                    Creates: {webhook.default_thing_type} ({webhook.default_visibility})
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <button
+                    onClick={() => setExpandedInbound(expandedInbound === webhook.id ? null : webhook.id)}
+                    style={{
+                      padding: '6px 10px',
+                      background: 'transparent',
+                      color: theme.textMuted,
+                      border: 'none',
+                      cursor: 'pointer',
+                      fontSize: 14,
+                    }}
+                  >
+                    {expandedInbound === webhook.id ? '▲' : '▼'}
+                  </button>
+                  <button
+                    onClick={() => deleteInboundWebhook(webhook.id)}
+                    style={{
+                      padding: '6px 10px',
+                      background: 'transparent',
+                      color: theme.error,
+                      border: 'none',
+                      cursor: 'pointer',
+                      fontSize: 13,
+                    }}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+
+              {/* Expanded Details */}
+              {expandedInbound === webhook.id && (
+                <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${theme.border}` }}>
+                  <div style={{ fontSize: 13, color: theme.textMuted, marginBottom: 12 }}>
+                    <strong>Endpoint:</strong>
+                    <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <code
+                        style={{
+                          background: theme.bgMuted,
+                          padding: '6px 10px',
+                          borderRadius: 4,
+                          fontSize: 12,
+                          wordBreak: 'break-all',
+                          flex: 1,
+                        }}
+                      >
+                        POST {window.location.origin}/api/webhooks/receive/{webhook.id}?token=...
+                      </code>
+                      <button
+                        onClick={() => {
+                          const url = `${window.location.origin}/api/webhooks/receive/${webhook.id}?token=${webhook.secret_token || webhook.token_prefix + '...'}`
+                          copyToClipboard(url, 'url-' + webhook.id)
+                        }}
+                        style={{
+                          padding: '6px 10px',
+                          background: theme.bgHover,
+                          color: copiedId === 'url-' + webhook.id ? '#22c55e' : theme.text,
+                          border: `1px solid ${theme.border}`,
+                          borderRadius: 4,
+                          cursor: 'pointer',
+                          fontSize: 12,
+                        }}
+                      >
+                        {copiedId === 'url-' + webhook.id ? 'Copied!' : 'Copy'}
+                      </button>
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 13, color: theme.textMuted, marginBottom: 8 }}>
+                    <strong>Token:</strong>{' '}
+                    <code style={{ background: theme.bgMuted, padding: '2px 6px', borderRadius: 4 }}>
+                      {revealedToken === 'inbound-' + webhook.id
+                        ? (webhook.secret_token || webhook.token_prefix + '...')
+                        : webhook.token_prefix + '••••••••'}
+                    </code>
+                    <button
+                      onClick={() => setRevealedToken(revealedToken === 'inbound-' + webhook.id ? null : 'inbound-' + webhook.id)}
+                      style={{
+                        marginLeft: 8,
+                        background: 'transparent',
+                        border: 'none',
+                        color: theme.accent,
+                        cursor: 'pointer',
+                        fontSize: 12,
+                      }}
+                    >
+                      {revealedToken === 'inbound-' + webhook.id ? 'Hide' : 'Reveal'}
+                    </button>
+                  </div>
+                  <div style={{ fontSize: 13, color: theme.textMuted, marginBottom: 12 }}>
+                    <strong>Example curl:</strong>
+                    <pre style={{
+                      marginTop: 4,
+                      background: theme.bgMuted,
+                      padding: 12,
+                      borderRadius: 4,
+                      fontSize: 11,
+                      overflow: 'auto',
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-all',
+                    }}>
+{`curl -X POST "${window.location.origin}/api/webhooks/receive/${webhook.id}?token=${webhook.secret_token || 'YOUR_TOKEN'}" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "content": "Hello from my automation!",
+    "metadata": {
+      "source": "zapier",
+      "priority": "high"
+    },
+    "external_id": "unique-123"
+  }'`}
+                    </pre>
+                    <button
+                      onClick={() => {
+                        const curl = `curl -X POST "${window.location.origin}/api/webhooks/receive/${webhook.id}?token=${webhook.secret_token || 'YOUR_TOKEN'}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"content": "Hello from my automation!", "external_id": "unique-123"}'`
+                        copyToClipboard(curl, 'curl-' + webhook.id)
+                      }}
+                      style={{
+                        marginTop: 8,
+                        padding: '6px 12px',
+                        background: theme.bgHover,
+                        color: copiedId === 'curl-' + webhook.id ? '#22c55e' : theme.text,
+                        border: `1px solid ${theme.border}`,
+                        borderRadius: 4,
+                        cursor: 'pointer',
+                        fontSize: 12,
+                      }}
+                    >
+                      {copiedId === 'curl-' + webhook.id ? 'Copied!' : 'Copy curl'}
+                    </button>
+                  </div>
+                  <div style={{ fontSize: 13, color: theme.textMuted, marginBottom: 8 }}>
+                    <strong>Payload fields:</strong>
+                    <ul style={{ margin: '8px 0 0 0', paddingLeft: 20, fontSize: 12 }}>
+                      <li><code>content</code> - The text content of the Thing (required)</li>
+                      <li><code>metadata</code> - Optional JSON object with additional attributes</li>
+                      <li><code>external_id</code> - Optional unique ID for deduplication</li>
+                    </ul>
+                  </div>
+                  <div style={{ fontSize: 12, color: theme.textMuted }}>
+                    Created: {new Date(webhook.created_at).toLocaleDateString()}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Create Outbound Modal */}
+      {showCreateOutbound && (
+        <CreateOutboundWebhookModal
+          theme={theme}
+          kinds={kinds}
+          onClose={() => setShowCreateOutbound(false)}
+          onCreate={(webhook) => {
+            setOutboundWebhooks(prev => [...prev, webhook])
+            setShowCreateOutbound(false)
+          }}
+        />
+      )}
+
+      {/* Create Inbound Modal */}
+      {showCreateInbound && (
+        <CreateInboundWebhookModal
+          theme={theme}
+          kinds={kinds}
+          onClose={() => setShowCreateInbound(false)}
+          onCreate={(webhook) => {
+            setInboundWebhooks(prev => [...prev, webhook])
+            setShowCreateInbound(false)
+            // Show the new webhook expanded to reveal the token
+            setExpandedInbound(webhook.id)
+            setRevealedToken('inbound-' + webhook.id)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+// Create Outbound Webhook Modal
+function CreateOutboundWebhookModal({
+  theme,
+  kinds,
+  onClose,
+  onCreate,
+}: {
+  theme: Theme
+  kinds: Kind[]
+  onClose: () => void
+  onCreate: (webhook: OutboundWebhook) => void
+}) {
+  const [name, setName] = useState('')
+  const [url, setUrl] = useState('')
+  const [eventTypes, setEventTypes] = useState<string[]>(['thing.created'])
+  const [filterKinds, setFilterKinds] = useState<string[]>([])
+  const [conditions, setConditions] = useState<FilterCondition[]>([])
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const availableEvents = [
+    { id: 'thing.created', label: 'Thing created' },
+    { id: 'thing.updated', label: 'Thing updated' },
+    { id: 'thing.deleted', label: 'Thing deleted' },
+    { id: 'comment.created', label: 'Comment created' },
+  ]
+
+  const operators = [
+    { id: 'eq', label: '=' },
+    { id: 'neq', label: '≠' },
+    { id: 'gt', label: '>' },
+    { id: 'gte', label: '≥' },
+    { id: 'lt', label: '<' },
+    { id: 'lte', label: '≤' },
+    { id: 'contains', label: 'contains' },
+    { id: 'exists', label: 'exists' },
+  ]
+
+  function addCondition() {
+    setConditions([...conditions, { field: '', op: 'eq', value: '' }])
+  }
+
+  function updateCondition(index: number, updates: Partial<FilterCondition>) {
+    setConditions(conditions.map((c, i) => i === index ? { ...c, ...updates } : c))
+  }
+
+  function removeCondition(index: number) {
+    setConditions(conditions.filter((_, i) => i !== index))
+  }
+
+  function parseConditionValue(value: string): any {
+    // Try to parse as JSON (number, boolean, etc.)
+    try {
+      return JSON.parse(value)
+    } catch {
+      return value // Keep as string if not valid JSON
+    }
+  }
+
+  async function handleSubmit(e: Event) {
+    e.preventDefault()
+    if (!url.trim()) return
+
+    setSaving(true)
+    setError(null)
+
+    // Build filter_config if kinds or conditions are set
+    const validConditions = conditions.filter(c => c.field.trim())
+    const filter_config: FilterConfig | undefined = (filterKinds.length > 0 || validConditions.length > 0)
+      ? {
+          kinds: filterKinds.length > 0 ? filterKinds : undefined,
+          condition_groups: validConditions.length > 0
+            ? [validConditions.map(c => ({
+                field: c.field.trim(),
+                op: c.op,
+                value: c.op === 'exists' ? true : parseConditionValue(c.value),
+              }))]
+            : undefined,
+        }
+      : undefined
+
+    try {
+      const res = await fetch(apiUrl('/api/webhooks'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          name: name.trim() || undefined,
+          url: url.trim(),
+          event_types: eventTypes,
+          filter_config,
+          enabled: true,
+        }),
+      })
+
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error?.message || 'Failed to create webhook')
+      }
+
+      const webhook = await res.json()
+      onCreate(webhook)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create webhook')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: theme.overlay,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 1000,
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          background: theme.bgCard,
+          borderRadius: 12,
+          padding: 24,
+          width: '90%',
+          maxWidth: 480,
+          maxHeight: '80vh',
+          overflow: 'auto',
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        <h3 style={{ margin: '0 0 20px', color: theme.text }}>Create Outbound Webhook</h3>
+
+        <form onSubmit={handleSubmit as any}>
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: 'block', marginBottom: 6, fontSize: 14, color: theme.text }}>
+              Name (optional)
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={e => setName((e.target as HTMLInputElement).value)}
+              placeholder="e.g., Slack Notifications"
+              style={{
+                width: '100%',
+                padding: '10px 12px',
+                border: `1px solid ${theme.border}`,
+                borderRadius: 6,
+                fontSize: 14,
+                background: theme.bgInput,
+                color: theme.text,
+                boxSizing: 'border-box',
+              }}
+            />
+          </div>
+
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: 'block', marginBottom: 6, fontSize: 14, color: theme.text }}>
+              URL *
+            </label>
+            <input
+              type="url"
+              value={url}
+              onChange={e => setUrl((e.target as HTMLInputElement).value)}
+              placeholder="https://example.com/webhook"
+              required
+              style={{
+                width: '100%',
+                padding: '10px 12px',
+                border: `1px solid ${theme.border}`,
+                borderRadius: 6,
+                fontSize: 14,
+                background: theme.bgInput,
+                color: theme.text,
+                boxSizing: 'border-box',
+              }}
+            />
+          </div>
+
+          <div style={{ marginBottom: 20 }}>
+            <label style={{ display: 'block', marginBottom: 8, fontSize: 14, color: theme.text }}>
+              Events
+            </label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {availableEvents.map(evt => (
+                <label key={evt.id} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={eventTypes.includes(evt.id)}
+                    onChange={e => {
+                      if ((e.target as HTMLInputElement).checked) {
+                        setEventTypes([...eventTypes, evt.id])
+                      } else {
+                        setEventTypes(eventTypes.filter(t => t !== evt.id))
+                      }
+                    }}
+                    style={{ width: 16, height: 16 }}
+                  />
+                  <span style={{ fontSize: 14, color: theme.text }}>{evt.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ marginBottom: 20 }}>
+            <label style={{ display: 'block', marginBottom: 8, fontSize: 14, color: theme.text }}>
+              Filter by Kind (optional)
+            </label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={filterKinds.length === 0}
+                  onChange={() => setFilterKinds([])}
+                  style={{ width: 16, height: 16 }}
+                />
+                <span style={{ fontSize: 14, color: theme.text }}>All kinds</span>
+              </label>
+              {kinds.map(kind => (
+                <label key={kind.id} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={filterKinds.includes(kind.name)}
+                    onChange={e => {
+                      if ((e.target as HTMLInputElement).checked) {
+                        setFilterKinds([...filterKinds, kind.name])
+                      } else {
+                        setFilterKinds(filterKinds.filter(k => k !== kind.name))
+                      }
+                    }}
+                    style={{ width: 16, height: 16 }}
+                  />
+                  <span style={{ fontSize: 14, color: theme.text }}>{kind.icon} {kind.name}</span>
+                </label>
+              ))}
+            </div>
+            <div style={{ marginTop: 6, fontSize: 12, color: theme.textMuted }}>
+              {filterKinds.length === 0 ? 'Triggers for all kinds' : `Triggers for: ${filterKinds.join(', ')}`}
+            </div>
+          </div>
+
+          {/* Attribute Conditions */}
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <label style={{ fontSize: 14, color: theme.text }}>
+                Attribute Filters (optional)
+              </label>
+              <button
+                type="button"
+                onClick={addCondition}
+                style={{
+                  padding: '4px 10px',
+                  background: theme.bgHover,
+                  color: theme.text,
+                  border: `1px solid ${theme.border}`,
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                  fontSize: 12,
+                }}
+              >
+                + Add
+              </button>
+            </div>
+            {conditions.length === 0 ? (
+              <div style={{ fontSize: 12, color: theme.textMuted }}>
+                No attribute filters. Click "+ Add" to filter by metadata fields.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {conditions.map((condition, index) => (
+                  <div key={index} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <input
+                      type="text"
+                      placeholder="field"
+                      value={condition.field}
+                      onChange={e => updateCondition(index, { field: (e.target as HTMLInputElement).value })}
+                      style={{
+                        flex: 1,
+                        padding: '6px 10px',
+                        border: `1px solid ${theme.border}`,
+                        borderRadius: 4,
+                        fontSize: 13,
+                        background: theme.bgInput,
+                        color: theme.text,
+                      }}
+                    />
+                    <select
+                      value={condition.op}
+                      onChange={e => updateCondition(index, { op: (e.target as HTMLSelectElement).value })}
+                      style={{
+                        padding: '6px 8px',
+                        border: `1px solid ${theme.border}`,
+                        borderRadius: 4,
+                        fontSize: 13,
+                        background: theme.bgInput,
+                        color: theme.text,
+                        minWidth: 70,
+                      }}
+                    >
+                      {operators.map(op => (
+                        <option key={op.id} value={op.id}>{op.label}</option>
+                      ))}
+                    </select>
+                    {condition.op !== 'exists' && (
+                      <input
+                        type="text"
+                        placeholder="value"
+                        value={condition.value}
+                        onChange={e => updateCondition(index, { value: (e.target as HTMLInputElement).value })}
+                        style={{
+                          flex: 1,
+                          padding: '6px 10px',
+                          border: `1px solid ${theme.border}`,
+                          borderRadius: 4,
+                          fontSize: 13,
+                          background: theme.bgInput,
+                          color: theme.text,
+                        }}
+                      />
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => removeCondition(index)}
+                      style={{
+                        padding: '4px 8px',
+                        background: 'transparent',
+                        color: theme.error,
+                        border: 'none',
+                        cursor: 'pointer',
+                        fontSize: 16,
+                      }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+                <div style={{ fontSize: 11, color: theme.textMuted, marginTop: 4 }}>
+                  Multiple conditions are AND'd together. Use numbers for numeric comparisons.
+                </div>
+              </div>
+            )}
+          </div>
+
+          {error && (
+            <div style={{ marginBottom: 16, padding: 12, background: 'rgba(239, 68, 68, 0.1)', borderRadius: 6, color: theme.error, fontSize: 13 }}>
+              {error}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                padding: '10px 20px',
+                background: 'transparent',
+                color: theme.textMuted,
+                border: `1px solid ${theme.border}`,
+                borderRadius: 6,
+                cursor: 'pointer',
+                fontSize: 14,
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving || !url.trim()}
+              style={{
+                padding: '10px 20px',
+                background: theme.accent,
+                color: theme.accentText,
+                border: 'none',
+                borderRadius: 6,
+                cursor: saving ? 'wait' : 'pointer',
+                fontSize: 14,
+                opacity: saving || !url.trim() ? 0.6 : 1,
+              }}
+            >
+              {saving ? 'Creating...' : 'Create Webhook'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// Create Inbound Webhook Modal
+function CreateInboundWebhookModal({
+  theme,
+  kinds,
+  onClose,
+  onCreate,
+}: {
+  theme: Theme
+  kinds: Kind[]
+  onClose: () => void
+  onCreate: (webhook: InboundWebhook) => void
+}) {
+  const [name, setName] = useState('')
+  const [sourceSystem, setSourceSystem] = useState('')
+  const [thingType, setThingType] = useState(kinds[0]?.name || 'note')
+  const [visibility, setVisibility] = useState('private')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleSubmit(e: Event) {
+    e.preventDefault()
+    if (!name.trim() || !sourceSystem.trim()) return
+
+    setSaving(true)
+    setError(null)
+
+    try {
+      const res = await fetch(apiUrl('/api/webhooks/inbound'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          name: name.trim(),
+          source_system: sourceSystem.trim().toLowerCase().replace(/\s+/g, '-'),
+          default_thing_type: thingType,
+          default_visibility: visibility,
+          enabled: true,
+        }),
+      })
+
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error?.message || 'Failed to create webhook')
+      }
+
+      const webhook = await res.json()
+      onCreate(webhook)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create webhook')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: theme.overlay,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 1000,
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          background: theme.bgCard,
+          borderRadius: 12,
+          padding: 24,
+          width: '90%',
+          maxWidth: 480,
+          maxHeight: '80vh',
+          overflow: 'auto',
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        <h3 style={{ margin: '0 0 20px', color: theme.text }}>Create Inbound Webhook</h3>
+
+        <form onSubmit={handleSubmit as any}>
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: 'block', marginBottom: 6, fontSize: 14, color: theme.text }}>
+              Name *
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={e => setName((e.target as HTMLInputElement).value)}
+              placeholder="e.g., GitHub Importer"
+              required
+              style={{
+                width: '100%',
+                padding: '10px 12px',
+                border: `1px solid ${theme.border}`,
+                borderRadius: 6,
+                fontSize: 14,
+                background: theme.bgInput,
+                color: theme.text,
+                boxSizing: 'border-box',
+              }}
+            />
+          </div>
+
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: 'block', marginBottom: 6, fontSize: 14, color: theme.text }}>
+              Source System *
+            </label>
+            <input
+              type="text"
+              value={sourceSystem}
+              onChange={e => setSourceSystem((e.target as HTMLInputElement).value)}
+              placeholder="e.g., github, notion, zapier"
+              required
+              style={{
+                width: '100%',
+                padding: '10px 12px',
+                border: `1px solid ${theme.border}`,
+                borderRadius: 6,
+                fontSize: 14,
+                background: theme.bgInput,
+                color: theme.text,
+                boxSizing: 'border-box',
+              }}
+            />
+            <p style={{ margin: '6px 0 0', fontSize: 12, color: theme.textMuted }}>
+              Identifier for the source of imported data
+            </p>
+          </div>
+
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: 'block', marginBottom: 6, fontSize: 14, color: theme.text }}>
+              Default Thing Type
+            </label>
+            <select
+              value={thingType}
+              onChange={e => setThingType((e.target as HTMLSelectElement).value)}
+              style={{
+                width: '100%',
+                padding: '10px 12px',
+                border: `1px solid ${theme.border}`,
+                borderRadius: 6,
+                fontSize: 14,
+                background: theme.bgInput,
+                color: theme.text,
+              }}
+            >
+              {kinds.map(kind => (
+                <option key={kind.id} value={kind.name}>
+                  {kind.icon} {kind.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div style={{ marginBottom: 20 }}>
+            <label style={{ display: 'block', marginBottom: 6, fontSize: 14, color: theme.text }}>
+              Default Visibility
+            </label>
+            <select
+              value={visibility}
+              onChange={e => setVisibility((e.target as HTMLSelectElement).value)}
+              style={{
+                width: '100%',
+                padding: '10px 12px',
+                border: `1px solid ${theme.border}`,
+                borderRadius: 6,
+                fontSize: 14,
+                background: theme.bgInput,
+                color: theme.text,
+              }}
+            >
+              <option value="private">Private</option>
+              <option value="unlisted">Unlisted</option>
+              <option value="public">Public</option>
+            </select>
+          </div>
+
+          {error && (
+            <div style={{ marginBottom: 16, padding: 12, background: 'rgba(239, 68, 68, 0.1)', borderRadius: 6, color: theme.error, fontSize: 13 }}>
+              {error}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                padding: '10px 20px',
+                background: 'transparent',
+                color: theme.textMuted,
+                border: `1px solid ${theme.border}`,
+                borderRadius: 6,
+                cursor: 'pointer',
+                fontSize: 14,
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving || !name.trim() || !sourceSystem.trim()}
+              style={{
+                padding: '10px 20px',
+                background: theme.accent,
+                color: theme.accentText,
+                border: 'none',
+                borderRadius: 6,
+                cursor: saving ? 'wait' : 'pointer',
+                fontSize: 14,
+                opacity: saving || !name.trim() || !sourceSystem.trim() ? 0.6 : 1,
+              }}
+            >
+              {saving ? 'Creating...' : 'Create Webhook'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 // Settings Page with Tabs
 function SettingsPage({
   theme,
@@ -4961,9 +6347,9 @@ function SettingsPage({
   isMobile: boolean
   defaultKindId: string | null
   onSetDefaultKind: (id: string | null) => void
-  initialTab?: 'kinds' | 'data' | 'keys' | 'friends'
+  initialTab?: 'kinds' | 'data' | 'keys' | 'friends' | 'integrations'
 }) {
-  const [activeTab, setActiveTab] = useState<'kinds' | 'data' | 'keys' | 'friends'>(initialTab)
+  const [activeTab, setActiveTab] = useState<'kinds' | 'data' | 'keys' | 'friends' | 'integrations'>(initialTab)
 
   const tabStyle = (isActive: boolean) => ({
     padding: '8px 16px',
@@ -4985,6 +6371,9 @@ function SettingsPage({
         </button>
         <button onClick={() => setActiveTab('friends')} style={tabStyle(activeTab === 'friends')}>
           Friends
+        </button>
+        <button onClick={() => setActiveTab('integrations')} style={tabStyle(activeTab === 'integrations')}>
+          Integrations
         </button>
         <button onClick={() => setActiveTab('data')} style={tabStyle(activeTab === 'data')}>
           Data
@@ -5008,6 +6397,8 @@ function SettingsPage({
         />
       ) : activeTab === 'friends' ? (
         <FriendsView theme={theme} isMobile={isMobile} />
+      ) : activeTab === 'integrations' ? (
+        <IntegrationsPanel theme={theme} kinds={kinds} />
       ) : activeTab === 'data' ? (
         <DataExportPanel theme={theme} onImportComplete={onImportComplete} />
       ) : (
@@ -5296,6 +6687,7 @@ function EditKindModal({
   const [attributes, setAttributes] = useState<Attribute[]>(kind.attributes || [])
   const [commentable, setCommentable] = useState(kind.commentable ?? false)
   const [showExistingComments, setShowExistingComments] = useState(kind.show_existing_comments ?? false)
+  const [reactable, setReactable] = useState(kind.reactable ?? true)
 
   function addAttribute() {
     setAttributes([...attributes, { name: '', type: 'text', required: false, options: '' }])
@@ -5313,7 +6705,7 @@ function EditKindModal({
 
   function handleSave(e: Event) {
     e.preventDefault()
-    onSave({ ...kind, name, icon, template, attributes, commentable, show_existing_comments: showExistingComments })
+    onSave({ ...kind, name, icon, template, attributes, commentable, show_existing_comments: showExistingComments, reactable })
   }
 
   return (
@@ -5388,10 +6780,19 @@ function EditKindModal({
             </p>
           </div>
 
-          {/* Reply settings */}
+          {/* Interaction settings */}
           <div style={{ marginBottom: 20, padding: 16, background: theme.bgSubtle, borderRadius: 8 }}>
-            <label style={{ display: 'block', marginBottom: 12, fontSize: 14, fontWeight: 500, color: theme.text }}>Replies</label>
+            <label style={{ display: 'block', marginBottom: 12, fontSize: 14, fontWeight: 500, color: theme.text }}>Interactions</label>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={reactable}
+                  onChange={e => setReactable((e.target as HTMLInputElement).checked)}
+                  style={{ width: 18, height: 18, cursor: 'pointer' }}
+                />
+                <span style={{ fontSize: 14, color: theme.text }}>Allow reactions</span>
+              </label>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
                 <input
                   type="checkbox"

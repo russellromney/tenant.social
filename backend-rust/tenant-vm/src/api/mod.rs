@@ -12,6 +12,11 @@ use crate::events::EventProcessor;
 use crate::models::*;
 use crate::store::{Store, StoreError};
 
+pub mod errors;
+pub mod openapi;
+pub use errors::ApiError;
+pub use openapi::ApiDoc;
+
 // Cookie settings - 6 months in seconds
 const COOKIE_MAX_AGE_SECONDS: i64 = 6 * 30 * 24 * 60 * 60;
 
@@ -275,6 +280,7 @@ pub async fn get_public_things(
 pub struct ListThingsQuery {
     #[serde(rename = "type")]
     thing_type: Option<String>,
+    source_system: Option<String>,
     limit: Option<i64>,
     offset: Option<i64>,
 }
@@ -291,9 +297,28 @@ pub async fn list_things(
     let limit = query.limit.unwrap_or(50).min(100);
     let offset = query.offset.unwrap_or(0);
 
-    match state.store.list_things(&auth_user.user_id, query.thing_type.as_deref(), limit, offset) {
-        Ok(things) => HttpResponse::Ok().json(things), // Return plain array
-        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({"error": format!("Failed to list things: {}", e)})),
+    // If source_system filter is provided, use query_things for more flexible filtering
+    if let Some(ref source_system) = query.source_system {
+        use crate::store::ThingQuery;
+        let thing_query = ThingQuery {
+            user_id: auth_user.user_id.clone(),
+            thing_type: query.thing_type.clone(),
+            source_system: Some(source_system.clone()),
+            metadata_filter: HashMap::new(),
+            sort: None,
+            page: offset / limit,
+            count: limit,
+            include_deleted: false,
+        };
+        match state.store.query_things(thing_query) {
+            Ok(result) => HttpResponse::Ok().json(result.things),
+            Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({"error": format!("Failed to query things: {}", e)})),
+        }
+    } else {
+        match state.store.list_things(&auth_user.user_id, query.thing_type.as_deref(), limit, offset) {
+            Ok(things) => HttpResponse::Ok().json(things), // Return plain array
+            Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({"error": format!("Failed to list things: {}", e)})),
+        }
     }
 }
 
@@ -331,6 +356,14 @@ pub async fn create_thing(
         return HttpResponse::Forbidden().json(serde_json::json!({"error": "Missing scope: things:write"}));
     }
 
+    // Convert source request to Source if provided
+    let source = body.source.as_ref().map(|s| Source {
+        system: s.system.clone(),
+        external_id: s.external_id.clone(),
+        url: s.url.clone(),
+        imported_at: Utc::now(),
+    });
+
     let mut thing = Thing {
         id: String::new(),
         user_id: auth_user.user_id.clone(),
@@ -346,6 +379,7 @@ pub async fn create_thing(
         photos: Vec::new(),
         comment_count: None,
         top_replies: None,
+        source,
     };
 
     match state.store.create_thing(&mut thing) {
@@ -628,6 +662,7 @@ pub async fn upload_photo(
         photos: Vec::new(),
         comment_count: None,
         top_replies: None,
+        source: None,
     };
 
     if let Err(e) = state.store.create_thing(&mut thing) {
@@ -759,6 +794,620 @@ pub async fn delete_api_key(
     }
 }
 
+// ==================== Webhook Subscription Endpoints ====================
+
+#[derive(Debug, Deserialize)]
+pub struct CreateWebhookRequest {
+    pub name: Option<String>,
+    pub event_type: String,
+    pub source_type: Option<String>,
+    pub source_id: Option<String>,
+    pub action_type: String,
+    pub action_config: HashMap<String, serde_json::Value>,
+    pub filter_config: Option<crate::models::FilterConfig>,
+    pub enabled: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateWebhookRequest {
+    pub name: Option<String>,
+    pub event_type: Option<String>,
+    pub source_type: Option<String>,
+    pub source_id: Option<String>,
+    pub action_type: Option<String>,
+    pub action_config: Option<HashMap<String, serde_json::Value>>,
+    pub filter_config: Option<crate::models::FilterConfig>,
+    pub enabled: Option<bool>,
+}
+
+/// List all webhook subscriptions for the authenticated user
+pub async fn list_webhooks(
+    state: web::Data<AppState>,
+    auth_user: AuthUser,
+) -> impl Responder {
+    if !has_scope(&auth_user, "webhooks:read") {
+        return HttpResponse::Forbidden().json(serde_json::json!({"error": "Missing scope: webhooks:read"}));
+    }
+
+    match state.store.list_subscriptions(&auth_user.user_id) {
+        Ok(subs) => HttpResponse::Ok().json(subs),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({"error": format!("Failed to list webhooks: {}", e)})),
+    }
+}
+
+/// Create a new webhook subscription
+pub async fn create_webhook(
+    state: web::Data<AppState>,
+    auth_user: AuthUser,
+    body: web::Json<CreateWebhookRequest>,
+) -> impl Responder {
+    if !has_scope(&auth_user, "webhooks:write") {
+        return HttpResponse::Forbidden().json(serde_json::json!({"error": "Missing scope: webhooks:write"}));
+    }
+
+    // Validate action_type
+    let valid_action_types = ["webhook", "notification", "create_thing"];
+    if !valid_action_types.contains(&body.action_type.as_str()) {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "error": format!("Invalid action_type. Must be one of: {:?}", valid_action_types)
+        }));
+    }
+
+    // For webhook action, validate url is present in action_config
+    if body.action_type == "webhook" && !body.action_config.contains_key("url") {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "error": "Webhook action requires 'url' in action_config"
+        }));
+    }
+
+    let sub = Subscription {
+        id: uuid::Uuid::new_v4().to_string(),
+        user_id: auth_user.user_id.clone(),
+        name: body.name.clone(),
+        event_type: body.event_type.clone(),
+        source_type: body.source_type.clone(),
+        source_id: body.source_id.clone(),
+        action_type: body.action_type.clone(),
+        action_config: body.action_config.clone(),
+        filter_config: body.filter_config.clone(),
+        enabled: body.enabled.unwrap_or(true),
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    };
+
+    match state.store.create_subscription(&sub) {
+        Ok(_) => HttpResponse::Created().json(sub),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({"error": format!("Failed to create webhook: {}", e)})),
+    }
+}
+
+/// Get a webhook subscription by ID
+pub async fn get_webhook(
+    state: web::Data<AppState>,
+    auth_user: AuthUser,
+    path: web::Path<String>,
+) -> impl Responder {
+    if !has_scope(&auth_user, "webhooks:read") {
+        return HttpResponse::Forbidden().json(serde_json::json!({"error": "Missing scope: webhooks:read"}));
+    }
+
+    let id = path.into_inner();
+    match state.store.get_subscription(&id) {
+        Ok(sub) => {
+            if sub.user_id != auth_user.user_id {
+                return HttpResponse::NotFound().json(serde_json::json!({"error": "Webhook not found"}));
+            }
+            HttpResponse::Ok().json(sub)
+        }
+        Err(StoreError::NotFound(_)) => {
+            HttpResponse::NotFound().json(serde_json::json!({"error": "Webhook not found"}))
+        }
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({"error": format!("Failed to get webhook: {}", e)})),
+    }
+}
+
+/// Update a webhook subscription
+pub async fn update_webhook(
+    state: web::Data<AppState>,
+    auth_user: AuthUser,
+    path: web::Path<String>,
+    body: web::Json<UpdateWebhookRequest>,
+) -> impl Responder {
+    if !has_scope(&auth_user, "webhooks:write") {
+        return HttpResponse::Forbidden().json(serde_json::json!({"error": "Missing scope: webhooks:write"}));
+    }
+
+    let id = path.into_inner();
+
+    // Get existing subscription
+    let mut sub = match state.store.get_subscription(&id) {
+        Ok(s) => s,
+        Err(StoreError::NotFound(_)) => {
+            return HttpResponse::NotFound().json(serde_json::json!({"error": "Webhook not found"}));
+        }
+        Err(e) => {
+            return HttpResponse::InternalServerError().json(serde_json::json!({"error": format!("Failed to get webhook: {}", e)}));
+        }
+    };
+
+    // Check ownership
+    if sub.user_id != auth_user.user_id {
+        return HttpResponse::NotFound().json(serde_json::json!({"error": "Webhook not found"}));
+    }
+
+    // Apply updates
+    if let Some(ref name) = body.name {
+        sub.name = Some(name.clone());
+    }
+    if let Some(ref event_type) = body.event_type {
+        sub.event_type = event_type.clone();
+    }
+    if let Some(ref source_type) = body.source_type {
+        sub.source_type = Some(source_type.clone());
+    }
+    if let Some(ref source_id) = body.source_id {
+        sub.source_id = Some(source_id.clone());
+    }
+    if let Some(ref action_type) = body.action_type {
+        sub.action_type = action_type.clone();
+    }
+    if let Some(ref action_config) = body.action_config {
+        sub.action_config = action_config.clone();
+    }
+    if let Some(ref filter_config) = body.filter_config {
+        sub.filter_config = Some(filter_config.clone());
+    }
+    if let Some(enabled) = body.enabled {
+        sub.enabled = enabled;
+    }
+    sub.updated_at = Utc::now();
+
+    match state.store.update_subscription(&sub) {
+        Ok(_) => HttpResponse::Ok().json(sub),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({"error": format!("Failed to update webhook: {}", e)})),
+    }
+}
+
+/// Delete a webhook subscription
+pub async fn delete_webhook(
+    state: web::Data<AppState>,
+    auth_user: AuthUser,
+    path: web::Path<String>,
+) -> impl Responder {
+    if !has_scope(&auth_user, "webhooks:write") {
+        return HttpResponse::Forbidden().json(serde_json::json!({"error": "Missing scope: webhooks:write"}));
+    }
+
+    let id = path.into_inner();
+    match state.store.delete_subscription(&id, &auth_user.user_id) {
+        Ok(_) => HttpResponse::NoContent().finish(),
+        Err(StoreError::NotFound(_)) => {
+            HttpResponse::NotFound().json(serde_json::json!({"error": "Webhook not found"}))
+        }
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({"error": format!("Failed to delete webhook: {}", e)})),
+    }
+}
+
+/// Send a test webhook to verify endpoint connectivity
+pub async fn test_webhook(
+    state: web::Data<AppState>,
+    auth_user: AuthUser,
+    path: web::Path<String>,
+) -> impl Responder {
+    if !has_scope(&auth_user, "webhooks:write") {
+        return HttpResponse::Forbidden().json(serde_json::json!({"error": "Missing scope: webhooks:write"}));
+    }
+
+    let id = path.into_inner();
+
+    // Get subscription
+    let sub = match state.store.get_subscription(&id) {
+        Ok(s) => s,
+        Err(StoreError::NotFound(_)) => {
+            return HttpResponse::NotFound().json(serde_json::json!({"error": "Webhook not found"}));
+        }
+        Err(e) => {
+            return HttpResponse::InternalServerError().json(serde_json::json!({"error": format!("Failed to get webhook: {}", e)}));
+        }
+    };
+
+    // Check ownership
+    if sub.user_id != auth_user.user_id {
+        return HttpResponse::NotFound().json(serde_json::json!({"error": "Webhook not found"}));
+    }
+
+    // Only webhook action type can be tested
+    if sub.action_type != "webhook" {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "error": "Only webhook action type can be tested"
+        }));
+    }
+
+    // Get URL from action_config
+    let url = match sub.action_config.get("url").and_then(|v| v.as_str()) {
+        Some(u) => u.to_string(),
+        None => {
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "error": "Webhook has no URL configured"
+            }));
+        }
+    };
+
+    // Send test webhook
+    let client = reqwest::Client::new();
+    let test_payload = serde_json::json!({
+        "test": true,
+        "webhook_id": sub.id,
+        "timestamp": Utc::now().to_rfc3339()
+    });
+
+    let result = client.post(&url)
+        .header("Content-Type", "application/json")
+        .header("X-Tenant-Webhook-Test", "true")
+        .json(&test_payload)
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await;
+
+    match result {
+        Ok(response) => {
+            let status = response.status().as_u16();
+            let success = response.status().is_success();
+            HttpResponse::Ok().json(serde_json::json!({
+                "success": success,
+                "status_code": status,
+                "url": url
+            }))
+        }
+        Err(e) => {
+            HttpResponse::Ok().json(serde_json::json!({
+                "success": false,
+                "error": format!("Failed to reach endpoint: {}", e),
+                "url": url
+            }))
+        }
+    }
+}
+
+/// List delivery attempts for a webhook subscription
+pub async fn list_webhook_deliveries(
+    state: web::Data<AppState>,
+    auth_user: AuthUser,
+    path: web::Path<String>,
+) -> impl Responder {
+    if !has_scope(&auth_user, "webhooks:read") {
+        return HttpResponse::Forbidden().json(serde_json::json!({"error": "Missing scope: webhooks:read"}));
+    }
+
+    let id = path.into_inner();
+
+    // Verify ownership of the webhook
+    match state.store.get_subscription(&id) {
+        Ok(sub) => {
+            if sub.user_id != auth_user.user_id {
+                return HttpResponse::NotFound().json(serde_json::json!({"error": "Webhook not found"}));
+            }
+        }
+        Err(StoreError::NotFound(_)) => {
+            return HttpResponse::NotFound().json(serde_json::json!({"error": "Webhook not found"}));
+        }
+        Err(e) => {
+            return HttpResponse::InternalServerError().json(serde_json::json!({"error": format!("Failed to get webhook: {}", e)}));
+        }
+    }
+
+    // Get deliveries (pending deliveries only for now since we don't have a way to filter by subscription_id)
+    // In a production system, you'd want to track which subscription each delivery belongs to
+    match state.store.get_pending_deliveries(100) {
+        Ok(deliveries) => HttpResponse::Ok().json(deliveries),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({"error": format!("Failed to list deliveries: {}", e)})),
+    }
+}
+
+// ==================== Inbound Webhook Endpoints ====================
+
+#[derive(Debug, Deserialize)]
+pub struct CreateInboundWebhookRequest {
+    pub name: String,
+    pub default_thing_type: Option<String>,
+    pub default_visibility: Option<String>,
+    pub source_system: String,
+    pub transform_config: Option<HashMap<String, serde_json::Value>>,
+    pub enabled: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateInboundWebhookRequest {
+    pub name: Option<String>,
+    pub default_thing_type: Option<String>,
+    pub default_visibility: Option<String>,
+    pub source_system: Option<String>,
+    pub transform_config: Option<HashMap<String, serde_json::Value>>,
+    pub enabled: Option<bool>,
+}
+
+/// List all inbound webhooks for the authenticated user
+pub async fn list_inbound_webhooks(
+    state: web::Data<AppState>,
+    auth_user: AuthUser,
+) -> impl Responder {
+    if !has_scope(&auth_user, "webhooks:read") {
+        return HttpResponse::Forbidden().json(serde_json::json!({"error": "Missing scope: webhooks:read"}));
+    }
+
+    match state.store.list_inbound_webhooks(&auth_user.user_id) {
+        Ok(webhooks) => HttpResponse::Ok().json(webhooks),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({"error": format!("Failed to list inbound webhooks: {}", e)})),
+    }
+}
+
+/// Create a new inbound webhook (returns the secret token ONCE)
+pub async fn create_inbound_webhook(
+    state: web::Data<AppState>,
+    auth_user: AuthUser,
+    body: web::Json<CreateInboundWebhookRequest>,
+) -> impl Responder {
+    if !has_scope(&auth_user, "webhooks:write") {
+        return HttpResponse::Forbidden().json(serde_json::json!({"error": "Missing scope: webhooks:write"}));
+    }
+
+    // Generate secret token
+    let secret_token = uuid::Uuid::new_v4().to_string().replace("-", "");
+    let token_prefix = secret_token.chars().take(8).collect::<String>();
+    let token_hash = match state.auth_service.hash_password(&secret_token) {
+        Ok(h) => h,
+        Err(_) => return HttpResponse::InternalServerError().json(serde_json::json!({"error": "Failed to generate token"})),
+    };
+
+    let webhook = InboundWebhook {
+        id: uuid::Uuid::new_v4().to_string(),
+        user_id: auth_user.user_id.clone(),
+        name: body.name.clone(),
+        secret_token_hash: token_hash,
+        token_prefix,
+        default_thing_type: body.default_thing_type.clone().unwrap_or_else(|| "note".to_string()),
+        default_visibility: body.default_visibility.clone().unwrap_or_else(|| "private".to_string()),
+        source_system: body.source_system.clone(),
+        transform_config: body.transform_config.clone().unwrap_or_default(),
+        enabled: body.enabled.unwrap_or(true),
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    };
+
+    match state.store.create_inbound_webhook(&webhook) {
+        Ok(_) => {
+            // Return the webhook info WITH the secret token (only shown once)
+            HttpResponse::Created().json(serde_json::json!({
+                "id": webhook.id,
+                "user_id": webhook.user_id,
+                "name": webhook.name,
+                "secret_token": secret_token,  // ONLY returned on creation
+                "token_prefix": webhook.token_prefix,
+                "default_thing_type": webhook.default_thing_type,
+                "default_visibility": webhook.default_visibility,
+                "source_system": webhook.source_system,
+                "transform_config": webhook.transform_config,
+                "enabled": webhook.enabled,
+                "receive_url": format!("/api/webhooks/receive/{}?token={}", webhook.id, secret_token),
+                "created_at": webhook.created_at,
+                "updated_at": webhook.updated_at
+            }))
+        }
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({"error": format!("Failed to create inbound webhook: {}", e)})),
+    }
+}
+
+/// Get an inbound webhook by ID
+pub async fn get_inbound_webhook(
+    state: web::Data<AppState>,
+    auth_user: AuthUser,
+    path: web::Path<String>,
+) -> impl Responder {
+    if !has_scope(&auth_user, "webhooks:read") {
+        return HttpResponse::Forbidden().json(serde_json::json!({"error": "Missing scope: webhooks:read"}));
+    }
+
+    let id = path.into_inner();
+    match state.store.get_inbound_webhook(&id) {
+        Ok(webhook) => {
+            if webhook.user_id != auth_user.user_id {
+                return HttpResponse::NotFound().json(serde_json::json!({"error": "Inbound webhook not found"}));
+            }
+            HttpResponse::Ok().json(webhook)
+        }
+        Err(StoreError::NotFound(_)) => {
+            HttpResponse::NotFound().json(serde_json::json!({"error": "Inbound webhook not found"}))
+        }
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({"error": format!("Failed to get inbound webhook: {}", e)})),
+    }
+}
+
+/// Update an inbound webhook
+pub async fn update_inbound_webhook(
+    state: web::Data<AppState>,
+    auth_user: AuthUser,
+    path: web::Path<String>,
+    body: web::Json<UpdateInboundWebhookRequest>,
+) -> impl Responder {
+    if !has_scope(&auth_user, "webhooks:write") {
+        return HttpResponse::Forbidden().json(serde_json::json!({"error": "Missing scope: webhooks:write"}));
+    }
+
+    let id = path.into_inner();
+
+    // Get existing webhook
+    let mut webhook = match state.store.get_inbound_webhook(&id) {
+        Ok(w) => w,
+        Err(StoreError::NotFound(_)) => {
+            return HttpResponse::NotFound().json(serde_json::json!({"error": "Inbound webhook not found"}));
+        }
+        Err(e) => {
+            return HttpResponse::InternalServerError().json(serde_json::json!({"error": format!("Failed to get inbound webhook: {}", e)}));
+        }
+    };
+
+    // Check ownership
+    if webhook.user_id != auth_user.user_id {
+        return HttpResponse::NotFound().json(serde_json::json!({"error": "Inbound webhook not found"}));
+    }
+
+    // Apply updates
+    if let Some(ref name) = body.name {
+        webhook.name = name.clone();
+    }
+    if let Some(ref thing_type) = body.default_thing_type {
+        webhook.default_thing_type = thing_type.clone();
+    }
+    if let Some(ref visibility) = body.default_visibility {
+        webhook.default_visibility = visibility.clone();
+    }
+    if let Some(ref source_system) = body.source_system {
+        webhook.source_system = source_system.clone();
+    }
+    if let Some(ref transform_config) = body.transform_config {
+        webhook.transform_config = transform_config.clone();
+    }
+    if let Some(enabled) = body.enabled {
+        webhook.enabled = enabled;
+    }
+    webhook.updated_at = Utc::now();
+
+    match state.store.update_inbound_webhook(&webhook) {
+        Ok(_) => HttpResponse::Ok().json(webhook),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({"error": format!("Failed to update inbound webhook: {}", e)})),
+    }
+}
+
+/// Delete an inbound webhook
+pub async fn delete_inbound_webhook(
+    state: web::Data<AppState>,
+    auth_user: AuthUser,
+    path: web::Path<String>,
+) -> impl Responder {
+    if !has_scope(&auth_user, "webhooks:write") {
+        return HttpResponse::Forbidden().json(serde_json::json!({"error": "Missing scope: webhooks:write"}));
+    }
+
+    let id = path.into_inner();
+    match state.store.delete_inbound_webhook(&id, &auth_user.user_id) {
+        Ok(_) => HttpResponse::NoContent().finish(),
+        Err(StoreError::NotFound(_)) => {
+            HttpResponse::NotFound().json(serde_json::json!({"error": "Inbound webhook not found"}))
+        }
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({"error": format!("Failed to delete inbound webhook: {}", e)})),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ReceiveWebhookQuery {
+    pub token: String,
+}
+
+/// Receive data from an external system via inbound webhook
+/// Authentication via token query parameter (not session/API key)
+pub async fn receive_webhook(
+    state: web::Data<AppState>,
+    path: web::Path<String>,
+    query: web::Query<ReceiveWebhookQuery>,
+    body: web::Json<serde_json::Value>,
+) -> impl Responder {
+    let id = path.into_inner();
+
+    // Get the inbound webhook
+    let webhook = match state.store.get_inbound_webhook(&id) {
+        Ok(w) => w,
+        Err(StoreError::NotFound(_)) => {
+            return HttpResponse::NotFound().json(serde_json::json!({"error": "Webhook not found"}));
+        }
+        Err(e) => {
+            return HttpResponse::InternalServerError().json(serde_json::json!({"error": format!("Failed to get webhook: {}", e)}));
+        }
+    };
+
+    // Verify token
+    if !state.auth_service.verify_password(&query.token, &webhook.secret_token_hash).unwrap_or(false) {
+        return HttpResponse::Unauthorized().json(serde_json::json!({"error": "Invalid token"}));
+    }
+
+    // Check if enabled
+    if !webhook.enabled {
+        return HttpResponse::BadRequest().json(serde_json::json!({"error": "Webhook is disabled"}));
+    }
+
+    // Extract content from incoming data using transform_config or default to "content" field
+    let content = if let Some(content_field) = webhook.transform_config.get("content_field").and_then(|v| v.as_str()) {
+        body.get(content_field).and_then(|v| v.as_str()).unwrap_or("").to_string()
+    } else if let Some(content_value) = body.get("content").and_then(|v| v.as_str()) {
+        // Default: look for "content" field
+        content_value.to_string()
+    } else {
+        // Fallback: use entire body as JSON string
+        serde_json::to_string(&body.0).unwrap_or_default()
+    };
+
+    let metadata = if let Some(metadata_fields) = webhook.transform_config.get("metadata_fields").and_then(|v| v.as_array()) {
+        let mut m = HashMap::new();
+        for field in metadata_fields {
+            if let Some(field_name) = field.as_str() {
+                if let Some(value) = body.get(field_name) {
+                    m.insert(field_name.to_string(), value.clone());
+                }
+            }
+        }
+        m
+    } else {
+        // Default: copy all non-content fields to metadata
+        body.as_object()
+            .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+            .unwrap_or_default()
+    };
+
+    // Generate external_id for deduplication
+    let external_id = body.get("id")
+        .or_else(|| body.get("external_id"))
+        .and_then(|v| v.as_str())
+        .map(String::from);
+
+    // Check for duplicate if external_id exists
+    if let Some(ref ext_id) = external_id {
+        if let Ok(Some(_existing)) = state.store.get_thing_by_source(&webhook.user_id, &webhook.source_system, ext_id) {
+            return HttpResponse::Ok().json(serde_json::json!({
+                "status": "duplicate",
+                "message": "Thing with this external_id already exists"
+            }));
+        }
+    }
+
+    // Create the Thing with source attribution
+    let mut thing = Thing {
+        id: String::new(),
+        user_id: webhook.user_id.clone(),
+        thing_type: webhook.default_thing_type.clone(),
+        content,
+        metadata,
+        visibility: webhook.default_visibility.clone(),
+        version: 1,
+        deleted_at: None,
+        edited_at: None,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+        photos: Vec::new(),
+        comment_count: None,
+        top_replies: None,
+        source: Some(Source {
+            system: webhook.source_system.clone(),
+            external_id,
+            url: body.get("url").and_then(|v| v.as_str()).map(String::from),
+            imported_at: Utc::now(),
+        }),
+    };
+
+    match state.store.create_thing(&mut thing) {
+        Ok(_) => HttpResponse::Created().json(thing), // Return the full thing
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({"error": format!("Failed to create thing: {}", e)})),
+    }
+}
+
 // ==================== Kinds Endpoints ====================
 
 pub async fn list_kinds(
@@ -817,6 +1466,7 @@ pub async fn create_kind(
         attributes: body.attributes.clone(),
         commentable: body.commentable,
         show_existing_comments: body.show_existing_comments,
+        reactable: body.reactable,
         created_at: Utc::now(),
         updated_at: Utc::now(),
     };
@@ -867,6 +1517,9 @@ pub async fn update_kind(
     }
     if let Some(s) = body.show_existing_comments {
         kind.show_existing_comments = s;
+    }
+    if let Some(r) = body.reactable {
+        kind.reactable = r;
     }
 
     match state.store.update_kind(&mut kind) {
@@ -1472,6 +2125,7 @@ pub async fn notify_comment(
         photos: Vec::new(),
         comment_count: None,
         top_replies: None,
+        source: None,
     };
 
     if let Err(e) = state.store.create_thing(&mut comment) {
@@ -1607,6 +2261,7 @@ pub async fn create_local_comment(
         photos: Vec::new(),
         comment_count: None,
         top_replies: None,
+        source: None,
     };
 
     if let Err(e) = state.store.create_thing(&mut comment) {
@@ -2514,6 +3169,7 @@ async fn query_things(
     let q = crate::store::ThingQuery {
         user_id: auth_user.user_id.clone(),
         thing_type,
+        source_system: None,
         metadata_filter,
         sort,
         page,
@@ -2674,6 +3330,7 @@ async fn upsert_thing(
         photos: vec![],
         comment_count: None,
         top_replies: None,
+        source: None,
     };
 
     match state.store.upsert_thing(&auth_user.user_id, &thing_type, &match_field, &match_value, &mut thing) {
@@ -2743,6 +3400,7 @@ async fn bulk_create_things(
             photos: Vec::new(),
             comment_count: None,
             top_replies: None,
+            source: None,
         });
     }
 
@@ -2809,6 +3467,7 @@ async fn bulk_update_things(
             photos: vec![],
             comment_count: None,
             top_replies: None,
+            source: None,
         });
     }
 
@@ -3285,6 +3944,7 @@ async fn import_data(
                 attributes,
                 commentable: kind_json.get("commentable").and_then(|c| c.as_bool()).unwrap_or(false),
                 show_existing_comments: kind_json.get("show_existing_comments").and_then(|c| c.as_bool()).unwrap_or(false),
+                reactable: kind_json.get("reactable").and_then(|r| r.as_bool()).unwrap_or(true),
                 created_at: chrono::Utc::now(),
                 updated_at: chrono::Utc::now(),
             };
@@ -3325,6 +3985,7 @@ async fn import_data(
                 photos: vec![],
                 comment_count: None,
                 top_replies: None,
+                source: None,
             };
 
             if state.store.create_thing(&mut thing).is_ok() {
@@ -3454,10 +4115,19 @@ async fn delete_user(
 
 // ==================== Route Configuration ====================
 
+/// OpenAPI JSON specification endpoint
+pub async fn openapi_json() -> impl Responder {
+    use utoipa::OpenApi;
+    HttpResponse::Ok().json(ApiDoc::openapi())
+}
+
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg
         // Health check
         .route("/health", web::get().to(health))
+
+        // OpenAPI documentation
+        .route("/api/openapi.json", web::get().to(openapi_json))
 
         // Metrics endpoints
         .route("/api/metrics", web::get().to(crate::metrics::get_metrics_handler))
@@ -3514,6 +4184,23 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         .route("/api/keys/{id}", web::get().to(get_api_key))  // STUB
         .route("/api/keys/{id}", web::put().to(update_api_key))  // STUB
         .route("/api/keys/{id}", web::delete().to(delete_api_key))
+
+        // Webhooks - note: specific routes must come BEFORE {id} wildcard routes
+        .route("/api/webhooks", web::get().to(list_webhooks))
+        .route("/api/webhooks", web::post().to(create_webhook))
+        // Inbound Webhooks (must be before /api/webhooks/{id} to prevent "inbound" matching as id)
+        .route("/api/webhooks/inbound", web::get().to(list_inbound_webhooks))
+        .route("/api/webhooks/inbound", web::post().to(create_inbound_webhook))
+        .route("/api/webhooks/inbound/{id}", web::get().to(get_inbound_webhook))
+        .route("/api/webhooks/inbound/{id}", web::put().to(update_inbound_webhook))
+        .route("/api/webhooks/inbound/{id}", web::delete().to(delete_inbound_webhook))
+        .route("/api/webhooks/receive/{id}", web::post().to(receive_webhook))
+        // Outbound webhook subscriptions (wildcard routes after specific routes)
+        .route("/api/webhooks/{id}", web::get().to(get_webhook))
+        .route("/api/webhooks/{id}", web::put().to(update_webhook))
+        .route("/api/webhooks/{id}", web::delete().to(delete_webhook))
+        .route("/api/webhooks/{id}/test", web::post().to(test_webhook))
+        .route("/api/webhooks/{id}/deliveries", web::get().to(list_webhook_deliveries))
 
         // Kinds
         .route("/api/kinds", web::get().to(list_kinds))

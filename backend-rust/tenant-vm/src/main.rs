@@ -11,10 +11,12 @@ use chrono::Utc;
 use std::env;
 use std::path::PathBuf;
 use std::sync::Arc;
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
 #[cfg(unix)]
 use std::os::unix::net::UnixListener as StdUnixListener;
 
-use api::AppState;
+use api::{AppState, ApiDoc};
 use auth::AuthService;
 use events::EventProcessor;
 use models::{Attribute, Kind, User};
@@ -152,6 +154,11 @@ async fn main() -> std::io::Result<()> {
             // Increase payload size limit for photo uploads (50MB)
             .app_data(web::PayloadConfig::new(50 * 1024 * 1024))
             .configure(api::configure_routes)
+            // Swagger UI for API documentation
+            .service(
+                SwaggerUi::new("/api/docs/{_:.*}")
+                    .url("/api/openapi.json", ApiDoc::openapi())
+            )
     })
     .workers(1); // Single worker for minimal memory
 
@@ -230,6 +237,7 @@ fn create_default_kinds(store: &Arc<Store>, user_id: &str) {
             attributes: vec![],
             commentable: true,  // Posts are commentable by default
             show_existing_comments: false,
+            reactable: true,    // Posts are reactable by default
             created_at: Utc::now(),
             updated_at: Utc::now(),
         },
@@ -242,6 +250,7 @@ fn create_default_kinds(store: &Arc<Store>, user_id: &str) {
             attributes: vec![],
             commentable: false,
             show_existing_comments: false,
+            reactable: false,   // Notes are not reactable by default
             created_at: Utc::now(),
             updated_at: Utc::now(),
         },
@@ -259,6 +268,7 @@ fn create_default_kinds(store: &Arc<Store>, user_id: &str) {
             }],
             commentable: false,
             show_existing_comments: false,
+            reactable: true,    // Links are reactable
             created_at: Utc::now(),
             updated_at: Utc::now(),
         },
@@ -276,6 +286,7 @@ fn create_default_kinds(store: &Arc<Store>, user_id: &str) {
             }],
             commentable: false,
             show_existing_comments: false,
+            reactable: false,   // Tasks are not reactable by default
             created_at: Utc::now(),
             updated_at: Utc::now(),
         },
@@ -288,6 +299,7 @@ fn create_default_kinds(store: &Arc<Store>, user_id: &str) {
             attributes: vec![],
             commentable: false,
             show_existing_comments: false,
+            reactable: true,    // Gallery items are reactable
             created_at: Utc::now(),
             updated_at: Utc::now(),
         },

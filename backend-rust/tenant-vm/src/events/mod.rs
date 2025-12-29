@@ -11,13 +11,17 @@
 //! - `create_thing`: Create a Thing from the event data
 
 use chrono::Utc;
+use hmac::{Hmac, Mac};
 use reqwest::Client;
+use sha2::Sha256;
 use std::collections::HashMap;
 use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::models::*;
 use crate::store::Store;
+
+type HmacSha256 = Hmac<Sha256>;
 
 /// Result type for event processing
 pub type EventResult<T> = Result<T, EventError>;
@@ -259,6 +263,36 @@ impl EventProcessor {
             .and_then(|v| v.as_str())
             .ok_or_else(|| EventError::Config("Webhook URL not configured".to_string()))?;
 
+        // Check filter_config if present and event is thing-related
+        if let Some(ref filter_config) = sub.filter_config {
+            // Only apply filter for thing-related events
+            if event.resource_type.as_deref() == Some("thing") {
+                if let Some(ref thing_id) = event.resource_id {
+                    // Try to get the thing and its kind
+                    if let Ok(thing) = self.store.get_thing(thing_id) {
+                        // Get kind name if thing has a kind
+                        let kind_name = self.store.get_thing_kind(thing_id)
+                            .ok()
+                            .flatten()
+                            .and_then(|kind_id| self.store.get_kind(&kind_id).ok())
+                            .map(|k| k.name);
+
+                        // Check if filter matches
+                        if !filter_config.matches(&thing, kind_name.as_deref()) {
+                            // Filter doesn't match - skip this webhook (not an error)
+                            return Ok(ActionResult {
+                                subscription_id: sub.id.clone(),
+                                action_type: "webhook".to_string(),
+                                success: true, // Not a failure, just filtered out
+                                error: None,
+                                queued: false,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
         // Build webhook payload
         let payload = serde_json::json!({
             "event_type": event.event_type,
@@ -272,12 +306,25 @@ impl EventProcessor {
             "timestamp": event.timestamp.to_rfc3339(),
         });
 
-        // Try to deliver
-        let result = self.http_client
+        // Serialize payload for signing and sending
+        let payload_str = serde_json::to_string(&payload)
+            .map_err(|e| EventError::Delivery(e.to_string()))?;
+
+        // Build request with headers
+        let mut request = self.http_client
             .post(url)
             .header("Content-Type", "application/json")
-            .header("X-Tenant-Event", &event.event_type)
-            .json(&payload)
+            .header("X-Tenant-Event", &event.event_type);
+
+        // Add HMAC signature if signing_secret is configured
+        if let Some(signing_secret) = config.get("signing_secret").and_then(|v| v.as_str()) {
+            let signature = compute_hmac_signature(signing_secret, &payload_str);
+            request = request.header("X-Tenant-Signature", format!("sha256={}", signature));
+        }
+
+        // Try to deliver
+        let result = request
+            .body(payload_str.clone())
             .send()
             .await;
 
@@ -293,9 +340,6 @@ impl EventProcessor {
             }
             Ok(response) => {
                 // Non-success status - queue for retry
-                let payload_str = serde_json::to_string(&payload)
-                    .map_err(|e| EventError::Delivery(e.to_string()))?;
-
                 self.store.queue_delivery("webhook", url, &payload_str)
                     .map_err(|e| EventError::Store(e.to_string()))?;
 
@@ -309,9 +353,6 @@ impl EventProcessor {
             }
             Err(e) => {
                 // Network error - queue for retry
-                let payload_str = serde_json::to_string(&payload)
-                    .map_err(|e| EventError::Delivery(e.to_string()))?;
-
                 self.store.queue_delivery("webhook", url, &payload_str)
                     .map_err(|e| EventError::Store(e.to_string()))?;
 
@@ -375,6 +416,7 @@ impl EventProcessor {
             photos: Vec::new(),
             comment_count: None,
             top_replies: None,
+            source: None,
         };
 
         self.store.create_thing(&mut thing)
@@ -578,6 +620,15 @@ pub fn thing_created_event(user_id: &str, thing_id: &str, thing_type: &str) -> E
         .with_payload(payload)
 }
 
+/// Compute HMAC-SHA256 signature for webhook payload verification
+fn compute_hmac_signature(secret: &str, payload: &str) -> String {
+    let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
+        .expect("HMAC can take key of any size");
+    mac.update(payload.as_bytes());
+    let result = mac.finalize();
+    hex::encode(result.into_bytes())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -660,6 +711,7 @@ mod tests {
             source_id: None,
             action_type: "notification".to_string(),
             action_config: config,
+            filter_config: None,
             enabled: true,
             created_at: Utc::now(),
             updated_at: Utc::now(),

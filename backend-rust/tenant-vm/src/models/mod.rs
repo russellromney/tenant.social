@@ -1,9 +1,10 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use utoipa::ToSchema;
 
 /// User represents a tenant - each user owns their own data space
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct User {
     pub id: String,
     pub username: String,
@@ -32,9 +33,24 @@ pub struct Session {
     pub created_at: DateTime<Utc>,
 }
 
+/// Source tracks where a Thing was imported from (e.g., Pocket, GitHub, Twitter)
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct Source {
+    /// The external system (e.g., "pocket", "github", "twitter", "notion")
+    pub system: String,
+    /// The ID of the item in the source system (for deduplication)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub external_id: Option<String>,
+    /// URL to the original item in the source system
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// When the item was imported
+    pub imported_at: DateTime<Utc>,
+}
+
 /// Thing is the universal unit in Tenant.
 /// Everything is a Thing: notes, links, tasks, images, etc.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct Thing {
     pub id: String,
     pub user_id: String,
@@ -55,6 +71,9 @@ pub struct Thing {
     pub comment_count: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub top_replies: Option<Vec<Thing>>,
+    /// Source attribution for imported content
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub source: Option<Source>,
 }
 
 /// ThingVersion stores historical versions of a Thing.
@@ -72,7 +91,7 @@ pub struct ThingVersion {
 }
 
 /// APIKey allows programmatic access to the API.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ApiKey {
     pub id: String,
     pub user_id: String,
@@ -101,10 +120,12 @@ pub const API_KEY_SCOPES: &[&str] = &[
     "notifications:write",
     "reactions:read",
     "reactions:write",
+    "webhooks:read",
+    "webhooks:write",
 ];
 
 /// Kind is a category of Thing (note, link, task, article, etc.)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct Kind {
     pub id: String,
     pub user_id: String,
@@ -116,12 +137,18 @@ pub struct Kind {
     pub commentable: bool,
     #[serde(default)]
     pub show_existing_comments: bool,
+    #[serde(default = "default_reactable")]
+    pub reactable: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
 
+fn default_reactable() -> bool {
+    true // Default to reactable for backwards compatibility
+}
+
 /// Attribute defines a field that Things of a Kind can have
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct Attribute {
     pub name: String,
     #[serde(rename = "type")]
@@ -164,7 +191,7 @@ pub struct ThingTag {
 }
 
 /// Photo stores image/video binary data
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct Photo {
     pub id: String,
     pub thing_id: String,
@@ -325,8 +352,115 @@ impl Event {
     }
 }
 
+/// Filter condition for webhook subscriptions
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct FilterCondition {
+    pub field: String,                    // Attribute name (top-level only)
+    pub op: String,                       // eq, neq, gt, gte, lt, lte, contains, exists
+    pub value: serde_json::Value,         // Value to compare against
+}
+
+/// Filter configuration for webhook subscriptions
+/// Uses DNF (Disjunctive Normal Form): groups are OR'd, conditions within group are AND'd
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Default)]
+pub struct FilterConfig {
+    #[serde(default)]
+    pub kinds: Vec<String>,               // Filter by thing kind names (empty = all kinds)
+    #[serde(default)]
+    pub condition_groups: Vec<Vec<FilterCondition>>, // OR of AND groups
+}
+
+impl FilterConfig {
+    /// Check if a Thing matches this filter configuration
+    /// Returns true if:
+    /// - No filters are configured (empty filter)
+    /// - Kind matches any in the list (if specified) AND any condition group matches (if specified)
+    pub fn matches(&self, thing: &Thing, kind_name: Option<&str>) -> bool {
+        // Check kind filter if specified (empty list = all kinds allowed)
+        if !self.kinds.is_empty() {
+            match kind_name {
+                Some(name) if self.kinds.iter().any(|k| k == name) => {}
+                _ => return false,
+            }
+        }
+
+        // If no condition groups, it's a match (kind-only filter or no filter)
+        if self.condition_groups.is_empty() {
+            return true;
+        }
+
+        // DNF: any group matching = overall match (OR of groups)
+        self.condition_groups.iter().any(|group| {
+            // All conditions in group must match (AND within group)
+            group.iter().all(|condition| condition.matches(thing))
+        })
+    }
+}
+
+impl FilterCondition {
+    /// Check if a single condition matches against a Thing's metadata
+    pub fn matches(&self, thing: &Thing) -> bool {
+        // Get the field value from thing metadata (top-level only)
+        let field_value = thing.metadata.get(&self.field);
+
+        match self.op.as_str() {
+            "exists" => {
+                let should_exist = self.value.as_bool().unwrap_or(true);
+                field_value.is_some() == should_exist
+            }
+            "eq" => {
+                field_value.map(|v| v == &self.value).unwrap_or(false)
+            }
+            "neq" => {
+                field_value.map(|v| v != &self.value).unwrap_or(true)
+            }
+            "contains" => {
+                match (field_value, &self.value) {
+                    (Some(serde_json::Value::String(s)), serde_json::Value::String(needle)) => {
+                        s.to_lowercase().contains(&needle.to_lowercase())
+                    }
+                    (Some(serde_json::Value::Array(arr)), needle) => {
+                        arr.contains(needle)
+                    }
+                    _ => false,
+                }
+            }
+            "gt" | "gte" | "lt" | "lte" => {
+                self.compare_numeric(field_value)
+            }
+            _ => false, // Unknown operator
+        }
+    }
+
+    /// Compare numeric values for gt, gte, lt, lte operators
+    fn compare_numeric(&self, field_value: Option<&serde_json::Value>) -> bool {
+        let field_num = match field_value {
+            Some(serde_json::Value::Number(n)) => n.as_f64(),
+            Some(serde_json::Value::String(s)) => s.parse::<f64>().ok(),
+            _ => None,
+        };
+
+        let filter_num = match &self.value {
+            serde_json::Value::Number(n) => n.as_f64(),
+            serde_json::Value::String(s) => s.parse::<f64>().ok(),
+            _ => None,
+        };
+
+        match (field_num, filter_num) {
+            (Some(field), Some(filter)) => match self.op.as_str() {
+                "gt" => field > filter,
+                "gte" => field >= filter,
+                "lt" => field < filter,
+                "lte" => field <= filter,
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+}
+
 /// Subscription defines what happens when events occur
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct Subscription {
     pub id: String,
     pub user_id: String,
@@ -336,6 +470,32 @@ pub struct Subscription {
     pub source_id: Option<String>,       // Filter by specific source
     pub action_type: String,             // 'notification', 'webhook', 'create_thing'
     pub action_config: HashMap<String, serde_json::Value>,
+    #[serde(default)]
+    pub filter_config: Option<FilterConfig>, // Optional filtering on thing attributes
+    pub enabled: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// InboundWebhook allows external systems to push data into Tenant
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct InboundWebhook {
+    pub id: String,
+    pub user_id: String,
+    pub name: String,
+    /// Secret token for authentication (hashed in database)
+    #[serde(skip_serializing)]
+    pub secret_token_hash: String,
+    /// Prefix of the token for display (first 8 chars)
+    pub token_prefix: String,
+    /// Default thing_type for created Things
+    pub default_thing_type: String,
+    /// Default visibility for created Things
+    pub default_visibility: String,
+    /// Source system name for attribution (e.g., "zapier", "ifttt", "custom")
+    pub source_system: String,
+    /// Transform configuration for mapping incoming data to Thing fields
+    pub transform_config: HashMap<String, serde_json::Value>,
     pub enabled: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -524,6 +684,16 @@ pub struct CreateThingRequest {
     pub metadata: HashMap<String, serde_json::Value>,
     #[serde(default = "default_visibility")]
     pub visibility: String,
+    #[serde(default)]
+    pub source: Option<CreateSourceRequest>,
+}
+
+/// Source info for creating a Thing
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateSourceRequest {
+    pub system: String,
+    pub external_id: Option<String>,
+    pub url: Option<String>,
 }
 
 fn default_visibility() -> String {
@@ -550,6 +720,8 @@ pub struct CreateKindRequest {
     pub commentable: bool,
     #[serde(default)]
     pub show_existing_comments: bool,
+    #[serde(default = "default_reactable")]
+    pub reactable: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -560,6 +732,7 @@ pub struct UpdateKindRequest {
     pub attributes: Option<Vec<Attribute>>,
     pub commentable: Option<bool>,
     pub show_existing_comments: Option<bool>,
+    pub reactable: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -806,7 +979,7 @@ pub struct UpdateNotificationSettingsRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct AddReactionRequest {
-    #[serde(rename = "type")]
+    #[serde(alias = "type")]
     pub reaction_type: String,  // "like" or "emoji"
     pub emoji: Option<String>,  // required if reaction_type is "emoji"
 }
