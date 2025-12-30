@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'preact/hooks'
+import { JSX } from 'preact'
 import { Theme } from '../theme'
 import { Comment, ReactionSummary } from '../types'
 import { apiUrl, routeHref } from '../api'

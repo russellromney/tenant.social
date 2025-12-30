@@ -1,5 +1,4 @@
 import { Theme } from '../theme'
-import { routeHref } from '../api'
 
 export function AboutContent({ theme }: { theme: Theme }) {
   return (

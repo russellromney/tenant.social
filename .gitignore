@@ -65,5 +65,5 @@ coverage.html
 
 # Playwright test results
 web/playwright-report/
-web/test-results/
+test-results/
 
