@@ -1,33 +1,8 @@
 import { useState, useEffect } from 'preact/hooks'
-import { JSX } from 'preact'
 import { Theme } from '../theme'
 import { Comment, ReactionSummary } from '../types'
 import { apiUrl, routeHref } from '../api'
-import { formatTimeAgo } from './utils'
-
-// Forward declarations - these will be imported from App.tsx or created as separate components
-// For now, we'll import them where they're used
-declare function ReactionBar(props: {
-  targetId: string
-  targetType: 'thing' | 'comment'
-  reactions: ReactionSummary | null
-  onReactionsChange: (r: ReactionSummary | null) => void
-  theme: Theme
-  compact?: boolean
-}): JSX.Element
-
-declare function EditedIndicator(props: {
-  editedAt: string
-  onClick: () => void
-  theme: Theme
-}): JSX.Element
-
-declare function EditHistoryModal(props: {
-  targetId: string
-  targetType: 'thing' | 'comment'
-  onClose: () => void
-  theme: Theme
-}): JSX.Element
+import { ReactionBar, EditedIndicator, EditHistoryModal, formatTimeAgo } from './index'
 
 interface CommentTreeNode {
   comment: Comment
@@ -102,9 +77,6 @@ function CommentItem({
   submittingReply,
   totalComments = 0,
   commentable = true,
-  ReactionBarComponent,
-  EditedIndicatorComponent,
-  EditHistoryModalComponent,
 }: {
   node: CommentTreeNode
   thingId: string
@@ -120,9 +92,6 @@ function CommentItem({
   submittingReply: boolean
   totalComments?: number
   commentable?: boolean
-  ReactionBarComponent?: typeof ReactionBar
-  EditedIndicatorComponent?: typeof EditedIndicator
-  EditHistoryModalComponent?: typeof EditHistoryModal
 }) {
   const { comment, replies } = node
   const depth = comment.metadata.depth
@@ -265,8 +234,8 @@ function CommentItem({
         {!isDeleted && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 6 }}>
             {/* Reactions */}
-            {currentUserId && ReactionBarComponent && (
-              <ReactionBarComponent
+            {currentUserId && (
+              <ReactionBar
                 targetId={comment.id}
                 targetType="comment"
                 reactions={reactions}
@@ -313,8 +282,8 @@ function CommentItem({
               </button>
             )}
             {/* Edited indicator */}
-            {comment.edited_at && EditedIndicatorComponent && (
-              <EditedIndicatorComponent
+            {comment.edited_at && (
+              <EditedIndicator
                 editedAt={comment.edited_at}
                 onClick={() => setShowHistoryModal(true)}
                 theme={theme}
@@ -406,17 +375,14 @@ function CommentItem({
               submittingReply={submittingReply}
               totalComments={totalComments}
               commentable={commentable}
-              ReactionBarComponent={ReactionBarComponent}
-              EditedIndicatorComponent={EditedIndicatorComponent}
-              EditHistoryModalComponent={EditHistoryModalComponent}
             />
           ))}
         </div>
       )}
 
       {/* Edit History Modal */}
-      {showHistoryModal && EditHistoryModalComponent && (
-        <EditHistoryModalComponent
+      {showHistoryModal && (
+        <EditHistoryModal
           targetId={comment.id}
           targetType="comment"
           onClose={() => setShowHistoryModal(false)}
@@ -427,25 +393,17 @@ function CommentItem({
   )
 }
 
-interface CommentsSectionProps {
-  thingId: string
-  thingOwnerId: string | null
-  theme: Theme
-  commentable?: boolean
-  ReactionBarComponent?: typeof ReactionBar
-  EditedIndicatorComponent?: typeof EditedIndicator
-  EditHistoryModalComponent?: typeof EditHistoryModal
-}
-
 export function CommentsSection({
   thingId,
   thingOwnerId,
   theme,
   commentable = true,
-  ReactionBarComponent,
-  EditedIndicatorComponent,
-  EditHistoryModalComponent,
-}: CommentsSectionProps) {
+}: {
+  thingId: string
+  thingOwnerId: string | null
+  theme: Theme
+  commentable?: boolean
+}) {
   const [comments, setComments] = useState<Comment[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -664,9 +622,6 @@ export function CommentsSection({
                   submittingReply={submittingReply}
                   totalComments={comments.length}
                   commentable={commentable}
-                  ReactionBarComponent={ReactionBarComponent}
-                  EditedIndicatorComponent={EditedIndicatorComponent}
-                  EditHistoryModalComponent={EditHistoryModalComponent}
                 />
               ))}
             </div>
@@ -676,3 +631,5 @@ export function CommentsSection({
     </div>
   )
 }
+
+// Bookmarks View
