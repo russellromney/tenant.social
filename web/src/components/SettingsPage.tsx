@@ -33,34 +33,63 @@ export function SettingsPage({
 }) {
   const [activeTab, setActiveTab] = useState<'kinds' | 'data' | 'keys' | 'friends' | 'integrations'>(initialTab)
 
-  const tabStyle = (isActive: boolean) => ({
-    padding: '8px 16px',
-    background: isActive ? theme.accent : 'transparent',
-    color: isActive ? theme.accentText : theme.textMuted,
-    border: 'none',
-    borderRadius: 6,
-    cursor: 'pointer',
-    fontSize: 14,
-    fontWeight: isActive ? 600 : 400,
-  })
-
   return (
     <div>
       {/* Tab Navigation */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 24, background: theme.bgMuted, padding: 4, borderRadius: 8, width: 'fit-content', flexWrap: 'wrap' }}>
-        <button onClick={() => setActiveTab('kinds')} style={tabStyle(activeTab === 'kinds')}>
+      <div className="flex gap-1 mb-6 bg-muted p-1 rounded-lg w-fit flex-wrap">
+        <button
+          onClick={() => setActiveTab('kinds')}
+          className="px-4 py-2 rounded-md border-0 cursor-pointer text-sm"
+          style={{
+            background: activeTab === 'kinds' ? theme.accent : 'transparent',
+            color: activeTab === 'kinds' ? theme.accentText : theme.textMuted,
+            fontWeight: activeTab === 'kinds' ? 600 : 400,
+          }}
+        >
           Kinds
         </button>
-        <button onClick={() => setActiveTab('friends')} style={tabStyle(activeTab === 'friends')}>
+        <button
+          onClick={() => setActiveTab('friends')}
+          className="px-4 py-2 rounded-md border-0 cursor-pointer text-sm"
+          style={{
+            background: activeTab === 'friends' ? theme.accent : 'transparent',
+            color: activeTab === 'friends' ? theme.accentText : theme.textMuted,
+            fontWeight: activeTab === 'friends' ? 600 : 400,
+          }}
+        >
           Friends
         </button>
-        <button onClick={() => setActiveTab('integrations')} style={tabStyle(activeTab === 'integrations')}>
+        <button
+          onClick={() => setActiveTab('integrations')}
+          className="px-4 py-2 rounded-md border-0 cursor-pointer text-sm"
+          style={{
+            background: activeTab === 'integrations' ? theme.accent : 'transparent',
+            color: activeTab === 'integrations' ? theme.accentText : theme.textMuted,
+            fontWeight: activeTab === 'integrations' ? 600 : 400,
+          }}
+        >
           Integrations
         </button>
-        <button onClick={() => setActiveTab('data')} style={tabStyle(activeTab === 'data')}>
+        <button
+          onClick={() => setActiveTab('data')}
+          className="px-4 py-2 rounded-md border-0 cursor-pointer text-sm"
+          style={{
+            background: activeTab === 'data' ? theme.accent : 'transparent',
+            color: activeTab === 'data' ? theme.accentText : theme.textMuted,
+            fontWeight: activeTab === 'data' ? 600 : 400,
+          }}
+        >
           Data
         </button>
-        <button onClick={() => setActiveTab('keys')} style={tabStyle(activeTab === 'keys')}>
+        <button
+          onClick={() => setActiveTab('keys')}
+          className="px-4 py-2 rounded-md border-0 cursor-pointer text-sm"
+          style={{
+            background: activeTab === 'keys' ? theme.accent : 'transparent',
+            color: activeTab === 'keys' ? theme.accentText : theme.textMuted,
+            fontWeight: activeTab === 'keys' ? 600 : 400,
+          }}
+        >
           API Keys
         </button>
       </div>

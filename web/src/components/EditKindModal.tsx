@@ -47,64 +47,48 @@ export function EditKindModal({
 
   return (
     <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: theme.overlay,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 1000,
-      }}
+      className="fixed inset-0 flex items-center justify-center z-[1000]"
+      style={{ background: theme.overlay }}
       onClick={onClose}
     >
       <div
-        style={{
-          background: theme.bgCard,
-          borderRadius: 12,
-          padding: 24,
-          width: '100%',
-          maxWidth: 600,
-          maxHeight: '80vh',
-          overflow: 'auto',
-        }}
+        className="rounded-xl p-6 w-full max-w-[600px] max-h-[80vh] overflow-auto"
+        style={{ background: theme.bgCard }}
         onClick={e => e.stopPropagation()}
       >
-        <h2 style={{ margin: '0 0 20px', fontSize: 20, color: theme.text }}>Edit Kind: {kind.name}</h2>
+        <h2 className="m-0 mb-5 text-xl" style={{ color: theme.text }}>Edit Kind: {kind.name}</h2>
         <form onSubmit={handleSave}>
-          <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
+          <div className="flex gap-3 mb-4 items-end">
             <div>
-              <label style={{ display: 'block', marginBottom: 6, fontSize: 14, fontWeight: 500, color: theme.text }}>Icon</label>
+              <label className="block mb-1.5 text-sm font-medium" style={{ color: theme.text }}>Icon</label>
               <EmojiPicker value={icon} onChange={setIcon} usedEmojis={usedEmojis} theme={theme} />
             </div>
-            <div style={{ flex: 1 }}>
-              <label style={{ display: 'block', marginBottom: 6, fontSize: 14, fontWeight: 500, color: theme.text }}>Name</label>
+            <div className="flex-1">
+              <label className="block mb-1.5 text-sm font-medium" style={{ color: theme.text }}>Name</label>
               <input
                 type="text"
                 value={name}
                 onInput={e => setName((e.target as HTMLInputElement).value)}
-                style={{ width: '100%', padding: '10px 14px', border: `1px solid ${theme.borderInput}`, borderRadius: 6, boxSizing: 'border-box', background: theme.bgInput, color: theme.text }}
+                className="w-full px-3.5 py-2.5 border rounded-md box-border"
+                style={{ border: `1px solid ${theme.borderInput}`, background: theme.bgInput, color: theme.text }}
               />
             </div>
           </div>
 
           {/* Template selector */}
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ display: 'block', marginBottom: 6, fontSize: 14, fontWeight: 500, color: theme.text }}>Display Template</label>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <div className="mb-4">
+            <label className="block mb-1.5 text-sm font-medium" style={{ color: theme.text }}>Display Template</label>
+            <div className="flex gap-2 flex-wrap">
               {TEMPLATES.map(t => (
                 <button
                   key={t.id}
                   type="button"
                   onClick={() => setTemplate(t.id as Kind['template'])}
+                  className="px-3.5 py-2 rounded-md cursor-pointer text-[13px]"
                   style={{
-                    padding: '8px 14px',
                     border: template === t.id ? `2px solid ${theme.accent}` : `1px solid ${theme.borderInput}`,
-                    borderRadius: 6,
                     background: template === t.id ? theme.bgHover : theme.bgInput,
                     color: theme.text,
-                    cursor: 'pointer',
-                    fontSize: 13,
                   }}
                   title={t.description}
                 >
@@ -112,87 +96,82 @@ export function EditKindModal({
                 </button>
               ))}
             </div>
-            <p style={{ fontSize: 12, color: theme.textMuted, marginTop: 4 }}>
+            <p className="text-xs mt-1" style={{ color: theme.textMuted }}>
               {TEMPLATES.find(t => t.id === template)?.description}
             </p>
           </div>
 
           {/* Interaction settings */}
-          <div style={{ marginBottom: 20, padding: 16, background: theme.bgSubtle, borderRadius: 8 }}>
-            <label style={{ display: 'block', marginBottom: 12, fontSize: 14, fontWeight: 500, color: theme.text }}>Interactions</label>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+          <div className="mb-5 p-4 rounded-lg" style={{ background: theme.bgSubtle }}>
+            <label className="block mb-3 text-sm font-medium" style={{ color: theme.text }}>Interactions</label>
+            <div className="flex flex-col gap-3">
+              <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={reactable}
                   onChange={e => setReactable((e.target as HTMLInputElement).checked)}
-                  style={{ width: 18, height: 18, cursor: 'pointer' }}
+                  className="w-[18px] h-[18px] cursor-pointer"
                 />
-                <span style={{ fontSize: 14, color: theme.text }}>Allow reactions</span>
+                <span className="text-sm" style={{ color: theme.text }}>Allow reactions</span>
               </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+              <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={commentable}
                   onChange={e => setCommentable((e.target as HTMLInputElement).checked)}
-                  style={{ width: 18, height: 18, cursor: 'pointer' }}
+                  className="w-[18px] h-[18px] cursor-pointer"
                 />
-                <span style={{ fontSize: 14, color: theme.text }}>Allow replies</span>
+                <span className="text-sm" style={{ color: theme.text }}>Allow replies</span>
               </label>
               {!commentable && (
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginLeft: 26 }}>
+                <label className="flex items-center gap-2 cursor-pointer ml-[26px]">
                   <input
                     type="checkbox"
                     checked={showExistingComments}
                     onChange={e => setShowExistingComments((e.target as HTMLInputElement).checked)}
-                    style={{ width: 16, height: 16, cursor: 'pointer' }}
+                    className="w-4 h-4 cursor-pointer"
                   />
-                  <span style={{ fontSize: 13, color: theme.textMuted }}>Show existing replies (read-only)</span>
+                  <span className="text-[13px]" style={{ color: theme.textMuted }}>Show existing replies (read-only)</span>
                 </label>
               )}
             </div>
           </div>
 
-          <div style={{ marginBottom: 20 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <label style={{ fontSize: 14, fontWeight: 500, color: theme.text }}>Attributes</label>
+          <div className="mb-5">
+            <div className="flex justify-between items-center mb-3">
+              <label className="text-sm font-medium" style={{ color: theme.text }}>Attributes</label>
               <button
                 type="button"
                 onClick={addAttribute}
-                style={{
-                  padding: '6px 12px',
-                  background: theme.bgHover,
-                  color: theme.text,
-                  border: 'none',
-                  borderRadius: 4,
-                  cursor: 'pointer',
-                  fontSize: 13,
-                }}
+                className="px-3 py-1.5 border-none rounded cursor-pointer text-[13px]"
+                style={{ background: theme.bgHover, color: theme.text }}
               >
                 + Add Attribute
               </button>
             </div>
 
             {attributes.length === 0 ? (
-              <p style={{ color: theme.textSubtle, fontSize: 14, textAlign: 'center', padding: 20, background: theme.bgSubtle, borderRadius: 8 }}>
+              <p className="text-sm text-center p-5 rounded-lg" style={{ color: theme.textSubtle, background: theme.bgSubtle }}>
                 No attributes. Add one to define fields for this kind.
               </p>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div className="flex flex-col gap-2">
                 {attributes.map((attr, i) => (
-                  <div key={i} style={{ padding: 12, background: theme.bgSubtle, borderRadius: 8 }}>
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: attr.type === 'select' ? 8 : 0 }}>
+                  <div key={i} className="p-3 rounded-lg" style={{ background: theme.bgSubtle }}>
+                    <div className="flex gap-2 items-center" style={{ marginBottom: attr.type === 'select' ? 8 : 0 }}>
                       <input
                         type="text"
                         value={attr.name}
                         placeholder="Field name"
                         onInput={e => updateAttribute(i, 'name', (e.target as HTMLInputElement).value)}
-                        style={{ flex: 1, padding: '8px 10px', border: `1px solid ${theme.borderInput}`, borderRadius: 4, fontSize: 13, background: theme.bgInput, color: theme.text }}
+                        className="flex-1 px-2.5 py-2 border rounded text-[13px]"
+                        style={{ border: `1px solid ${theme.borderInput}`, background: theme.bgInput, color: theme.text }}
                       />
                       <select
                         value={attr.type}
                         onChange={e => updateAttribute(i, 'type', (e.target as HTMLSelectElement).value)}
-                        style={{ padding: '8px 10px', border: `1px solid ${theme.borderInput}`, borderRadius: 4, fontSize: 13, background: theme.bgInput, color: theme.text }}
+                        className="px-2.5 py-2 border rounded text-[13px]"
+                        style={{ border: `1px solid ${theme.borderInput}`, background: theme.bgInput, color: theme.text }}
                       >
                         <option value="text">Text</option>
                         <option value="number">Number</option>
@@ -201,7 +180,7 @@ export function EditKindModal({
                         <option value="checkbox">Checkbox</option>
                         <option value="select">Select</option>
                       </select>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, whiteSpace: 'nowrap', color: theme.text }}>
+                      <label className="flex items-center gap-1 text-[13px] whitespace-nowrap" style={{ color: theme.text }}>
                         <input
                           type="checkbox"
                           checked={attr.required}
@@ -212,7 +191,8 @@ export function EditKindModal({
                       <button
                         type="button"
                         onClick={() => removeAttribute(i)}
-                        style={{ padding: '4px 8px', background: 'none', border: 'none', color: theme.errorText, cursor: 'pointer', fontSize: 16 }}
+                        className="px-2 py-1 bg-transparent border-none cursor-pointer text-base"
+                        style={{ color: theme.errorText }}
                       >
                         ×
                       </button>
@@ -226,7 +206,8 @@ export function EditKindModal({
                           value={attr.options}
                           placeholder="Options (comma-separated): option1, option2, option3"
                           onInput={e => updateAttribute(i, 'options', (e.target as HTMLInputElement).value)}
-                          style={{ width: '100%', padding: '8px 10px', border: `1px solid ${theme.borderInput}`, borderRadius: 4, fontSize: 13, boxSizing: 'border-box', background: theme.bgInput, color: theme.text }}
+                          className="w-full px-2.5 py-2 border rounded text-[13px] box-border"
+                          style={{ border: `1px solid ${theme.borderInput}`, background: theme.bgInput, color: theme.text }}
                         />
                       </div>
                     )}
@@ -236,31 +217,19 @@ export function EditKindModal({
             )}
           </div>
 
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <div className="flex gap-2 justify-end">
             <button
               type="button"
               onClick={onClose}
-              style={{
-                padding: '10px 20px',
-                background: theme.bgHover,
-                color: theme.text,
-                border: 'none',
-                borderRadius: 6,
-                cursor: 'pointer',
-              }}
+              className="px-5 py-2.5 border-none rounded-md cursor-pointer"
+              style={{ background: theme.bgHover, color: theme.text }}
             >
               Cancel
             </button>
             <button
               type="submit"
-              style={{
-                padding: '10px 20px',
-                background: theme.accent,
-                color: theme.accentText,
-                border: 'none',
-                borderRadius: 6,
-                cursor: 'pointer',
-              }}
+              className="px-5 py-2.5 border-none rounded-md cursor-pointer"
+              style={{ background: theme.accent, color: theme.accentText }}
             >
               Save
             </button>

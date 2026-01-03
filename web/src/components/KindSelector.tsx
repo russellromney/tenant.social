@@ -22,7 +22,7 @@ export function KindSelector({
   const selectedInHidden = hiddenKinds.some(k => k.name === selectedType)
 
   return (
-    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+    <div className="flex gap-1.5 flex-wrap items-center">
       {/* Visible kinds */}
       {visibleKinds.map(kind => {
         const isSelected = kind.name === selectedType
@@ -31,19 +31,10 @@ export function KindSelector({
             key={kind.id}
             type="button"
             onClick={() => onSelectType(kind.name)}
+            className="flex items-center gap-1 px-2.5 py-1.5 text-[13px] border-0 rounded cursor-pointer font-medium transition-all duration-150"
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 4,
-              padding: '5px 10px',
-              fontSize: 13,
-              border: 'none',
-              borderRadius: 4,
-              cursor: 'pointer',
               background: isSelected ? theme.accent : theme.bgMuted,
               color: isSelected ? theme.accentText : theme.textSecondary,
-              fontWeight: 500,
-              transition: 'all 0.15s',
             }}
           >
             <span>{kind.icon}</span>
@@ -61,15 +52,10 @@ export function KindSelector({
               onSelectType(e.currentTarget.value)
             }
           }}
+          className="px-2 py-1.5 text-[13px] border-0 rounded cursor-pointer font-medium"
           style={{
-            padding: '5px 8px',
-            fontSize: 13,
-            border: 'none',
-            borderRadius: 4,
-            cursor: 'pointer',
             background: selectedInHidden ? theme.accent : theme.bgMuted,
             color: selectedInHidden ? theme.accentText : theme.textMuted,
-            fontWeight: 500,
           }}
         >
           <option value="" disabled={selectedInHidden}>

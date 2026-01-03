@@ -100,29 +100,18 @@ export function ReactionBar({
     }
   }
 
-  const buttonStyle = {
-    background: 'none',
-    border: 'none',
-    cursor: loading ? 'wait' : 'pointer',
-    padding: compact ? '2px 6px' : '4px 8px',
-    borderRadius: 4,
-    fontSize: compact ? 13 : 14,
-    display: 'flex',
-    alignItems: 'center',
-    gap: 4,
-    color: theme.textMuted,
-    transition: 'background 0.15s',
-  }
+  const buttonClass = `bg-transparent border-0 flex items-center rounded transition-[background] duration-150 ${compact ? 'px-1.5 py-0.5 text-xs gap-1' : 'px-2 py-1 text-sm gap-1'}`
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: compact ? 6 : 10, flexWrap: 'wrap' }}>
+    <div className={`flex items-center flex-wrap ${compact ? 'gap-1.5' : 'gap-2.5'}`}>
       {/* Like button */}
       <button
         onClick={toggleLike}
+        className={buttonClass}
         style={{
-          ...buttonStyle,
           color: hasLiked ? '#e25555' : theme.textMuted,
           background: hasLiked ? 'rgba(226, 85, 85, 0.1)' : 'transparent',
+          cursor: loading ? 'wait' : 'pointer',
         }}
         onMouseEnter={e => { if (!hasLiked) e.currentTarget.style.background = theme.bgMuted }}
         onMouseLeave={e => { if (!hasLiked) e.currentTarget.style.background = 'transparent' }}
@@ -139,9 +128,11 @@ export function ReactionBar({
           <button
             key={emoji}
             onClick={() => addEmojiReaction(emoji)}
+            className={buttonClass}
             style={{
-              ...buttonStyle,
               background: hasReacted ? 'rgba(100, 100, 100, 0.15)' : 'transparent',
+              color: theme.textMuted,
+              cursor: loading ? 'wait' : 'pointer',
             }}
             onMouseEnter={e => e.currentTarget.style.background = theme.bgMuted}
             onMouseLeave={e => e.currentTarget.style.background = hasReacted ? 'rgba(100, 100, 100, 0.15)' : 'transparent'}
@@ -153,12 +144,14 @@ export function ReactionBar({
       })}
 
       {/* Add emoji button */}
-      <div style={{ position: 'relative' }}>
+      <div className="relative">
         <button
           onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+          className={buttonClass}
           style={{
-            ...buttonStyle,
             fontSize: compact ? 11 : 12,
+            color: theme.textMuted,
+            cursor: loading ? 'wait' : 'pointer',
           }}
           onMouseEnter={e => e.currentTarget.style.background = theme.bgMuted}
           onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
@@ -170,34 +163,17 @@ export function ReactionBar({
         {/* Emoji picker dropdown */}
         {showEmojiPicker && (
           <div
+            className="absolute bottom-full left-0 mb-1 p-2 rounded-lg grid grid-cols-4 gap-1 z-[100] shadow-[0_4px_12px_rgba(0,0,0,0.15)]"
             style={{
-              position: 'absolute',
-              bottom: '100%',
-              left: 0,
-              marginBottom: 4,
               background: theme.bgCard,
               border: `1px solid ${theme.border}`,
-              borderRadius: 8,
-              padding: 8,
-              display: 'grid',
-              gridTemplateColumns: 'repeat(4, 1fr)',
-              gap: 4,
-              zIndex: 100,
-              boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
             }}
           >
             {QUICK_EMOJIS.map(emoji => (
               <button
                 key={emoji}
                 onClick={() => addEmojiReaction(emoji)}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  fontSize: 18,
-                  padding: 4,
-                  borderRadius: 4,
-                }}
+                className="bg-transparent border-0 cursor-pointer text-lg p-1 rounded"
                 onMouseEnter={e => e.currentTarget.style.background = theme.bgMuted}
                 onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
               >
@@ -259,14 +235,10 @@ export function BookmarkButton({
         e.stopPropagation()
         toggleBookmark()
       }}
+      className="bg-transparent border-0 text-base px-2 py-1 shrink-0"
       style={{
-        background: 'none',
-        border: 'none',
         color: isBookmarked ? theme.accent : theme.textDisabled,
         cursor: loading ? 'wait' : 'pointer',
-        fontSize: 16,
-        padding: '4px 8px',
-        flexShrink: 0,
       }}
       onMouseEnter={e => { if (!isBookmarked) e.currentTarget.style.color = theme.accent }}
       onMouseLeave={e => { if (!isBookmarked) e.currentTarget.style.color = theme.textDisabled }}
@@ -293,16 +265,8 @@ export function EditedIndicator({
         e.stopPropagation()
         onClick()
       }}
-      style={{
-        background: 'none',
-        border: 'none',
-        color: theme.textMuted,
-        cursor: 'pointer',
-        fontSize: 11,
-        padding: '2px 4px',
-        textDecoration: 'underline',
-        textDecorationStyle: 'dotted',
-      }}
+      className="bg-transparent border-0 cursor-pointer text-[11px] px-1 py-0.5 underline decoration-dotted"
+      style={{ color: theme.textMuted }}
       title="View edit history"
     >
       edited {formatRelativeTime(editedAt)}
@@ -354,69 +318,45 @@ export function EditHistoryModal({
 
   return (
     <div
-      style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        background: 'rgba(0, 0, 0, 0.6)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 1000,
-      }}
+      className="fixed inset-0 flex items-center justify-center z-[1000]"
+      style={{ background: 'rgba(0, 0, 0, 0.6)' }}
       onClick={onClose}
     >
       <div
-        style={{
-          background: theme.bgCard,
-          borderRadius: 12,
-          padding: 24,
-          maxWidth: 600,
-          width: '90%',
-          maxHeight: '80vh',
-          overflow: 'auto',
-          boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
-        }}
+        className="rounded-xl p-6 max-w-[600px] w-[90%] max-h-[80vh] overflow-auto shadow-[0_8px_32px_rgba(0,0,0,0.3)]"
+        style={{ background: theme.bgCard }}
         onClick={e => e.stopPropagation()}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <h3 style={{ margin: 0, color: theme.text }}>Edit History</h3>
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="m-0" style={{ color: theme.text }}>Edit History</h3>
           <button
             onClick={onClose}
-            style={{
-              background: 'none',
-              border: 'none',
-              fontSize: 20,
-              cursor: 'pointer',
-              color: theme.textMuted,
-            }}
+            className="bg-transparent border-0 text-xl cursor-pointer"
+            style={{ color: theme.textMuted }}
           >
             ×
           </button>
         </div>
 
         {loading ? (
-          <div style={{ color: theme.textMuted, textAlign: 'center', padding: 20 }}>Loading...</div>
+          <div className="text-center p-5" style={{ color: theme.textMuted }}>Loading...</div>
         ) : history.length === 0 ? (
-          <div style={{ color: theme.textMuted, textAlign: 'center', padding: 20 }}>No edit history available</div>
+          <div className="text-center p-5" style={{ color: theme.textMuted }}>No edit history available</div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div className="flex flex-col gap-4">
             {history.map((entry, index) => (
               <div
                 key={entry.id}
+                className="p-3 rounded-lg"
                 style={{
-                  padding: 12,
                   background: theme.bgMuted,
-                  borderRadius: 8,
                   border: `1px solid ${theme.border}`,
                 }}
               >
-                <div style={{ fontSize: 11, color: theme.textMuted, marginBottom: 8 }}>
+                <div className="text-[11px] mb-2" style={{ color: theme.textMuted }}>
                   {index === 0 ? 'Previous version' : `Version ${history.length - index}`} • {formatRelativeTime(entry.edited_at)}
                 </div>
-                <div style={{ color: theme.text, whiteSpace: 'pre-wrap', fontSize: 14 }}>
+                <div className="whitespace-pre-wrap text-sm" style={{ color: theme.text }}>
                   {entry.content}
                 </div>
               </div>

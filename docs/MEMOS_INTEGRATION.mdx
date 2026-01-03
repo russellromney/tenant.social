@@ -1,0 +1,267 @@
+# Memos Integration: Bringing Quick Capture to Tenant
+
+## Overview
+
+[Memos](https://usememos.com/) is a lightweight, self-hosted memo hub for capturing and sharing ideas. It excels at **speed of capture** - getting thoughts out of your head with minimal friction.
+
+Tenant already has deeper capabilities (Kinds, Views, Federation, Comments, Reactions), but can learn from Memos' UX philosophy: **capture first, organize later**.
+
+---
+
+## What Memos Does Well
+
+### Core Philosophy: Atomic Notes
+Memos treats each note as a **card-like unit of thought** - quick to capture, easy to browse, naturally organized. Key features:
+
+| Feature | Description |
+|---------|-------------|
+| **Instant persistence** | No save button - content saves as you type |
+| **Inline #hashtags** | Type `#tag` anywhere, auto-creates/links tag |
+| **Daily timeline** | Content organized chronologically by day |
+| **Markdown support** | Full rendering with syntax highlighting |
+| **Zero friction input** | Just a text box - no type/category selection needed |
+| **RSS feeds** | Public memos available via RSS subscription |
+| **Telegram bot** | Quick capture from messaging apps |
+| **API-first** | REST and gRPC APIs for integrations |
+
+### Technical Stack
+- Self-hosted, privacy-first (zero telemetry)
+- Docker deployment in ~5 minutes
+- Works from Raspberry Pi to enterprise servers
+- MIT licensed, fully open source
+
+---
+
+## Tenant vs Memos: Feature Comparison
+
+| Capability | Memos | Tenant | Notes |
+|------------|-------|--------|-------|
+| **Quick capture** | Excellent | Good | Tenant requires Kind selection |
+| **Inline tagging** | `#tag` auto-creates | Separate UI | Opportunity for improvement |
+| **Auto-save** | Yes | No (explicit submit) | Add auto-save |
+| **Daily view** | Built-in | Not yet | Add journal/daily view |
+| **Custom schemas** | No | Yes (Kinds) | Tenant is more flexible |
+| **Multiple views** | Timeline only | Feed/Table/Board/Calendar | Tenant wins |
+| **Comments** | No | Yes (federated) | Tenant wins |
+| **Reactions** | No | Yes (emoji + like) | Tenant wins |
+| **Federation** | RSS only | Full friend network | Tenant wins |
+| **Version history** | No | Yes | Tenant wins |
+| **Relationships** | No | Yes (thing linking) | Tenant wins |
+| **Offline support** | Browser scratchpad | No | Add IndexedDB sync |
+| **Telegram/Discord** | Official bot | Webhooks only | Build bot integration |
+| **MCP/AI integration** | No | Planned | Major opportunity |
+
+---
+
+## Integration Priorities
+
+### Tier 1: Quick Wins (Low Effort, High Impact)
+
+#### 1. Inline Hashtag Detection
+When typing content, `#tagname` should:
+- Highlight visually as a tag
+- Auto-create the tag if new
+- Link to the tag on save
+- Work in both content and metadata fields
+
+```jsx
+// Example: typing "Just booked flights for #travel to Japan"
+// Auto-detects #travel, creates tag, links it
+```
+
+#### 2. Quick Capture Mode
+A stripped-down input experience:
+- Keyboard shortcut (Cmd+Shift+N) to open modal
+- Just text + visibility toggle
+- Auto-detect Kind from content:
+  - URLs → link
+  - `[ ]` or `- [ ]` → task
+  - Image paste → photo
+  - Default → note
+- Auto-save after typing stops (debounced 500ms)
+
+```
+┌──────────────────────────────────────────┐
+│ What's on your mind?                     │
+│ ──────────────────────────────────────── │
+│ Meeting notes from standup #work         │
+│ - Discussed Q1 roadmap                   │
+│ - Need to follow up with design team     │
+│                                          │
+│ [🔒 Private ▾]              [auto-saved] │
+└──────────────────────────────────────────┘
+```
+
+#### 3. RSS Feed Generation
+Expose public Things via RSS:
+- `/{username}/feed.xml` - All public Things
+- `/{username}/feed/{kind}.xml` - Kind-specific (notes, links, etc.)
+- `/{username}/feed/tag/{tag}.xml` - Tag-specific
+- Standard RSS 2.0 or Atom format
+
+### Tier 2: Medium Effort, High Impact
+
+#### 4. Daily/Journal View
+New View type that groups Things chronologically:
+- Sections: Today / Yesterday / This Week / This Month / Older
+- Calendar sidebar for date navigation
+- Expandable/collapsible day sections
+- Quick-add within each day section
+- Filter by Kind (show only notes, or only tasks, etc.)
+
+#### 5. Slash Commands
+Power-user commands while editing:
+```
+/tag:travel     → Add tag
+/link:@thing-id → Create relationship
+/kind:task      → Change Kind to task
+/public         → Set visibility to public
+/done           → Mark task as done (if task)
+/pin            → Pin to top of feed
+```
+
+#### 6. Pin/Star System
+Beyond bookmarks (which save others' content):
+- **Pin** → Keeps Thing at top of your feed
+- **Star** → Quick-access favorites sidebar
+- Pinned Things in dedicated section above feed
+
+### Tier 3: Higher Effort, Strategic Value
+
+#### 7. Telegram/Discord Bot
+Official integration for capture from anywhere:
+```
+User: /note Meeting at 3pm with design team #work
+Bot: Created note ✓
+
+User: [sends photo]
+Bot: Created photo ✓
+
+User: /task Buy groceries
+Bot: Created task ✓
+```
+
+Features:
+- `/note`, `/task`, `/link` commands
+- Forward messages to create Things
+- Photo/file attachment support
+- Inline tag detection
+
+#### 8. Real-Time Sync Layer
+WebSocket-based updates:
+- Changes reflect across browser tabs instantly
+- IndexedDB for offline-first operation
+- Sync queue for offline edits
+- Conflict resolution (last-write-wins with merge UI)
+
+#### 9. MCP Server for AI Integration
+Enable Claude/AI assistants to interact with Tenant:
+- Create Things from conversations
+- Search Things for context
+- Update tasks, add tags
+- Full CRUD via MCP tools
+
+See [MCP_SERVER.md](./MCP_SERVER.md) for implementation details.
+
+---
+
+## UX Principles from Memos
+
+### 1. Capture Speed is Everything
+The path from thought → saved should be under 2 seconds:
+- Keyboard shortcut opens capture
+- Start typing immediately (no Kind selection)
+- Auto-save means no submit button
+- Close modal to continue working
+
+### 2. Organization is Optional
+Tags and Kinds should be **addable after creation**:
+- Create first, categorize later
+- Inline #hashtags reduce friction
+- Smart defaults (private visibility, note Kind)
+
+### 3. Timeline is Natural
+Daily chronological view matches how memory works:
+- "What did I write yesterday?"
+- "What happened last Tuesday?"
+- Calendar navigation for jumping to dates
+
+### 4. Markdown is Universal
+Full Markdown support enables:
+- Code snippets with syntax highlighting
+- Checklists that work
+- Links that render
+- Images inline
+
+---
+
+## Implementation Roadmap
+
+### Phase 1: Quick Capture Foundation
+1. Add inline hashtag detection (frontend + backend tag creation)
+2. Create QuickCapture component with auto-save
+3. Implement Kind auto-detection from content
+4. Add keyboard shortcut system
+
+### Phase 2: Views and Organization
+1. Add Daily/Journal view type
+2. Implement Pin/Star system
+3. Add RSS feed endpoints
+4. Create saved filters/shortcuts
+
+### Phase 3: Integrations
+1. Build MCP server for AI integration
+2. Create Telegram bot
+3. Add real-time sync layer
+4. Browser extension for capture from any page
+
+---
+
+## API Additions Needed
+
+### New Endpoints
+
+```
+# RSS Feeds
+GET /{username}/feed.xml
+GET /{username}/feed/{kind}.xml
+GET /{username}/feed/tag/{tag}.xml
+
+# Pin/Star
+POST   /api/things/{id}/pin
+DELETE /api/things/{id}/pin
+POST   /api/things/{id}/star
+DELETE /api/things/{id}/star
+GET    /api/things/pinned
+GET    /api/things/starred
+
+# Quick Capture
+POST   /api/capture          # Auto-detects Kind, creates Thing
+```
+
+### Modified Endpoints
+
+```
+# Things - add inline tag parsing
+POST /api/things
+  - Parse content for #hashtags
+  - Auto-create and link tags
+
+# Things - add auto-save support
+PATCH /api/things/{id}/autosave
+  - Debounced partial updates
+  - No version increment until explicit save
+```
+
+---
+
+## Conclusion
+
+Memos and Tenant share core values: self-hosted, privacy-first, open source. The key insight from Memos is **capture speed** - getting thoughts saved with minimum friction.
+
+By integrating Memos' quick-capture UX with Tenant's powerful organization, we get the best of both worlds:
+- **Capture like Memos**: Fast, frictionless, auto-saving
+- **Organize like Tenant**: Kinds, Views, Federation, Relationships
+- **Extend beyond both**: MCP for AI integration, real-time sync, rich social features
+
+The goal: **Memos' speed + Tenant's depth + AI-native integration**.

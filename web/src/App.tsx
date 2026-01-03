@@ -39,33 +39,25 @@ function UnifiedDocsPage() {
   }
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', fontFamily: 'system-ui, sans-serif', background: theme.bg }}>
+    <div className="flex min-h-screen font-sans" style={{ background: theme.bg }}>
       {/* Sidebar */}
-      <div style={{
-        width: 220,
+      <div className="w-[220px] fixed h-screen overflow-y-auto py-5 border-r" style={{
         background: theme.bgCard,
-        borderRight: `1px solid ${theme.border}`,
-        padding: '20px 0',
-        position: 'fixed',
-        height: '100vh',
-        overflowY: 'auto',
+        borderRightColor: theme.border,
       }}>
-        <a href={routeHref('/')} style={{ textDecoration: 'none', color: theme.text, display: 'block', padding: '0 20px 20px' }}>
-          <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>tenant</h1>
+        <a href={routeHref('/')} className="block no-underline px-5 pb-5" style={{ color: theme.text }}>
+          <h1 className="text-2xl font-bold m-0">tenant</h1>
         </a>
         <nav>
           {sections.map(s => (
             <a
               key={s.id}
               href={s.route}
+              className="block py-2.5 px-5 no-underline text-sm border-l-[3px]"
               style={{
-                display: 'block',
-                padding: '10px 20px',
                 color: section === s.id ? theme.accent : theme.textSecondary,
-                textDecoration: 'none',
                 background: section === s.id ? theme.bgMuted : 'transparent',
-                borderLeft: section === s.id ? `3px solid ${theme.accent}` : '3px solid transparent',
-                fontSize: 14,
+                borderLeftColor: section === s.id ? theme.accent : 'transparent',
                 fontWeight: section === s.id ? 600 : 400,
               }}
             >
@@ -76,19 +68,16 @@ function UnifiedDocsPage() {
       </div>
 
       {/* Main content */}
-      <div style={{ marginLeft: 220, flex: 1 }}>
-        <div style={{ maxWidth: 800, margin: '0 auto', padding: 40 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
-            <h2 style={{ fontSize: 28, fontWeight: 600, margin: 0, color: theme.text }}>{sectionTitles[section]}</h2>
+      <div className="ml-[220px] flex-1">
+        <div className="max-w-[800px] mx-auto p-10">
+          <div className="flex justify-between items-center mb-8">
+            <h2 className="text-[28px] font-semibold m-0" style={{ color: theme.text }}>{sectionTitles[section]}</h2>
             <a
               href={routeHref('/')}
+              className="px-4 py-2 rounded-md text-sm no-underline"
               style={{
-                padding: '8px 16px',
                 background: theme.bgHover,
                 color: theme.textSecondary,
-                borderRadius: 6,
-                fontSize: 14,
-                textDecoration: 'none',
               }}
             >
               ← Back
@@ -171,28 +160,16 @@ function AuthScreen({ onAuth, authStatus }: { onAuth: () => void, authStatus: Au
   const showRegisterOption = authStatus?.registrationEnabled
 
   return (
-    <div style={{
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      minHeight: '100vh',
-      fontFamily: 'system-ui, sans-serif',
-      background: theme.bg,
-      flexDirection: 'column',
-    }}>
-      <div style={{
+    <div className="flex items-center justify-center min-h-screen font-sans flex-col" style={{ background: theme.bg }}>
+      <div className="w-full max-w-[380px] p-8 rounded-xl" style={{
         background: theme.bgCard,
-        padding: 32,
-        borderRadius: 12,
         boxShadow: `0 4px 12px ${theme.shadow}`,
-        width: '100%',
-        maxWidth: 380,
       }}>
-        <h1 style={{ fontSize: 36, fontWeight: 700, margin: '0 0 8px', textAlign: 'center', color: theme.text }}>tenant.social</h1>
-        <p style={{ color: theme.textMuted, fontSize: 14, margin: '0 0 20px', textAlign: 'center' }}>
+        <h1 className="text-4xl font-bold m-0 mb-2 text-center" style={{ color: theme.text }}>tenant.social</h1>
+        <p className="text-sm mb-5 text-center" style={{ color: theme.textMuted }}>
           your corner of the internet
         </p>
-        <p style={{ color: theme.textSecondary, fontSize: 14, margin: '0 0 16px', textAlign: 'center', fontWeight: 500 }}>
+        <p className="text-sm mb-4 text-center font-medium" style={{ color: theme.textSecondary }}>
           {mode === 'register' ? 'Create your account' : 'Sign in to continue'}
         </p>
         <form onSubmit={handleSubmit}>
@@ -202,14 +179,9 @@ function AuthScreen({ onAuth, authStatus }: { onAuth: () => void, authStatus: Au
             onInput={e => setUsername((e.target as HTMLInputElement).value)}
             placeholder="Username"
             autoFocus
+            className="w-full px-3.5 py-3 rounded-md text-base box-border mb-3 border"
             style={{
-              width: '100%',
-              padding: '12px 14px',
-              border: `1px solid ${theme.borderInput}`,
-              borderRadius: 6,
-              fontSize: 16,
-              boxSizing: 'border-box',
-              marginBottom: 12,
+              borderColor: theme.borderInput,
               background: theme.bgInput,
               color: theme.text,
             }}
@@ -220,14 +192,9 @@ function AuthScreen({ onAuth, authStatus }: { onAuth: () => void, authStatus: Au
               value={email}
               onInput={e => setEmail((e.target as HTMLInputElement).value)}
               placeholder="Email"
+              className="w-full px-3.5 py-3 rounded-md text-base box-border mb-3 border"
               style={{
-                width: '100%',
-                padding: '12px 14px',
-                border: `1px solid ${theme.borderInput}`,
-                borderRadius: 6,
-                fontSize: 16,
-                boxSizing: 'border-box',
-                marginBottom: 12,
+                borderColor: theme.borderInput,
                 background: theme.bgInput,
                 color: theme.text,
               }}
@@ -238,35 +205,24 @@ function AuthScreen({ onAuth, authStatus }: { onAuth: () => void, authStatus: Au
             value={password}
             onInput={e => setPassword((e.target as HTMLInputElement).value)}
             placeholder="Password"
+            className="w-full px-3.5 py-3 rounded-md text-base box-border mb-3 border"
             style={{
-              width: '100%',
-              padding: '12px 14px',
-              border: error ? `1px solid ${theme.error}` : `1px solid ${theme.borderInput}`,
-              borderRadius: 6,
-              fontSize: 16,
-              boxSizing: 'border-box',
-              marginBottom: 12,
+              borderColor: error ? theme.error : theme.borderInput,
               background: theme.bgInput,
               color: theme.text,
             }}
           />
           {error && (
-            <p style={{ color: theme.error, fontSize: 13, margin: '0 0 12px' }}>{error}</p>
+            <p className="text-[13px] m-0 mb-3" style={{ color: theme.error }}>{error}</p>
           )}
           <button
             type="submit"
             disabled={!isValid || loading}
+            className="w-full px-5 py-3 border-none rounded-md text-base font-semibold mb-4"
             style={{
-              width: '100%',
-              padding: '12px 20px',
               background: isValid && !loading ? theme.accent : theme.textDisabled,
               color: isValid && !loading ? theme.accentText : theme.textSubtle,
-              border: 'none',
-              borderRadius: 6,
-              fontSize: 16,
-              fontWeight: 600,
               cursor: isValid && !loading ? 'pointer' : 'not-allowed',
-              marginBottom: 16,
             }}
           >
             {loading
@@ -276,17 +232,17 @@ function AuthScreen({ onAuth, authStatus }: { onAuth: () => void, authStatus: Au
         </form>
         {/* Only show toggle if registration is enabled */}
         {showRegisterOption && (
-          <p style={{ textAlign: 'center', fontSize: 14, color: theme.textMuted, margin: 0 }}>
+          <p className="text-center text-sm m-0" style={{ color: theme.textMuted }}>
             {mode === 'register' ? (
-              <>Already have an account? <button onClick={() => { setMode('login'); setError('') }} style={{ background: 'none', border: 'none', color: theme.link, cursor: 'pointer', fontSize: 14, padding: 0 }}>Sign in</button></>
+              <>Already have an account? <button onClick={() => { setMode('login'); setError('') }} className="bg-none border-none cursor-pointer text-sm p-0" style={{ color: theme.link }}>Sign in</button></>
             ) : (
-              <>Don't have an account? <button onClick={() => { setMode('register'); setError('') }} style={{ background: 'none', border: 'none', color: theme.link, cursor: 'pointer', fontSize: 14, padding: 0 }}>Register</button></>
+              <>Don't have an account? <button onClick={() => { setMode('register'); setError('') }} className="bg-none border-none cursor-pointer text-sm p-0" style={{ color: theme.link }}>Register</button></>
             )}
           </p>
         )}
         {/* For single-tenant instances, no registration option */}
         {!showRegisterOption && mode === 'login' && (
-          <p style={{ textAlign: 'center', fontSize: 12, color: theme.textSubtle, margin: 0 }}>
+          <p className="text-center text-xs m-0" style={{ color: theme.textSubtle }}>
             This is a private instance
           </p>
         )}
@@ -387,52 +343,44 @@ function PostPage({
   const kind = thing ? getKind(thing.type) : undefined
 
   return (
-    <div style={{ maxWidth: 700, margin: '0 auto', padding: isMobile ? 12 : 20, fontFamily: 'system-ui, sans-serif', background: theme.bg, minHeight: '100vh', color: theme.text }}>
+    <div className="max-w-[700px] mx-auto font-sans min-h-screen" style={{
+      padding: isMobile ? 12 : 20,
+      background: theme.bg,
+      color: theme.text
+    }}>
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: isMobile ? 16 : 24, gap: 8 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+      <div className="flex justify-between items-center gap-2" style={{ marginBottom: isMobile ? 16 : 24 }}>
+        <div className="flex items-center gap-3">
           <button
             onClick={onBack}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: theme.textMuted,
-              cursor: 'pointer',
-              fontSize: 20,
-              padding: '4px 8px',
-            }}
+            className="bg-none border-none cursor-pointer text-xl px-2 py-1"
+            style={{ color: theme.textMuted }}
           >
             ←
           </button>
-          <a href={routeHref('/')} style={{ textDecoration: 'none', color: theme.text }}>
-            <h1 style={{ fontSize: isMobile ? 22 : 28, fontWeight: 700, margin: 0 }}>tenant</h1>
+          <a href={routeHref('/')} className="no-underline" style={{ color: theme.text }}>
+            <h1 className="font-bold m-0" style={{ fontSize: isMobile ? 22 : 28 }}>tenant</h1>
           </a>
         </div>
-        <div style={{ display: 'flex', gap: isMobile ? 4 : 8, alignItems: 'center' }}>
+        <div className="flex items-center" style={{ gap: isMobile ? 4 : 8 }}>
           <button
             onClick={toggleTheme}
+            className="border-none rounded-md cursor-pointer text-sm"
             style={{
               padding: isMobile ? '6px 10px' : '8px 12px',
               background: theme.bgHover,
               color: theme.textMuted,
-              border: 'none',
-              borderRadius: 6,
-              cursor: 'pointer',
-              fontSize: 14,
             }}
           >
             {isDark ? '☀️' : '🌙'}
           </button>
           <button
             onClick={onLogout}
+            className="border-none rounded-md cursor-pointer text-sm"
             style={{
               padding: isMobile ? '6px 10px' : '8px 12px',
               background: theme.bgHover,
               color: theme.textMuted,
-              border: 'none',
-              borderRadius: 6,
-              cursor: 'pointer',
-              fontSize: 14,
             }}
           >
             Logout
@@ -442,9 +390,9 @@ function PostPage({
 
       {/* Content */}
       {loading ? (
-        <p style={{ textAlign: 'center', color: theme.textMuted }}>Loading...</p>
+        <p className="text-center" style={{ color: theme.textMuted }}>Loading...</p>
       ) : error ? (
-        <p style={{ textAlign: 'center', color: theme.error }}>{error}</p>
+        <p className="text-center" style={{ color: theme.error }}>{error}</p>
       ) : thing ? (
         <>
           <ThingCard
@@ -472,11 +420,11 @@ function PostPage({
 
           {/* Backlinks Section */}
           {!backlinksLoading && backlinks.length > 0 && (
-            <div style={{ marginTop: 32, paddingTop: 24, borderTop: `1px solid ${theme.border}` }}>
-              <h2 style={{ fontSize: 18, fontWeight: 600, marginTop: 0, marginBottom: 16, color: theme.text }}>
+            <div className="mt-8 pt-6 border-t" style={{ borderTopColor: theme.border }}>
+              <h2 className="text-lg font-semibold mt-0 mb-4" style={{ color: theme.text }}>
                 Backlinks ({backlinks.length})
               </h2>
-              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(250px, 1fr))', gap: 12 }}>
+              <div className="grid gap-3" style={{ gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(250px, 1fr))' }}>
                 {backlinks.map(backlink => (
                   <ThingCard
                     key={backlink.id}
@@ -1040,162 +988,130 @@ function App() {
   ]
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', fontFamily: 'system-ui, sans-serif', background: theme.bg, color: theme.text }}>
+    <div className="flex min-h-screen font-sans" style={{ background: theme.bg, color: theme.text }}>
       {/* Side Menu */}
-      <div style={{
-        width: sidebarWidth,
-        flexShrink: 0,
-        background: theme.bgCard,
-        borderRight: `1px solid ${theme.border}`,
-        display: 'flex',
-        flexDirection: 'column',
-        position: 'fixed',
-        top: 0,
-        left: isMobile ? 0 : `calc(50% - ${350 + sidebarWidth}px)`,
-        bottom: 0,
-        zIndex: 100,
-      }}>
+      <div
+        className="flex-shrink-0 flex flex-col fixed top-0 bottom-0 z-[100] border-r"
+        style={{
+          width: sidebarWidth,
+          background: theme.bgCard,
+          borderRightColor: theme.border,
+          left: isMobile ? 0 : `calc(50% - ${350 + sidebarWidth}px)`,
+        }}
+      >
         {/* Logo */}
         <a
           href={routeHref('/')}
+          className="no-underline flex items-center border-b"
           style={{
             padding: isMobile ? '16px 0' : '20px 16px',
-            textDecoration: 'none',
             color: theme.text,
-            display: 'flex',
-            alignItems: 'center',
             justifyContent: isMobile ? 'center' : 'flex-start',
-            borderBottom: `1px solid ${theme.border}`,
+            borderBottomColor: theme.border,
           }}
         >
-          <span style={{ fontSize: isMobile ? 20 : 22, fontWeight: 700 }}>
+          <span className="font-bold" style={{ fontSize: isMobile ? 20 : 22 }}>
             {isMobile ? 't' : 'tenant'}
           </span>
         </a>
 
         {/* Navigation */}
-        <nav style={{ flex: 1, padding: '12px 0', display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <nav className="flex-1 py-3 flex flex-col gap-1">
           {navItems.map(item => (
             <a
               key={item.href}
               href={routeHref(item.href)}
+              className="flex items-center gap-3 no-underline text-sm transition-all duration-150"
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 12,
                 padding: isMobile ? '12px 0' : '10px 16px',
                 justifyContent: isMobile ? 'center' : 'flex-start',
                 background: item.active ? theme.accent : 'transparent',
                 color: item.active ? theme.accentText : theme.text,
-                textDecoration: 'none',
                 borderRadius: isMobile ? 0 : 6,
                 margin: isMobile ? 0 : '0 8px',
-                fontSize: 14,
                 fontWeight: item.active ? 600 : 400,
-                transition: 'background 0.15s',
               }}
               onMouseEnter={e => !item.active && (e.currentTarget.style.background = theme.bgHover)}
               onMouseLeave={e => !item.active && (e.currentTarget.style.background = 'transparent')}
             >
-              <span style={{ fontSize: 18 }}>{item.icon}</span>
+              <span className="text-lg">{item.icon}</span>
               {!isMobile && <span>{item.label}</span>}
             </a>
           ))}
         </nav>
 
         {/* Bottom actions */}
-        <div style={{ padding: isMobile ? '12px 0' : '12px 8px', borderTop: `1px solid ${theme.border}`, display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div className="flex flex-col gap-1 border-t" style={{
+          padding: isMobile ? '12px 0' : '12px 8px',
+          borderTopColor: theme.border
+        }}>
           <button
             onClick={toggleTheme}
+            className="flex items-center gap-3 bg-transparent border-none text-sm cursor-pointer w-full"
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 12,
               padding: isMobile ? '12px 0' : '10px 16px',
               justifyContent: isMobile ? 'center' : 'flex-start',
-              background: 'transparent',
               color: theme.textMuted,
-              border: 'none',
               borderRadius: isMobile ? 0 : 6,
-              margin: isMobile ? 0 : '0 0',
-              fontSize: 14,
-              cursor: 'pointer',
-              width: '100%',
             }}
             title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
           >
-            <span style={{ fontSize: 18 }}>{isDark ? '☀️' : '🌙'}</span>
+            <span className="text-lg">{isDark ? '☀️' : '🌙'}</span>
             {!isMobile && <span>{isDark ? 'Light' : 'Dark'}</span>}
           </button>
           <button
             onClick={handleLogout}
+            className="flex items-center gap-3 bg-transparent border-none text-sm cursor-pointer w-full"
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 12,
               padding: isMobile ? '12px 0' : '10px 16px',
               justifyContent: isMobile ? 'center' : 'flex-start',
-              background: 'transparent',
               color: theme.textMuted,
-              border: 'none',
               borderRadius: isMobile ? 0 : 6,
-              margin: isMobile ? 0 : '0 0',
-              fontSize: 14,
-              cursor: 'pointer',
-              width: '100%',
             }}
           >
-            <span style={{ fontSize: 18 }}>🚪</span>
+            <span className="text-lg">🚪</span>
             {!isMobile && <span>Logout</span>}
           </button>
         </div>
 
         {/* Footer Links */}
         {!isMobile && (
-          <div style={{ padding: '12px 16px', borderTop: `1px solid ${theme.border}`, fontSize: 11, color: theme.textSubtle }}>
-            <div style={{ marginBottom: 8, color: theme.textMuted }}>
+          <div className="px-4 py-3 border-t text-[11px]" style={{
+            borderTopColor: theme.border,
+            color: theme.textSubtle
+          }}>
+            <div className="mb-2" style={{ color: theme.textMuted }}>
               Your personal social data platform
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8 }}>
-              <a href={routeHref('/docs')} style={{ color: theme.textMuted, textDecoration: 'none' }}>About</a>
-              <a href={routeHref('/docs/api')} style={{ color: theme.textMuted, textDecoration: 'none' }}>API</a>
-              <a href={routeHref('/docs/deployment')} style={{ color: theme.textMuted, textDecoration: 'none' }}>Deploy</a>
-              <a href="https://github.com/russellromney/tenant.social" target="_blank" rel="noopener noreferrer" style={{ color: theme.textMuted, textDecoration: 'none' }}>GitHub</a>
+            <div className="flex flex-col gap-1 mb-2">
+              <a href={routeHref('/docs')} className="no-underline" style={{ color: theme.textMuted }}>About</a>
+              <a href={routeHref('/docs/api')} className="no-underline" style={{ color: theme.textMuted }}>API</a>
+              <a href={routeHref('/docs/deployment')} className="no-underline" style={{ color: theme.textMuted }}>Deploy</a>
+              <a href="https://github.com/russellromney/tenant.social" target="_blank" rel="noopener noreferrer" className="no-underline" style={{ color: theme.textMuted }}>GitHub</a>
             </div>
-            <div>Made with ❤️ in NYC by <a href="https://russellromney.com" target="_blank" rel="noopener noreferrer" style={{ color: theme.link, textDecoration: 'none' }}>me</a></div>
+            <div>Made with ❤️ in NYC by <a href="https://russellromney.com" target="_blank" rel="noopener noreferrer" className="no-underline" style={{ color: theme.link }}>me</a></div>
           </div>
         )}
       </div>
 
       {/* Main Content */}
-      <div style={{
-        marginLeft: isMobile ? sidebarWidth : `calc(50% - ${350}px)`,
-        flex: 1,
-        display: 'flex',
-        justifyContent: isMobile ? 'center' : 'flex-start',
-      }}>
-      <div style={{
-        width: '100%',
-        maxWidth: 700,
-        padding: isMobile ? 12 : 20,
-      }}>
+      <div
+        className="flex-1 flex"
+        style={{
+          marginLeft: isMobile ? sidebarWidth : `calc(50% - ${350}px)`,
+          justifyContent: isMobile ? 'center' : 'flex-start',
+        }}
+      >
+      <div className="w-full max-w-[700px]" style={{ padding: isMobile ? 12 : 20 }}>
         {/* Back button for sub-pages */}
         {isSubPage && (
-          <div style={{ marginBottom: 16 }}>
+          <div className="mb-4">
             <a
               href={routeHref('/')}
+              className="inline-flex items-center gap-1.5 px-4 py-2 border-none rounded-md text-sm cursor-pointer no-underline"
               style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '8px 16px',
                 background: theme.bgHover,
                 color: theme.text,
-                border: 'none',
-                borderRadius: 6,
-                fontSize: 14,
-                cursor: 'pointer',
-                textDecoration: 'none',
               }}
             >
               ← Back
@@ -1227,18 +1143,16 @@ function App() {
       ) : (
         <>
           {/* Search & Filter */}
-          <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexDirection: isMobile ? 'column' : 'row' }}>
+          <div className="flex gap-2 mb-4" style={{ flexDirection: isMobile ? 'column' : 'row' }}>
             <input
               type="text"
               value={searchQuery}
               onInput={e => setSearchQuery((e.target as HTMLInputElement).value)}
               placeholder="Search things..."
+              className="flex-1 rounded-md text-sm border"
               style={{
-                flex: 1,
                 padding: isMobile ? '8px 12px' : '10px 14px',
-                border: `1px solid ${theme.borderInput}`,
-                borderRadius: 6,
-                fontSize: 14,
+                borderColor: theme.borderInput,
                 background: theme.bgInput,
                 color: theme.text,
               }}
@@ -1246,11 +1160,10 @@ function App() {
             <select
               value={filterKind}
               onChange={e => setFilterKind((e.target as HTMLSelectElement).value)}
+              className="rounded-md text-sm border"
               style={{
                 padding: isMobile ? '8px 12px' : '10px 14px',
-                border: `1px solid ${theme.borderInput}`,
-                borderRadius: 6,
-                fontSize: 14,
+                borderColor: theme.borderInput,
                 background: theme.bgInput,
                 color: theme.text,
                 width: isMobile ? '100%' : 'auto',
@@ -1264,25 +1177,18 @@ function App() {
           </div>
 
           {/* Compose */}
-          <form onSubmit={createThing} style={{ marginBottom: 32 }}>
+          <form onSubmit={createThing} className="mb-8">
             <div
+              className="rounded-2xl overflow-hidden border-2 transition-all duration-150"
               style={{
                 background: theme.bgCard,
-                border: `2px solid ${theme.borderStrong}`,
-                borderRadius: 16,
-                overflow: 'hidden',
-                transition: 'border-color 0.15s',
+                borderColor: theme.borderStrong,
               }}
             >
               {/* Top toolbar - Kind selector */}
               <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  padding: '10px 12px',
-                  borderBottom: `1px solid ${theme.bgMuted}`,
-                }}
+                className="flex justify-between items-center px-3 py-2.5 border-b"
+                style={{ borderBottomColor: theme.bgMuted }}
               >
                 <KindSelector
                   kinds={getSortedKindsByFrequency()}
@@ -1294,29 +1200,19 @@ function App() {
               </div>
 
               {/* Main input area */}
-              <div style={{ padding: '12px 16px' }}>
+              <div className="px-4 py-3">
                 <input
                   type="text"
                   value={newContent}
                   onInput={e => setNewContent((e.target as HTMLInputElement).value)}
                   placeholder="What's on your mind?"
-                  style={{
-                    width: '100%',
-                    padding: 0,
-                    border: 'none',
-                    fontSize: 17,
-                    lineHeight: 1.5,
-                    outline: 'none',
-                    background: 'transparent',
-                    boxSizing: 'border-box',
-                    fontFamily: 'inherit',
-                    color: theme.text,
-                  }}
+                  className="w-full p-0 border-none text-[17px] leading-relaxed outline-none bg-transparent box-border font-inherit"
+                  style={{ color: theme.text }}
                 />
 
                 {/* Kind-specific attributes */}
                 {currentKind?.attributes && currentKind.attributes.length > 0 && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12, paddingTop: 12, borderTop: `1px solid ${theme.bgMuted}` }}>
+                  <div className="flex flex-col gap-2 mt-3 pt-3 border-t" style={{ borderTopColor: theme.bgMuted }}>
                     {currentKind.attributes.map(attr => (
                       <AttributeInput
                         key={attr.name}
@@ -1332,48 +1228,29 @@ function App() {
 
               {/* Bottom toolbar - Photo button, Visibility selector, and Post button */}
               <div
+                className="flex justify-between items-center px-3 py-2.5 border-t"
                 style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  padding: '10px 12px',
                   background: theme.bgToolbar,
-                  borderTop: `1px solid ${theme.bgMuted}`,
+                  borderTopColor: theme.bgMuted,
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div className="flex items-center gap-2">
                   <button
                     type="button"
+                    className="flex items-center gap-1 px-3 py-1.5 bg-transparent border-none rounded-md text-sm"
                     style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 4,
-                      padding: '6px 12px',
-                      background: 'transparent',
-                      border: 'none',
-                      borderRadius: 6,
-                      fontSize: 14,
                       cursor: uploading ? 'wait' : 'pointer',
                       color: theme.textMuted,
                     }}
                     onClick={() => setShowPhotoModal(true)}
                     disabled={uploading}
                   >
-                    <span style={{ fontSize: 18 }}>📷</span>
+                    <span className="text-lg">📷</span>
                     <span>{uploading ? 'Uploading...' : 'Photo'}</span>
                     {selectedPhotos.length > 0 && (
-                      <span style={{
+                      <span className="rounded-full w-5 h-5 flex items-center justify-center text-xs font-semibold ml-1" style={{
                         background: theme.accent,
                         color: theme.accentText,
-                        borderRadius: '50%',
-                        width: 20,
-                        height: 20,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: 12,
-                        fontWeight: 600,
-                        marginLeft: 4,
                       }}>
                         {selectedPhotos.length}
                       </span>
@@ -1382,15 +1259,11 @@ function App() {
                   <select
                     value={newVisibility}
                     onChange={e => setNewVisibility((e.target as HTMLSelectElement).value as 'private' | 'friends' | 'public')}
+                    className="px-2.5 py-1.5 rounded-md text-[13px] cursor-pointer font-inherit border"
                     style={{
-                      padding: '6px 10px',
                       background: theme.bgMuted,
-                      border: `1px solid ${theme.border}`,
-                      borderRadius: 6,
-                      fontSize: 13,
+                      borderColor: theme.border,
                       color: theme.text,
-                      cursor: 'pointer',
-                      fontFamily: 'inherit',
                     }}
                   >
                     <option value="private">🔒 Private</option>
@@ -1401,16 +1274,11 @@ function App() {
                 <button
                   type="submit"
                   disabled={!newContent.trim()}
+                  className="px-5 py-2 border-none rounded-full text-sm font-semibold transition-all duration-150"
                   style={{
-                    padding: '8px 20px',
                     background: newContent.trim() ? theme.accent : theme.textDisabled,
                     color: newContent.trim() ? theme.accentText : theme.textSubtle,
-                    border: 'none',
-                    borderRadius: 20,
-                    fontSize: 14,
-                    fontWeight: 600,
                     cursor: newContent.trim() ? 'pointer' : 'not-allowed',
-                    transition: 'background 0.15s',
                   }}
                 >
                   Post
@@ -1425,7 +1293,7 @@ function App() {
               {searchQuery || filterKind ? 'No matching things found.' : 'No things yet. Add your first one!'}
             </p>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div className="flex flex-col gap-3">
               {things.map(thing => (
                 <ThingCard
                   key={thing.id}
@@ -1469,19 +1337,8 @@ function App() {
       {/* Photo Upload Modal */}
       {showPhotoModal && (
         <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: 'rgba(0, 0, 0, 0.5)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-            padding: 16,
-          }}
+          className="fixed top-0 left-0 right-0 bottom-0 flex items-center justify-center z-[1000] p-4"
+          style={{ background: 'rgba(0, 0, 0, 0.5)' }}
           onClick={() => {
             if (!uploading) {
               setShowPhotoModal(false)
@@ -1490,27 +1347,21 @@ function App() {
           }}
         >
           <div
+            className="rounded-xl p-6 max-w-[600px] max-h-[90vh] overflow-auto w-full transition-all duration-200"
             style={{
               background: dragOverModal ? theme.bgHover : theme.bg,
-              borderRadius: 12,
-              padding: 24,
-              maxWidth: 600,
-              maxHeight: '90vh',
-              overflow: 'auto',
-              width: '100%',
               border: dragOverModal ? `2px dashed ${theme.accent}` : 'none',
-              transition: 'all 0.2s',
             }}
             onClick={e => e.stopPropagation()}
             onDragOver={handleDragOverModal as any}
             onDragLeave={handleDragLeaveModal as any}
             onDrop={handleDropOnModal as any}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-              <h2 style={{ margin: 0, color: theme.text, fontSize: 20, fontWeight: 600 }}>
+            <div className="flex justify-between items-center mb-5">
+              <h2 className="m-0 text-xl font-semibold" style={{ color: theme.text }}>
                 📷 Upload Photos
               </h2>
-              <div style={{ display: 'flex', gap: 8 }}>
+              <div className="flex gap-2">
                 {selectedPhotos.length > 0 && (
                   <button
                     onClick={() => {
@@ -1518,15 +1369,11 @@ function App() {
                       setSelectedPhotos([])
                     }}
                     disabled={uploading}
+                    className="bg-none border-none text-[13px] font-medium p-0"
                     style={{
-                      background: 'none',
-                      border: 'none',
-                      fontSize: 13,
                       color: theme.error,
                       cursor: uploading ? 'not-allowed' : 'pointer',
                       opacity: uploading ? 0.5 : 1,
-                      fontWeight: 500,
-                      padding: 0,
                     }}
                   >
                     Clear All
@@ -1538,10 +1385,8 @@ function App() {
                     // Don't clear photos - keep as draft!
                   }}
                   disabled={uploading}
+                  className="bg-none border-none text-2xl"
                   style={{
-                    background: 'none',
-                    border: 'none',
-                    fontSize: 24,
                     cursor: uploading ? 'not-allowed' : 'pointer',
                     opacity: uploading ? 0.5 : 1,
                   }}
@@ -1552,34 +1397,22 @@ function App() {
             </div>
 
             {/* Photo previews and captions */}
-            <div style={{ marginBottom: 20 }}>
+            <div className="mb-5">
               {selectedPhotos.length > 0 ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <div className="flex flex-col gap-4">
                   {selectedPhotos.map((photo, index) => (
                     <div
                       key={index}
-                      style={{
-                        background: theme.bgMuted,
-                        borderRadius: 8,
-                        padding: 12,
-                        display: 'flex',
-                        gap: 12,
-                        alignItems: 'flex-start',
-                      }}
+                      className="rounded-lg p-3 flex gap-3 items-start"
+                      style={{ background: theme.bgMuted }}
                     >
                       <img
                         src={photo.preview}
                         alt={`Photo ${index + 1}`}
-                        style={{
-                          width: 80,
-                          height: 80,
-                          objectFit: 'cover',
-                          borderRadius: 6,
-                          flexShrink: 0,
-                        }}
+                        className="w-20 h-20 object-cover rounded-md flex-shrink-0"
                       />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <label style={{ display: 'block', marginBottom: 6, fontSize: 12, color: theme.textMuted }}>
+                      <div className="flex-1 min-w-0">
+                        <label className="block mb-1.5 text-xs" style={{ color: theme.textMuted }}>
                           Caption (optional)
                         </label>
                         <input
@@ -1588,12 +1421,9 @@ function App() {
                           onChange={e => updatePhotoCaption(index, e.currentTarget.value)}
                           placeholder="Add a caption..."
                           disabled={uploading}
+                          className="w-full px-2.5 py-2 rounded-md text-[13px] border"
                           style={{
-                            width: '100%',
-                            padding: '8px 10px',
-                            border: `1px solid ${theme.borderInput}`,
-                            borderRadius: 6,
-                            fontSize: 13,
+                            borderColor: theme.borderInput,
                             background: theme.bgInput,
                             color: theme.text,
                             opacity: uploading ? 0.5 : 1,
@@ -1605,10 +1435,8 @@ function App() {
                         type="button"
                         onClick={() => removePhoto(index)}
                         disabled={uploading}
+                        className="bg-none border-none text-lg"
                         style={{
-                          background: 'none',
-                          border: 'none',
-                          fontSize: 18,
                           cursor: uploading ? 'not-allowed' : 'pointer',
                           opacity: uploading ? 0.5 : 1,
                           color: theme.error,
@@ -1620,34 +1448,25 @@ function App() {
                   ))}
                 </div>
               ) : (
-                <div style={{
-                  textAlign: 'center',
-                  padding: 40,
-                  color: theme.textMuted,
-                }}>
-                  <p style={{ margin: '0 0 8px 0', fontSize: 14 }}>📁 Drag and drop photos here</p>
-                  <p style={{ margin: '0 0 12px 0', fontSize: 13, color: theme.textSubtle }}>or use the Photo button to select files</p>
+                <div className="text-center p-10" style={{ color: theme.textMuted }}>
+                  <p className="m-0 mb-2 text-sm">📁 Drag and drop photos here</p>
+                  <p className="m-0 mb-3 text-[13px]" style={{ color: theme.textSubtle }}>or use the Photo button to select files</p>
                   <input
                     type="file"
                     accept="image/*,video/*"
                     multiple
                     onChange={handlePhotoInputChange}
-                    style={{ display: 'none' }}
+                    className="hidden"
                     disabled={uploading}
                     id="photo-modal-input"
                   />
                   <button
                     type="button"
+                    className="inline-block px-4 py-2 rounded-md text-[13px] font-medium border-none"
                     style={{
-                      display: 'inline-block',
-                      padding: '8px 16px',
                       background: theme.accent,
                       color: theme.accentText,
-                      borderRadius: 6,
-                      fontSize: 13,
-                      fontWeight: 500,
                       cursor: uploading ? 'not-allowed' : 'pointer',
-                      border: 'none',
                       opacity: uploading ? 0.5 : 1,
                     }}
                     onClick={() => {
@@ -1663,9 +1482,9 @@ function App() {
             </div>
 
             {/* Post content and visibility */}
-            <div style={{ marginBottom: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div className="mb-5 flex flex-col gap-3">
               <div>
-                <label style={{ display: 'block', marginBottom: 6, fontSize: 12, color: theme.textMuted, fontWeight: 500 }}>
+                <label className="block mb-1.5 text-xs font-medium" style={{ color: theme.textMuted }}>
                   Post content (optional)
                 </label>
                 <textarea
@@ -1673,17 +1492,11 @@ function App() {
                   onChange={e => setPhotoContent(e.currentTarget.value)}
                   placeholder="Add a caption for your gallery..."
                   disabled={uploading}
+                  className="w-full px-3 py-2.5 rounded-md text-[13px] font-inherit min-h-[60px] resize-y border"
                   style={{
-                    width: '100%',
-                    padding: '10px 12px',
-                    border: `1px solid ${theme.borderInput}`,
-                    borderRadius: 6,
-                    fontSize: 13,
+                    borderColor: theme.borderInput,
                     background: theme.bgInput,
                     color: theme.text,
-                    fontFamily: 'inherit',
-                    minHeight: 60,
-                    resize: 'vertical',
                     opacity: uploading ? 0.5 : 1,
                     cursor: uploading ? 'not-allowed' : 'text',
                   }}
@@ -1691,19 +1504,16 @@ function App() {
               </div>
 
               <div>
-                <label style={{ display: 'block', marginBottom: 6, fontSize: 12, color: theme.textMuted, fontWeight: 500 }}>
+                <label className="block mb-1.5 text-xs font-medium" style={{ color: theme.textMuted }}>
                   Visibility
                 </label>
                 <select
                   value={photoVisibility}
                   onChange={e => setPhotoVisibility(e.currentTarget.value as 'private' | 'friends' | 'public')}
                   disabled={uploading}
+                  className="w-full px-2.5 py-2 rounded-md text-[13px] border"
                   style={{
-                    width: '100%',
-                    padding: '8px 10px',
-                    border: `1px solid ${theme.borderInput}`,
-                    borderRadius: 6,
-                    fontSize: 13,
+                    borderColor: theme.borderInput,
                     background: theme.bgInput,
                     color: theme.text,
                     opacity: uploading ? 0.5 : 1,
@@ -1718,22 +1528,18 @@ function App() {
             </div>
 
             {/* Action buttons */}
-            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+            <div className="flex gap-3 justify-end">
               <button
                 onClick={() => {
                   setShowPhotoModal(false)
                   // Keep photos as draft - don't clear!
                 }}
                 disabled={uploading}
+                className="px-4 py-2 border-none rounded-md text-[13px] font-medium"
                 style={{
-                  padding: '8px 16px',
                   background: theme.bgMuted,
-                  border: 'none',
-                  borderRadius: 6,
-                  fontSize: 13,
-                  fontWeight: 500,
-                  cursor: uploading ? 'not-allowed' : 'pointer',
                   color: theme.text,
+                  cursor: uploading ? 'not-allowed' : 'pointer',
                   opacity: uploading ? 0.5 : 1,
                 }}
               >
@@ -1743,15 +1549,11 @@ function App() {
                 type="button"
                 onClick={submitPhotoUpload}
                 disabled={uploading || selectedPhotos.length === 0}
+                className="px-4 py-2 border-none rounded-md text-[13px] font-semibold"
                 style={{
-                  padding: '8px 16px',
                   background: uploading || selectedPhotos.length === 0 ? theme.textDisabled : theme.accent,
-                  border: 'none',
-                  borderRadius: 6,
-                  fontSize: 13,
-                  fontWeight: 600,
-                  cursor: uploading || selectedPhotos.length === 0 ? 'not-allowed' : 'pointer',
                   color: uploading || selectedPhotos.length === 0 ? theme.textSubtle : theme.accentText,
+                  cursor: uploading || selectedPhotos.length === 0 ? 'not-allowed' : 'pointer',
                 }}
               >
                 {uploading ? 'Uploading...' : `Upload ${selectedPhotos.length} Photo${selectedPhotos.length !== 1 ? 's' : ''}`}

@@ -192,14 +192,6 @@ export function IntegrationsPanel({ theme, kinds }: { theme: Theme, kinds: Kind[
     setTimeout(() => setCopiedId(null), 2000)
   }
 
-  const cardStyle = {
-    background: theme.bgCard,
-    border: `1px solid ${theme.border}`,
-    borderRadius: 8,
-    padding: 16,
-    marginBottom: 12,
-  }
-
   const toggleStyle = (enabled: boolean) => ({
     width: 40,
     height: 22,
@@ -223,27 +215,24 @@ export function IntegrationsPanel({ theme, kinds }: { theme: Theme, kinds: Kind[
   })
 
   if (loading) {
-    return <div style={{ color: theme.textMuted }}>Loading integrations...</div>
+    return <div className="text-muted">Loading integrations...</div>
   }
 
   return (
     <div>
       {/* Outbound Webhooks Section */}
-      <div style={{ marginBottom: 32 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <h3 style={{ margin: 0, color: theme.text, fontSize: 16, fontWeight: 600 }}>
+      <div className="mb-8">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="m-0 text-base font-semibold" style={{ color: theme.text }}>
             Outbound Webhooks
           </h3>
           <button
             onClick={() => setShowCreateOutbound(true)}
+            className="px-3 py-1.5 border rounded-md cursor-pointer text-sm"
             style={{
-              padding: '6px 12px',
               background: theme.bgHover,
               color: theme.text,
-              border: `1px solid ${theme.border}`,
-              borderRadius: 6,
-              cursor: 'pointer',
-              fontSize: 13,
+              borderColor: theme.border,
             }}
           >
             + Add
@@ -251,18 +240,18 @@ export function IntegrationsPanel({ theme, kinds }: { theme: Theme, kinds: Kind[
         </div>
 
         {outboundWebhooks.length === 0 ? (
-          <div style={{ ...cardStyle, textAlign: 'center', color: theme.textMuted }}>
+          <div className="bg-card border border-border rounded-lg p-4 mb-3 text-center text-muted">
             No outbound webhooks configured.
             <br />
-            <span style={{ fontSize: 13 }}>Outbound webhooks send events to external URLs when things happen.</span>
+            <span className="text-sm">Outbound webhooks send events to external URLs when things happen.</span>
           </div>
         ) : (
           outboundWebhooks.map(webhook => (
-            <div key={webhook.id} style={cardStyle}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                    <span style={{ fontWeight: 600, color: theme.text }}>
+            <div key={webhook.id} className="bg-card border border-border rounded-lg p-4 mb-3">
+              <div className="flex justify-between items-start gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-semibold" style={{ color: theme.text }}>
                       {webhook.name || 'Unnamed webhook'}
                     </span>
                     <button
@@ -273,19 +262,17 @@ export function IntegrationsPanel({ theme, kinds }: { theme: Theme, kinds: Kind[
                       <div style={toggleKnobStyle(webhook.enabled)} />
                     </button>
                   </div>
-                  <div style={{ fontSize: 13, color: theme.textMuted, marginBottom: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div className="text-sm text-muted mb-2 overflow-hidden overflow-ellipsis whitespace-nowrap">
                     {webhook.url}
                   </div>
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <div className="flex gap-1.5 flex-wrap">
                     {webhook.event_types?.map(evt => (
                       <span
                         key={evt}
+                        className="text-xs px-2 py-0.5 rounded-xl"
                         style={{
-                          fontSize: 11,
-                          padding: '2px 8px',
                           background: theme.bgMuted,
                           color: theme.textMuted,
-                          borderRadius: 12,
                         }}
                       >
                         {evt}
@@ -293,18 +280,15 @@ export function IntegrationsPanel({ theme, kinds }: { theme: Theme, kinds: Kind[
                     ))}
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <div className="flex gap-2 items-center">
                   <button
                     onClick={() => testWebhook(webhook.id)}
                     disabled={testingWebhook === webhook.id}
+                    className="px-3 py-1.5 bg-transparent border rounded text-xs"
                     style={{
-                      padding: '6px 12px',
-                      background: 'transparent',
                       color: theme.accent,
-                      border: `1px solid ${theme.accent}`,
-                      borderRadius: 4,
+                      borderColor: theme.accent,
                       cursor: testingWebhook === webhook.id ? 'wait' : 'pointer',
-                      fontSize: 12,
                       opacity: testingWebhook === webhook.id ? 0.6 : 1,
                     }}
                   >
@@ -312,27 +296,15 @@ export function IntegrationsPanel({ theme, kinds }: { theme: Theme, kinds: Kind[
                   </button>
                   <button
                     onClick={() => setExpandedOutbound(expandedOutbound === webhook.id ? null : webhook.id)}
-                    style={{
-                      padding: '6px 10px',
-                      background: 'transparent',
-                      color: theme.textMuted,
-                      border: 'none',
-                      cursor: 'pointer',
-                      fontSize: 14,
-                    }}
+                    className="px-2.5 py-1.5 bg-transparent border-none cursor-pointer text-sm"
+                    style={{ color: theme.textMuted }}
                   >
                     {expandedOutbound === webhook.id ? '▲' : '▼'}
                   </button>
                   <button
                     onClick={() => deleteOutboundWebhook(webhook.id)}
-                    style={{
-                      padding: '6px 10px',
-                      background: 'transparent',
-                      color: theme.error,
-                      border: 'none',
-                      cursor: 'pointer',
-                      fontSize: 13,
-                    }}
+                    className="px-2.5 py-1.5 bg-transparent border-none cursor-pointer text-sm"
+                    style={{ color: theme.error }}
                   >
                     Delete
                   </button>
@@ -342,32 +314,21 @@ export function IntegrationsPanel({ theme, kinds }: { theme: Theme, kinds: Kind[
               {/* Test Result */}
               {testResult?.id === webhook.id && (
                 <div
+                  className="mt-3 p-3 rounded-md flex items-center gap-2"
                   style={{
-                    marginTop: 12,
-                    padding: 12,
                     background: testResult.result.success ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
-                    borderRadius: 6,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
                   }}
                 >
-                  <span style={{ fontSize: 16 }}>{testResult.result.success ? '✓' : '✗'}</span>
-                  <span style={{ fontSize: 13, color: testResult.result.success ? '#22c55e' : theme.error }}>
+                  <span className="text-base">{testResult.result.success ? '✓' : '✗'}</span>
+                  <span className="text-sm" style={{ color: testResult.result.success ? '#22c55e' : theme.error }}>
                     {testResult.result.success
                       ? `Success • ${testResult.result.status_code} • ${testResult.result.response_time_ms}ms`
                       : testResult.result.error || 'Failed'}
                   </span>
                   <button
                     onClick={() => setTestResult(null)}
-                    style={{
-                      marginLeft: 'auto',
-                      background: 'transparent',
-                      border: 'none',
-                      color: theme.textMuted,
-                      cursor: 'pointer',
-                      fontSize: 12,
-                    }}
+                    className="ml-auto bg-transparent border-none cursor-pointer text-xs"
+                    style={{ color: theme.textMuted }}
                   >
                     Dismiss
                   </button>
@@ -376,33 +337,27 @@ export function IntegrationsPanel({ theme, kinds }: { theme: Theme, kinds: Kind[
 
               {/* Expanded Details */}
               {expandedOutbound === webhook.id && (
-                <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${theme.border}` }}>
-                  <div style={{ fontSize: 13, color: theme.textMuted, marginBottom: 8 }}>
+                <div className="mt-4 pt-4" style={{ borderTop: `1px solid ${theme.border}` }}>
+                  <div className="text-sm text-muted mb-2">
                     <strong>URL:</strong> {webhook.url}
                   </div>
                   {webhook.signing_secret && (
-                    <div style={{ fontSize: 13, color: theme.textMuted, marginBottom: 8 }}>
+                    <div className="text-sm text-muted mb-2">
                       <strong>Signing Secret:</strong>{' '}
-                      <code style={{ background: theme.bgMuted, padding: '2px 6px', borderRadius: 4 }}>
+                      <code className="px-1.5 py-0.5 rounded" style={{ background: theme.bgMuted }}>
                         {revealedToken === webhook.id ? webhook.signing_secret : '••••••••••••'}
                       </code>
                       <button
                         onClick={() => setRevealedToken(revealedToken === webhook.id ? null : webhook.id)}
-                        style={{
-                          marginLeft: 8,
-                          background: 'transparent',
-                          border: 'none',
-                          color: theme.accent,
-                          cursor: 'pointer',
-                          fontSize: 12,
-                        }}
+                        className="ml-2 bg-transparent border-none cursor-pointer text-xs"
+                        style={{ color: theme.accent }}
                       >
                         {revealedToken === webhook.id ? 'Hide' : 'Reveal'}
                       </button>
                     </div>
                   )}
                   {(webhook.filter_config?.kinds?.length || webhook.filter_config?.condition_groups?.length) && (
-                    <div style={{ fontSize: 13, color: theme.textMuted, marginBottom: 8 }}>
+                    <div className="text-sm text-muted mb-2">
                       <strong>Filter:</strong>
                       {webhook.filter_config?.kinds?.length && (
                         <span> Kind in [{webhook.filter_config.kinds.join(', ')}]</span>
@@ -420,7 +375,7 @@ export function IntegrationsPanel({ theme, kinds }: { theme: Theme, kinds: Kind[
                       )}
                     </div>
                   )}
-                  <div style={{ fontSize: 12, color: theme.textMuted }}>
+                  <div className="text-xs text-muted">
                     Created: {new Date(webhook.created_at).toLocaleDateString()}
                   </div>
                 </div>
@@ -432,20 +387,17 @@ export function IntegrationsPanel({ theme, kinds }: { theme: Theme, kinds: Kind[
 
       {/* Inbound Webhooks Section */}
       <div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <h3 style={{ margin: 0, color: theme.text, fontSize: 16, fontWeight: 600 }}>
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="m-0 text-base font-semibold" style={{ color: theme.text }}>
             Inbound Webhooks
           </h3>
           <button
             onClick={() => setShowCreateInbound(true)}
+            className="px-3 py-1.5 border rounded-md cursor-pointer text-sm"
             style={{
-              padding: '6px 12px',
               background: theme.bgHover,
               color: theme.text,
-              border: `1px solid ${theme.border}`,
-              borderRadius: 6,
-              cursor: 'pointer',
-              fontSize: 13,
+              borderColor: theme.border,
             }}
           >
             + Add
@@ -453,27 +405,25 @@ export function IntegrationsPanel({ theme, kinds }: { theme: Theme, kinds: Kind[
         </div>
 
         {inboundWebhooks.length === 0 ? (
-          <div style={{ ...cardStyle, textAlign: 'center', color: theme.textMuted }}>
+          <div className="bg-card border border-border rounded-lg p-4 mb-3 text-center text-muted">
             No inbound webhooks configured.
             <br />
-            <span style={{ fontSize: 13 }}>Inbound webhooks let external services create things in your account.</span>
+            <span className="text-sm">Inbound webhooks let external services create things in your account.</span>
           </div>
         ) : (
           inboundWebhooks.map(webhook => (
-            <div key={webhook.id} style={cardStyle}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                    <span style={{ fontWeight: 600, color: theme.text }}>
+            <div key={webhook.id} className="bg-card border border-border rounded-lg p-4 mb-3">
+              <div className="flex justify-between items-start gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-semibold" style={{ color: theme.text }}>
                       {webhook.name}
                     </span>
                     <span
+                      className="text-xs px-2 py-0.5 rounded-xl"
                       style={{
-                        fontSize: 11,
-                        padding: '2px 8px',
                         background: theme.bgMuted,
                         color: theme.textMuted,
-                        borderRadius: 12,
                       }}
                     >
                       {webhook.source_system}
@@ -486,34 +436,22 @@ export function IntegrationsPanel({ theme, kinds }: { theme: Theme, kinds: Kind[
                       <div style={toggleKnobStyle(webhook.enabled)} />
                     </button>
                   </div>
-                  <div style={{ fontSize: 13, color: theme.textMuted }}>
+                  <div className="text-sm text-muted">
                     Creates: {webhook.default_thing_type} ({webhook.default_visibility})
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <div className="flex gap-2 items-center">
                   <button
                     onClick={() => setExpandedInbound(expandedInbound === webhook.id ? null : webhook.id)}
-                    style={{
-                      padding: '6px 10px',
-                      background: 'transparent',
-                      color: theme.textMuted,
-                      border: 'none',
-                      cursor: 'pointer',
-                      fontSize: 14,
-                    }}
+                    className="px-2.5 py-1.5 bg-transparent border-none cursor-pointer text-sm"
+                    style={{ color: theme.textMuted }}
                   >
                     {expandedInbound === webhook.id ? '▲' : '▼'}
                   </button>
                   <button
                     onClick={() => deleteInboundWebhook(webhook.id)}
-                    style={{
-                      padding: '6px 10px',
-                      background: 'transparent',
-                      color: theme.error,
-                      border: 'none',
-                      cursor: 'pointer',
-                      fontSize: 13,
-                    }}
+                    className="px-2.5 py-1.5 bg-transparent border-none cursor-pointer text-sm"
+                    style={{ color: theme.error }}
                   >
                     Delete
                   </button>
@@ -522,19 +460,13 @@ export function IntegrationsPanel({ theme, kinds }: { theme: Theme, kinds: Kind[
 
               {/* Expanded Details */}
               {expandedInbound === webhook.id && (
-                <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${theme.border}` }}>
-                  <div style={{ fontSize: 13, color: theme.textMuted, marginBottom: 12 }}>
+                <div className="mt-4 pt-4" style={{ borderTop: `1px solid ${theme.border}` }}>
+                  <div className="text-sm text-muted mb-3">
                     <strong>Endpoint:</strong>
-                    <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div className="mt-1 flex items-center gap-2">
                       <code
-                        style={{
-                          background: theme.bgMuted,
-                          padding: '6px 10px',
-                          borderRadius: 4,
-                          fontSize: 12,
-                          wordBreak: 'break-all',
-                          flex: 1,
-                        }}
+                        className="px-2.5 py-1.5 rounded text-xs flex-1 break-all"
+                        style={{ background: theme.bgMuted }}
                       >
                         POST {window.location.origin}/api/webhooks/receive/{webhook.id}?token=...
                       </code>
@@ -543,53 +475,35 @@ export function IntegrationsPanel({ theme, kinds }: { theme: Theme, kinds: Kind[
                           const url = `${window.location.origin}/api/webhooks/receive/${webhook.id}?token=${webhook.secret_token || webhook.token_prefix + '...'}`
                           copyToClipboard(url, 'url-' + webhook.id)
                         }}
+                        className="px-2.5 py-1.5 border rounded cursor-pointer text-xs"
                         style={{
-                          padding: '6px 10px',
                           background: theme.bgHover,
                           color: copiedId === 'url-' + webhook.id ? '#22c55e' : theme.text,
-                          border: `1px solid ${theme.border}`,
-                          borderRadius: 4,
-                          cursor: 'pointer',
-                          fontSize: 12,
+                          borderColor: theme.border,
                         }}
                       >
                         {copiedId === 'url-' + webhook.id ? 'Copied!' : 'Copy'}
                       </button>
                     </div>
                   </div>
-                  <div style={{ fontSize: 13, color: theme.textMuted, marginBottom: 8 }}>
+                  <div className="text-sm text-muted mb-2">
                     <strong>Token:</strong>{' '}
-                    <code style={{ background: theme.bgMuted, padding: '2px 6px', borderRadius: 4 }}>
+                    <code className="px-1.5 py-0.5 rounded" style={{ background: theme.bgMuted }}>
                       {revealedToken === 'inbound-' + webhook.id
                         ? (webhook.secret_token || webhook.token_prefix + '...')
                         : webhook.token_prefix + '••••••••'}
                     </code>
                     <button
                       onClick={() => setRevealedToken(revealedToken === 'inbound-' + webhook.id ? null : 'inbound-' + webhook.id)}
-                      style={{
-                        marginLeft: 8,
-                        background: 'transparent',
-                        border: 'none',
-                        color: theme.accent,
-                        cursor: 'pointer',
-                        fontSize: 12,
-                      }}
+                      className="ml-2 bg-transparent border-none cursor-pointer text-xs"
+                      style={{ color: theme.accent }}
                     >
                       {revealedToken === 'inbound-' + webhook.id ? 'Hide' : 'Reveal'}
                     </button>
                   </div>
-                  <div style={{ fontSize: 13, color: theme.textMuted, marginBottom: 12 }}>
+                  <div className="text-sm text-muted mb-3">
                     <strong>Example curl:</strong>
-                    <pre style={{
-                      marginTop: 4,
-                      background: theme.bgMuted,
-                      padding: 12,
-                      borderRadius: 4,
-                      fontSize: 11,
-                      overflow: 'auto',
-                      whiteSpace: 'pre-wrap',
-                      wordBreak: 'break-all',
-                    }}>
+                    <pre className="mt-1 p-3 rounded text-xs overflow-auto whitespace-pre-wrap break-all" style={{ background: theme.bgMuted }}>
 {`curl -X POST "${window.location.origin}/api/webhooks/receive/${webhook.id}?token=${webhook.secret_token || 'YOUR_TOKEN'}" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -606,29 +520,25 @@ export function IntegrationsPanel({ theme, kinds }: { theme: Theme, kinds: Kind[
                         const curl = `curl -X POST "${window.location.origin}/api/webhooks/receive/${webhook.id}?token=${webhook.secret_token || 'YOUR_TOKEN'}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"content": "Hello from my automation!", "external_id": "unique-123"}'`
                         copyToClipboard(curl, 'curl-' + webhook.id)
                       }}
+                      className="mt-2 px-3 py-1.5 border rounded cursor-pointer text-xs"
                       style={{
-                        marginTop: 8,
-                        padding: '6px 12px',
                         background: theme.bgHover,
                         color: copiedId === 'curl-' + webhook.id ? '#22c55e' : theme.text,
-                        border: `1px solid ${theme.border}`,
-                        borderRadius: 4,
-                        cursor: 'pointer',
-                        fontSize: 12,
+                        borderColor: theme.border,
                       }}
                     >
                       {copiedId === 'curl-' + webhook.id ? 'Copied!' : 'Copy curl'}
                     </button>
                   </div>
-                  <div style={{ fontSize: 13, color: theme.textMuted, marginBottom: 8 }}>
+                  <div className="text-sm text-muted mb-2">
                     <strong>Payload fields:</strong>
-                    <ul style={{ margin: '8px 0 0 0', paddingLeft: 20, fontSize: 12 }}>
+                    <ul className="m-0 mt-2 pl-5 text-xs">
                       <li><code>content</code> - The text content of the Thing (required)</li>
                       <li><code>metadata</code> - Optional JSON object with additional attributes</li>
                       <li><code>external_id</code> - Optional unique ID for deduplication</li>
                     </ul>
                   </div>
-                  <div style={{ fontSize: 12, color: theme.textMuted }}>
+                  <div className="text-xs text-muted">
                     Created: {new Date(webhook.created_at).toLocaleDateString()}
                   </div>
                 </div>
@@ -781,34 +691,20 @@ function CreateOutboundWebhookModal({
 
   return (
     <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: theme.overlay,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 1000,
-      }}
+      className="fixed inset-0 flex items-center justify-center z-[1000]"
+      style={{ background: theme.overlay }}
       onClick={onClose}
     >
       <div
-        style={{
-          background: theme.bgCard,
-          borderRadius: 12,
-          padding: 24,
-          width: '90%',
-          maxWidth: 480,
-          maxHeight: '80vh',
-          overflow: 'auto',
-        }}
+        className="rounded-xl p-6 w-[90%] max-w-[480px] max-h-[80vh] overflow-auto"
+        style={{ background: theme.bgCard }}
         onClick={e => e.stopPropagation()}
       >
-        <h3 style={{ margin: '0 0 20px', color: theme.text }}>Create Outbound Webhook</h3>
+        <h3 className="m-0 mb-5" style={{ color: theme.text }}>Create Outbound Webhook</h3>
 
         <form onSubmit={handleSubmit as any}>
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ display: 'block', marginBottom: 6, fontSize: 14, color: theme.text }}>
+          <div className="mb-4">
+            <label className="block mb-1.5 text-sm" style={{ color: theme.text }}>
               Name (optional)
             </label>
             <input
@@ -816,21 +712,17 @@ function CreateOutboundWebhookModal({
               value={name}
               onChange={e => setName((e.target as HTMLInputElement).value)}
               placeholder="e.g., Slack Notifications"
+              className="w-full px-3 py-2.5 border rounded-md text-sm box-border"
               style={{
-                width: '100%',
-                padding: '10px 12px',
-                border: `1px solid ${theme.border}`,
-                borderRadius: 6,
-                fontSize: 14,
+                borderColor: theme.border,
                 background: theme.bgInput,
                 color: theme.text,
-                boxSizing: 'border-box',
               }}
             />
           </div>
 
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ display: 'block', marginBottom: 6, fontSize: 14, color: theme.text }}>
+          <div className="mb-4">
+            <label className="block mb-1.5 text-sm" style={{ color: theme.text }}>
               URL *
             </label>
             <input
@@ -839,26 +731,22 @@ function CreateOutboundWebhookModal({
               onChange={e => setUrl((e.target as HTMLInputElement).value)}
               placeholder="https://example.com/webhook"
               required
+              className="w-full px-3 py-2.5 border rounded-md text-sm box-border"
               style={{
-                width: '100%',
-                padding: '10px 12px',
-                border: `1px solid ${theme.border}`,
-                borderRadius: 6,
-                fontSize: 14,
+                borderColor: theme.border,
                 background: theme.bgInput,
                 color: theme.text,
-                boxSizing: 'border-box',
               }}
             />
           </div>
 
-          <div style={{ marginBottom: 20 }}>
-            <label style={{ display: 'block', marginBottom: 8, fontSize: 14, color: theme.text }}>
+          <div className="mb-5">
+            <label className="block mb-2 text-sm" style={{ color: theme.text }}>
               Events
             </label>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div className="flex flex-col gap-2">
               {availableEvents.map(evt => (
-                <label key={evt.id} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <label key={evt.id} className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={eventTypes.includes(evt.id)}
@@ -869,30 +757,30 @@ function CreateOutboundWebhookModal({
                         setEventTypes(eventTypes.filter(t => t !== evt.id))
                       }
                     }}
-                    style={{ width: 16, height: 16 }}
+                    className="w-4 h-4"
                   />
-                  <span style={{ fontSize: 14, color: theme.text }}>{evt.label}</span>
+                  <span className="text-sm" style={{ color: theme.text }}>{evt.label}</span>
                 </label>
               ))}
             </div>
           </div>
 
-          <div style={{ marginBottom: 20 }}>
-            <label style={{ display: 'block', marginBottom: 8, fontSize: 14, color: theme.text }}>
+          <div className="mb-5">
+            <label className="block mb-2 text-sm" style={{ color: theme.text }}>
               Filter by Kind (optional)
             </label>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+            <div className="flex flex-col gap-2">
+              <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={filterKinds.length === 0}
                   onChange={() => setFilterKinds([])}
-                  style={{ width: 16, height: 16 }}
+                  className="w-4 h-4"
                 />
-                <span style={{ fontSize: 14, color: theme.text }}>All kinds</span>
+                <span className="text-sm" style={{ color: theme.text }}>All kinds</span>
               </label>
               {kinds.map(kind => (
-                <label key={kind.id} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <label key={kind.id} className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={filterKinds.includes(kind.name)}
@@ -903,58 +791,52 @@ function CreateOutboundWebhookModal({
                         setFilterKinds(filterKinds.filter(k => k !== kind.name))
                       }
                     }}
-                    style={{ width: 16, height: 16 }}
+                    className="w-4 h-4"
                   />
-                  <span style={{ fontSize: 14, color: theme.text }}>{kind.icon} {kind.name}</span>
+                  <span className="text-sm" style={{ color: theme.text }}>{kind.icon} {kind.name}</span>
                 </label>
               ))}
             </div>
-            <div style={{ marginTop: 6, fontSize: 12, color: theme.textMuted }}>
+            <div className="mt-1.5 text-xs text-muted">
               {filterKinds.length === 0 ? 'Triggers for all kinds' : `Triggers for: ${filterKinds.join(', ')}`}
             </div>
           </div>
 
           {/* Attribute Conditions */}
-          <div style={{ marginBottom: 20 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-              <label style={{ fontSize: 14, color: theme.text }}>
+          <div className="mb-5">
+            <div className="flex justify-between items-center mb-2">
+              <label className="text-sm" style={{ color: theme.text }}>
                 Attribute Filters (optional)
               </label>
               <button
                 type="button"
                 onClick={addCondition}
+                className="px-2.5 py-1 border rounded cursor-pointer text-xs"
                 style={{
-                  padding: '4px 10px',
                   background: theme.bgHover,
                   color: theme.text,
-                  border: `1px solid ${theme.border}`,
-                  borderRadius: 4,
-                  cursor: 'pointer',
-                  fontSize: 12,
+                  borderColor: theme.border,
                 }}
               >
                 + Add
               </button>
             </div>
             {conditions.length === 0 ? (
-              <div style={{ fontSize: 12, color: theme.textMuted }}>
+              <div className="text-xs text-muted">
                 No attribute filters. Click "+ Add" to filter by metadata fields.
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div className="flex flex-col gap-2">
                 {conditions.map((condition, index) => (
-                  <div key={index} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <div key={index} className="flex gap-2 items-center">
                     <input
                       type="text"
                       placeholder="field"
                       value={condition.field}
                       onChange={e => updateCondition(index, { field: (e.target as HTMLInputElement).value })}
+                      className="flex-1 px-2.5 py-1.5 border rounded text-sm"
                       style={{
-                        flex: 1,
-                        padding: '6px 10px',
-                        border: `1px solid ${theme.border}`,
-                        borderRadius: 4,
-                        fontSize: 13,
+                        borderColor: theme.border,
                         background: theme.bgInput,
                         color: theme.text,
                       }}
@@ -962,14 +844,11 @@ function CreateOutboundWebhookModal({
                     <select
                       value={condition.op}
                       onChange={e => updateCondition(index, { op: (e.target as HTMLSelectElement).value })}
+                      className="px-2 py-1.5 border rounded text-sm min-w-[70px]"
                       style={{
-                        padding: '6px 8px',
-                        border: `1px solid ${theme.border}`,
-                        borderRadius: 4,
-                        fontSize: 13,
+                        borderColor: theme.border,
                         background: theme.bgInput,
                         color: theme.text,
-                        minWidth: 70,
                       }}
                     >
                       {operators.map(op => (
@@ -982,12 +861,9 @@ function CreateOutboundWebhookModal({
                         placeholder="value"
                         value={condition.value}
                         onChange={e => updateCondition(index, { value: (e.target as HTMLInputElement).value })}
+                        className="flex-1 px-2.5 py-1.5 border rounded text-sm"
                         style={{
-                          flex: 1,
-                          padding: '6px 10px',
-                          border: `1px solid ${theme.border}`,
-                          borderRadius: 4,
-                          fontSize: 13,
+                          borderColor: theme.border,
                           background: theme.bgInput,
                           color: theme.text,
                         }}
@@ -996,20 +872,14 @@ function CreateOutboundWebhookModal({
                     <button
                       type="button"
                       onClick={() => removeCondition(index)}
-                      style={{
-                        padding: '4px 8px',
-                        background: 'transparent',
-                        color: theme.error,
-                        border: 'none',
-                        cursor: 'pointer',
-                        fontSize: 16,
-                      }}
+                      className="px-2 py-1 bg-transparent border-none cursor-pointer text-base"
+                      style={{ color: theme.error }}
                     >
                       ×
                     </button>
                   </div>
                 ))}
-                <div style={{ fontSize: 11, color: theme.textMuted, marginTop: 4 }}>
+                <div className="text-xs text-muted mt-1">
                   Multiple conditions are AND'd together. Use numbers for numeric comparisons.
                 </div>
               </div>
@@ -1017,23 +887,19 @@ function CreateOutboundWebhookModal({
           </div>
 
           {error && (
-            <div style={{ marginBottom: 16, padding: 12, background: 'rgba(239, 68, 68, 0.1)', borderRadius: 6, color: theme.error, fontSize: 13 }}>
+            <div className="mb-4 p-3 rounded-md text-sm" style={{ background: 'rgba(239, 68, 68, 0.1)', color: theme.error }}>
               {error}
             </div>
           )}
 
-          <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+          <div className="flex gap-3 justify-end">
             <button
               type="button"
               onClick={onClose}
+              className="px-5 py-2.5 bg-transparent border rounded-md cursor-pointer text-sm"
               style={{
-                padding: '10px 20px',
-                background: 'transparent',
                 color: theme.textMuted,
-                border: `1px solid ${theme.border}`,
-                borderRadius: 6,
-                cursor: 'pointer',
-                fontSize: 14,
+                borderColor: theme.border,
               }}
             >
               Cancel
@@ -1041,14 +907,11 @@ function CreateOutboundWebhookModal({
             <button
               type="submit"
               disabled={saving || !url.trim()}
+              className="px-5 py-2.5 border-none rounded-md text-sm"
               style={{
-                padding: '10px 20px',
                 background: theme.accent,
                 color: theme.accentText,
-                border: 'none',
-                borderRadius: 6,
                 cursor: saving ? 'wait' : 'pointer',
-                fontSize: 14,
                 opacity: saving || !url.trim() ? 0.6 : 1,
               }}
             >
@@ -1117,34 +980,20 @@ function CreateInboundWebhookModal({
 
   return (
     <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: theme.overlay,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 1000,
-      }}
+      className="fixed inset-0 flex items-center justify-center z-[1000]"
+      style={{ background: theme.overlay }}
       onClick={onClose}
     >
       <div
-        style={{
-          background: theme.bgCard,
-          borderRadius: 12,
-          padding: 24,
-          width: '90%',
-          maxWidth: 480,
-          maxHeight: '80vh',
-          overflow: 'auto',
-        }}
+        className="rounded-xl p-6 w-[90%] max-w-[480px] max-h-[80vh] overflow-auto"
+        style={{ background: theme.bgCard }}
         onClick={e => e.stopPropagation()}
       >
-        <h3 style={{ margin: '0 0 20px', color: theme.text }}>Create Inbound Webhook</h3>
+        <h3 className="m-0 mb-5" style={{ color: theme.text }}>Create Inbound Webhook</h3>
 
         <form onSubmit={handleSubmit as any}>
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ display: 'block', marginBottom: 6, fontSize: 14, color: theme.text }}>
+          <div className="mb-4">
+            <label className="block mb-1.5 text-sm" style={{ color: theme.text }}>
               Name *
             </label>
             <input
@@ -1153,21 +1002,17 @@ function CreateInboundWebhookModal({
               onChange={e => setName((e.target as HTMLInputElement).value)}
               placeholder="e.g., GitHub Importer"
               required
+              className="w-full px-3 py-2.5 border rounded-md text-sm box-border"
               style={{
-                width: '100%',
-                padding: '10px 12px',
-                border: `1px solid ${theme.border}`,
-                borderRadius: 6,
-                fontSize: 14,
+                borderColor: theme.border,
                 background: theme.bgInput,
                 color: theme.text,
-                boxSizing: 'border-box',
               }}
             />
           </div>
 
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ display: 'block', marginBottom: 6, fontSize: 14, color: theme.text }}>
+          <div className="mb-4">
+            <label className="block mb-1.5 text-sm" style={{ color: theme.text }}>
               Source System *
             </label>
             <input
@@ -1176,35 +1021,28 @@ function CreateInboundWebhookModal({
               onChange={e => setSourceSystem((e.target as HTMLInputElement).value)}
               placeholder="e.g., github, notion, zapier"
               required
+              className="w-full px-3 py-2.5 border rounded-md text-sm box-border"
               style={{
-                width: '100%',
-                padding: '10px 12px',
-                border: `1px solid ${theme.border}`,
-                borderRadius: 6,
-                fontSize: 14,
+                borderColor: theme.border,
                 background: theme.bgInput,
                 color: theme.text,
-                boxSizing: 'border-box',
               }}
             />
-            <p style={{ margin: '6px 0 0', fontSize: 12, color: theme.textMuted }}>
+            <p className="m-0 mt-1.5 text-xs text-muted">
               Identifier for the source of imported data
             </p>
           </div>
 
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ display: 'block', marginBottom: 6, fontSize: 14, color: theme.text }}>
+          <div className="mb-4">
+            <label className="block mb-1.5 text-sm" style={{ color: theme.text }}>
               Default Thing Type
             </label>
             <select
               value={thingType}
               onChange={e => setThingType((e.target as HTMLSelectElement).value)}
+              className="w-full px-3 py-2.5 border rounded-md text-sm"
               style={{
-                width: '100%',
-                padding: '10px 12px',
-                border: `1px solid ${theme.border}`,
-                borderRadius: 6,
-                fontSize: 14,
+                borderColor: theme.border,
                 background: theme.bgInput,
                 color: theme.text,
               }}
@@ -1217,19 +1055,16 @@ function CreateInboundWebhookModal({
             </select>
           </div>
 
-          <div style={{ marginBottom: 20 }}>
-            <label style={{ display: 'block', marginBottom: 6, fontSize: 14, color: theme.text }}>
+          <div className="mb-5">
+            <label className="block mb-1.5 text-sm" style={{ color: theme.text }}>
               Default Visibility
             </label>
             <select
               value={visibility}
               onChange={e => setVisibility((e.target as HTMLSelectElement).value)}
+              className="w-full px-3 py-2.5 border rounded-md text-sm"
               style={{
-                width: '100%',
-                padding: '10px 12px',
-                border: `1px solid ${theme.border}`,
-                borderRadius: 6,
-                fontSize: 14,
+                borderColor: theme.border,
                 background: theme.bgInput,
                 color: theme.text,
               }}
@@ -1241,23 +1076,19 @@ function CreateInboundWebhookModal({
           </div>
 
           {error && (
-            <div style={{ marginBottom: 16, padding: 12, background: 'rgba(239, 68, 68, 0.1)', borderRadius: 6, color: theme.error, fontSize: 13 }}>
+            <div className="mb-4 p-3 rounded-md text-sm" style={{ background: 'rgba(239, 68, 68, 0.1)', color: theme.error }}>
               {error}
             </div>
           )}
 
-          <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+          <div className="flex gap-3 justify-end">
             <button
               type="button"
               onClick={onClose}
+              className="px-5 py-2.5 bg-transparent border rounded-md cursor-pointer text-sm"
               style={{
-                padding: '10px 20px',
-                background: 'transparent',
                 color: theme.textMuted,
-                border: `1px solid ${theme.border}`,
-                borderRadius: 6,
-                cursor: 'pointer',
-                fontSize: 14,
+                borderColor: theme.border,
               }}
             >
               Cancel
@@ -1265,14 +1096,11 @@ function CreateInboundWebhookModal({
             <button
               type="submit"
               disabled={saving || !name.trim() || !sourceSystem.trim()}
+              className="px-5 py-2.5 border-none rounded-md text-sm"
               style={{
-                padding: '10px 20px',
                 background: theme.accent,
                 color: theme.accentText,
-                border: 'none',
-                borderRadius: 6,
                 cursor: saving ? 'wait' : 'pointer',
-                fontSize: 14,
                 opacity: saving || !name.trim() || !sourceSystem.trim() ? 0.6 : 1,
               }}
             >

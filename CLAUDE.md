@@ -2,7 +2,7 @@
 
 ## Stack
 - **Go** backend (port 8069) - `cmd/tenant/`, `internal/`
-- **Preact + Vite** frontend (port 3069 in dev) - `web/src/`
+- **Preact + Vite + Tailwind CSS** frontend (port 3069 in dev) - `web/src/`
 - **Rust backend** (in development) - `backend-rust/`
 - **SQLite** (local) or **Turso** (cloud) - `DB_BACKEND=sqlite|turso`
 

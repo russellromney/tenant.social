@@ -16,12 +16,7 @@ function AttributeInput({
   theme: Theme
 }) {
   const commonStyle = {
-    width: '100%',
-    padding: '10px 14px',
     border: `1px solid ${theme.borderInput}`,
-    borderRadius: 6,
-    fontSize: 14,
-    boxSizing: 'border-box' as const,
     background: theme.bgInput,
     color: theme.text,
   }
@@ -30,13 +25,14 @@ function AttributeInput({
     case 'number':
       return (
         <div>
-          <label style={{ display: 'block', marginBottom: 4, fontSize: 13, color: theme.textSubtle }}>
+          <label className="block mb-1 text-xs" style={{ color: theme.textSubtle }}>
             {attribute.name}{attribute.required && ' *'}
           </label>
           <input
             type="number"
             value={value as number || ''}
             onInput={e => onChange(parseFloat((e.target as HTMLInputElement).value) || null)}
+            className="w-full px-3.5 py-2.5 rounded-md text-sm box-border"
             style={commonStyle}
           />
         </div>
@@ -44,13 +40,14 @@ function AttributeInput({
     case 'date':
       return (
         <div>
-          <label style={{ display: 'block', marginBottom: 4, fontSize: 13, color: theme.textSubtle }}>
+          <label className="block mb-1 text-xs" style={{ color: theme.textSubtle }}>
             {attribute.name}{attribute.required && ' *'}
           </label>
           <input
             type="date"
             value={value as string || ''}
             onInput={e => onChange((e.target as HTMLInputElement).value)}
+            className="w-full px-3.5 py-2.5 rounded-md text-sm box-border"
             style={commonStyle}
           />
         </div>
@@ -58,7 +55,7 @@ function AttributeInput({
     case 'url':
       return (
         <div>
-          <label style={{ display: 'block', marginBottom: 4, fontSize: 13, color: theme.textSubtle }}>
+          <label className="block mb-1 text-xs" style={{ color: theme.textSubtle }}>
             {attribute.name}{attribute.required && ' *'}
           </label>
           <input
@@ -66,32 +63,34 @@ function AttributeInput({
             value={value as string || ''}
             onInput={e => onChange((e.target as HTMLInputElement).value)}
             placeholder="https://..."
+            className="w-full px-3.5 py-2.5 rounded-md text-sm box-border"
             style={commonStyle}
           />
         </div>
       )
     case 'checkbox':
       return (
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+        <label className="flex items-center gap-2 cursor-pointer">
           <input
             type="checkbox"
             checked={value as boolean || false}
             onChange={e => onChange((e.target as HTMLInputElement).checked)}
-            style={{ width: 18, height: 18, cursor: 'pointer' }}
+            className="w-[18px] h-[18px] cursor-pointer"
           />
-          <span style={{ fontSize: 14, color: theme.text }}>{attribute.name}</span>
+          <span className="text-sm" style={{ color: theme.text }}>{attribute.name}</span>
         </label>
       )
     case 'select':
       const options = attribute.options?.split(',').map(o => o.trim()).filter(Boolean) || []
       return (
         <div>
-          <label style={{ display: 'block', marginBottom: 4, fontSize: 13, color: theme.textSubtle }}>
+          <label className="block mb-1 text-xs" style={{ color: theme.textSubtle }}>
             {attribute.name}{attribute.required && ' *'}
           </label>
           <select
             value={value as string || ''}
             onChange={e => onChange((e.target as HTMLSelectElement).value)}
+            className="w-full px-3.5 py-2.5 rounded-md text-sm box-border"
             style={commonStyle}
           >
             <option value="">Select...</option>
@@ -104,13 +103,14 @@ function AttributeInput({
     default:
       return (
         <div>
-          <label style={{ display: 'block', marginBottom: 4, fontSize: 13, color: theme.textSubtle }}>
+          <label className="block mb-1 text-xs" style={{ color: theme.textSubtle }}>
             {attribute.name}{attribute.required && ' *'}
           </label>
           <input
             type="text"
             value={value as string || ''}
             onInput={e => onChange((e.target as HTMLInputElement).value)}
+            className="w-full px-3.5 py-2.5 rounded-md text-sm box-border"
             style={commonStyle}
           />
         </div>
@@ -195,45 +195,28 @@ export function EditThingModal({
 
   return (
     <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: theme.overlay,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 1000,
-      }}
+      className="fixed inset-0 flex items-center justify-center z-[1000]"
+      style={{ background: theme.overlay }}
       onClick={onClose}
     >
       <div
-        style={{
-          background: theme.bgCard,
-          borderRadius: 12,
-          padding: 24,
-          width: '100%',
-          maxWidth: 500,
-          maxHeight: '80vh',
-          overflow: 'auto',
-        }}
+        className="rounded-xl p-6 w-full max-w-[500px] max-h-[80vh] overflow-auto"
+        style={{ background: theme.bgCard }}
         onClick={e => e.stopPropagation()}
       >
-        <h2 style={{ margin: '0 0 20px', fontSize: 20, color: theme.text }}>Edit Thing</h2>
+        <h2 className="m-0 mb-5 text-xl" style={{ color: theme.text }}>Edit Thing</h2>
         <form onSubmit={handleSave}>
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ display: 'block', marginBottom: 6, fontSize: 14, fontWeight: 500, color: theme.text }}>Kind</label>
+          <div className="mb-4">
+            <label className="block mb-1.5 text-sm font-medium" style={{ color: theme.text }}>Kind</label>
             <select
               value={type}
               onChange={e => {
                 setType((e.target as HTMLSelectElement).value)
                 setMetadata({})
               }}
+              className="w-full px-3.5 py-2.5 rounded-md text-sm"
               style={{
-                width: '100%',
-                padding: '10px 14px',
                 border: `1px solid ${theme.borderInput}`,
-                borderRadius: 6,
-                fontSize: 14,
                 background: theme.bgInput,
                 color: theme.text,
               }}
@@ -243,20 +226,15 @@ export function EditThingModal({
               ))}
             </select>
           </div>
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ display: 'block', marginBottom: 6, fontSize: 14, fontWeight: 500, color: theme.text }}>Content</label>
+          <div className="mb-4">
+            <label className="block mb-1.5 text-sm font-medium" style={{ color: theme.text }}>Content</label>
             <textarea
               value={content}
               onInput={e => setContent((e.target as HTMLTextAreaElement).value)}
               rows={4}
+              className="w-full px-3.5 py-2.5 rounded-md text-sm resize-y box-border"
               style={{
-                width: '100%',
-                padding: '10px 14px',
                 border: `1px solid ${theme.borderInput}`,
-                borderRadius: 6,
-                fontSize: 14,
-                resize: 'vertical',
-                boxSizing: 'border-box',
                 background: theme.bgInput,
                 color: theme.text,
               }}
@@ -265,8 +243,8 @@ export function EditThingModal({
 
           {/* Kind attributes */}
           {currentKind?.attributes && currentKind.attributes.length > 0 && (
-            <div style={{ marginBottom: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <label style={{ fontSize: 14, fontWeight: 500, color: theme.text }}>Attributes</label>
+            <div className="mb-4 flex flex-col gap-3">
+              <label className="text-sm font-medium" style={{ color: theme.text }}>Attributes</label>
               {currentKind.attributes.map(attr => (
                 <AttributeInput
                   key={attr.name}
@@ -281,35 +259,26 @@ export function EditThingModal({
 
           {/* Photo captions for galleries */}
           {isGallery && visiblePhotos.length > 0 && (
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ display: 'block', marginBottom: 8, fontSize: 14, fontWeight: 500, color: theme.text }}>
+            <div className="mb-4">
+              <label className="block mb-2 text-sm font-medium" style={{ color: theme.text }}>
                 Photos ({visiblePhotos.length})
               </label>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div className="flex flex-col gap-3">
                 {visiblePhotos.map((photo, index) => (
-                  <div key={photo.id} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <div key={photo.id} className="flex gap-2 items-center">
                     <img
                       src={apiUrl(`/api/photos/${photo.id}?size=thumb`)}
                       alt={`Photo ${index + 1}`}
-                      style={{
-                        width: 60,
-                        height: 60,
-                        objectFit: 'cover',
-                        borderRadius: 4,
-                        flexShrink: 0,
-                      }}
+                      className="w-[60px] h-[60px] object-cover rounded shrink-0"
                     />
                     <input
                       type="text"
                       value={photoCaptions[photo.id] || ''}
                       onChange={e => setPhotoCaptions({ ...photoCaptions, [photo.id]: (e.target as HTMLInputElement).value })}
                       placeholder={`Caption for photo ${index + 1}`}
+                      className="flex-1 px-3 py-2 rounded-md text-xs"
                       style={{
-                        flex: 1,
-                        padding: '8px 12px',
                         border: `1px solid ${theme.borderInput}`,
-                        borderRadius: 6,
-                        fontSize: 13,
                         background: theme.bgInput,
                         color: theme.text,
                       }}
@@ -317,15 +286,8 @@ export function EditThingModal({
                     <button
                       type="button"
                       onClick={() => setDeletedPhotoIds([...deletedPhotoIds, photo.id])}
-                      style={{
-                        background: 'none',
-                        border: 'none',
-                        color: theme.error,
-                        cursor: 'pointer',
-                        fontSize: 18,
-                        padding: '4px 8px',
-                        flexShrink: 0,
-                      }}
+                      className="bg-transparent border-0 cursor-pointer text-lg px-2 py-1 shrink-0"
+                      style={{ color: theme.error }}
                       title="Delete photo"
                     >
                       🗑️
@@ -334,24 +296,21 @@ export function EditThingModal({
                 ))}
               </div>
               {deletedPhotoIds.length > 0 && (
-                <p style={{ fontSize: 12, color: theme.textMuted, marginTop: 8 }}>
+                <p className="text-xs mt-2" style={{ color: theme.textMuted }}>
                   {deletedPhotoIds.length} photo(s) will be deleted when you save
                 </p>
               )}
             </div>
           )}
 
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <div className="flex gap-2 justify-end">
             <button
               type="button"
               onClick={onClose}
+              className="px-5 py-2.5 rounded-md border-0 cursor-pointer"
               style={{
-                padding: '10px 20px',
                 background: theme.bgHover,
                 color: theme.text,
-                border: 'none',
-                borderRadius: 6,
-                cursor: 'pointer',
               }}
             >
               Cancel
@@ -359,12 +318,10 @@ export function EditThingModal({
             <button
               type="submit"
               disabled={saving}
+              className="px-5 py-2.5 rounded-md border-0"
               style={{
-                padding: '10px 20px',
                 background: saving ? theme.textMuted : theme.accent,
                 color: theme.accentText,
-                border: 'none',
-                borderRadius: 6,
                 cursor: saving ? 'not-allowed' : 'pointer',
                 opacity: saving ? 0.7 : 1,
               }}

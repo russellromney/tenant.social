@@ -45,7 +45,7 @@ export function BookmarksView({
 
   if (loading) {
     return (
-      <div style={{ padding: 32, textAlign: 'center', color: theme.textMuted }}>
+      <div className="p-8 text-center" style={{ color: theme.textMuted }}>
         Loading bookmarks...
       </div>
     )
@@ -53,7 +53,7 @@ export function BookmarksView({
 
   if (error) {
     return (
-      <div style={{ padding: 32, textAlign: 'center', color: theme.error }}>
+      <div className="p-8 text-center" style={{ color: theme.error }}>
         {error}
       </div>
     )
@@ -61,23 +61,20 @@ export function BookmarksView({
 
   return (
     <div>
-      <h2 style={{ color: theme.text, marginBottom: 16, fontSize: 20 }}>
+      <h2 className="mb-4 text-xl" style={{ color: theme.text }}>
         Bookmarks
       </h2>
       {bookmarks.length === 0 ? (
-        <div style={{
-          padding: 32,
-          textAlign: 'center',
+        <div className="p-8 text-center rounded-xl border" style={{
           color: theme.textMuted,
           background: theme.bgCard,
-          borderRadius: 12,
-          border: `1px solid ${theme.border}`,
+          borderColor: theme.border,
         }}>
-          <p style={{ marginBottom: 8 }}>No bookmarks yet</p>
-          <p style={{ fontSize: 14 }}>Bookmark things to save them for later</p>
+          <p className="mb-2">No bookmarks yet</p>
+          <p className="text-sm">Bookmark things to save them for later</p>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div className="flex flex-col gap-4">
           {bookmarks.map(thing => (
             <ThingCard
               key={thing.id}

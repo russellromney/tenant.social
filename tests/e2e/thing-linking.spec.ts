@@ -75,7 +75,7 @@ test.describe('Thing Linking Feature', () => {
         await page.waitForTimeout(300);
 
         // Look for dropdown items
-        const dropdownItems = await page.locator('div[style*="position: absolute"]').locator('div').all();
+        const dropdownItems = await page.locator('[data-testid="link-dropdown"]').locator('div').all();
 
         // Skip if no dropdown items
         if (dropdownItems.length > 1) {

@@ -145,19 +145,15 @@ function CommentItem({
       <div style={{ marginLeft: depth > 0 ? 24 : 0 }}>
         <div
           onClick={() => setExpanded(true)}
+          className="px-3 py-2 my-1 rounded-md cursor-pointer text-xs"
           style={{
-            padding: '8px 12px',
-            margin: '4px 0',
             background: theme.bgCard,
             border: `1px solid ${theme.border}`,
-            borderRadius: 6,
-            cursor: 'pointer',
-            fontSize: 13,
             color: theme.textMuted,
           }}
         >
-          <span style={{ marginRight: 8 }}>▶</span>
-          <span style={{ fontWeight: 500, color: theme.text }}>{authorName}</span>
+          <span className="mr-2">▶</span>
+          <span className="font-medium" style={{ color: theme.text }}>{authorName}</span>
           {totalDescendants > 0 && (
             <span> and {totalDescendants} {totalDescendants === 1 ? 'other' : 'others'} ({totalDescendants + 1} {totalDescendants === 0 ? 'reply' : 'replies'})</span>
           )}
@@ -172,26 +168,19 @@ function CommentItem({
       {depth > 0 && comment.parent_content && (
         <div
           onClick={() => replies.length > 0 && setExpanded(false)}
+          className="px-2.5 py-1.5 mb-0 rounded-t-md text-xs flex items-center gap-1.5"
           style={{
-            padding: '6px 10px',
-            marginBottom: 0,
             background: theme.bgCard,
             borderLeft: `3px solid ${theme.border}`,
             borderTop: `1px solid ${theme.border}`,
             borderRight: `1px solid ${theme.border}`,
-            borderTopLeftRadius: 6,
-            borderTopRightRadius: 6,
-            fontSize: 12,
             color: theme.textMuted,
             cursor: replies.length > 0 ? 'pointer' : 'default',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
           }}
         >
           {replies.length > 0 && <span>▼</span>}
           <span>↳ replying to <strong style={{ color: theme.text }}>{parentAuthorName}</strong>: </span>
-          <span style={{ fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <span className="italic overflow-hidden text-ellipsis whitespace-nowrap">
             "{comment.parent_content}"
           </span>
         </div>
@@ -199,40 +188,39 @@ function CommentItem({
 
       {/* Comment body */}
       <div
+        className="px-2.5 py-2 mb-1.5"
         style={{
-          padding: '8px 10px',
           borderLeft: depth > 0 ? `3px solid ${theme.border}` : `1px solid ${theme.border}`,
           borderRight: `1px solid ${theme.border}`,
           borderBottom: `1px solid ${theme.border}`,
           borderTop: depth > 0 && comment.parent_content ? 'none' : `1px solid ${theme.border}`,
           borderRadius: depth > 0 && comment.parent_content ? '0 0 6px 6px' : 6,
-          marginBottom: 6,
           background: theme.bg,
         }}
       >
         {/* Header: user + time */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-          <span style={{ fontWeight: 600, color: isDeleted ? theme.textMuted : theme.text, fontSize: 13 }}>
+        <div className="flex items-center gap-2 mb-1">
+          <span className="font-semibold text-xs" style={{ color: isDeleted ? theme.textMuted : theme.text }}>
             {authorName}
           </span>
-          <span style={{ color: theme.textMuted, fontSize: 12 }}>
+          <span className="text-xs" style={{ color: theme.textMuted }}>
             {formatTimeAgo(comment.created_at)}
           </span>
           {totalDescendants > 0 && (
-            <span style={{ color: theme.textMuted, fontSize: 11 }}>
+            <span className="text-[11px]" style={{ color: theme.textMuted }}>
               • {totalDescendants} {totalDescendants === 1 ? 'reply' : 'replies'}
             </span>
           )}
         </div>
 
         {/* Content */}
-        <div style={{ color: isDeleted ? theme.textMuted : theme.text, fontSize: 14, lineHeight: 1.5 }}>
+        <div className="text-sm leading-relaxed" style={{ color: isDeleted ? theme.textMuted : theme.text }}>
           {isDeleted ? <em>[deleted]</em> : comment.content}
         </div>
 
         {/* Actions */}
         {!isDeleted && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 6 }}>
+          <div className="flex items-center gap-3 mt-1.5">
             {/* Reactions */}
             {currentUserId && (
               <ReactionBar
@@ -246,21 +234,15 @@ function CommentItem({
             )}
             {/* Show reaction counts even when not logged in */}
             {!currentUserId && reactions && (reactions.counts?.['like'] > 0 || Object.keys(reactions.counts || {}).length > 1) && (
-              <span style={{ fontSize: 12, color: theme.textMuted }}>
+              <span className="text-xs" style={{ color: theme.textMuted }}>
                 {reactions.counts?.['like'] > 0 && `${reactions.counts['like']} like${reactions.counts['like'] !== 1 ? 's' : ''}`}
               </span>
             )}
             {canReply && (
               <button
                 onClick={() => setReplyingTo(isReplyingToThis ? null : comment.id)}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: theme.textMuted,
-                  cursor: 'pointer',
-                  fontSize: 12,
-                  padding: 0,
-                }}
+                className="bg-transparent border-0 cursor-pointer text-xs p-0"
+                style={{ color: theme.textMuted }}
               >
                 {isReplyingToThis ? 'Cancel' : 'Reply'}
               </button>
@@ -269,13 +251,10 @@ function CommentItem({
               <button
                 onClick={handleDelete}
                 disabled={deleting}
+                className="bg-transparent border-0 text-xs p-0"
                 style={{
-                  background: 'none',
-                  border: 'none',
                   color: theme.textMuted,
                   cursor: deleting ? 'wait' : 'pointer',
-                  fontSize: 12,
-                  padding: 0,
                 }}
               >
                 {deleting ? 'Deleting...' : 'Delete'}
@@ -294,7 +273,7 @@ function CommentItem({
 
         {/* Reply form */}
         {isReplyingToThis && (
-          <div style={{ marginTop: 8 }}>
+          <div className="mt-2">
             <textarea
               autoFocus
               value={replyContent}
@@ -306,30 +285,23 @@ function CommentItem({
                 }
               }}
               placeholder="Write a reply..."
+              className="w-full px-2 py-1.5 rounded-md text-xs resize-y"
               style={{
-                width: '100%',
                 minHeight: 40,
-                padding: '6px 8px',
-                borderRadius: 6,
                 border: `1px solid ${theme.border}`,
                 background: theme.bgCard,
                 color: theme.text,
-                fontSize: 13,
-                resize: 'vertical',
                 fontFamily: 'inherit',
               }}
             />
-            <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+            <div className="flex gap-2 mt-1.5">
               <button
                 onClick={handleSubmitReply}
                 disabled={submittingReply || !replyContent.trim()}
+                className="px-2.5 py-1 rounded-md border-0 text-xs"
                 style={{
-                  padding: '4px 10px',
-                  borderRadius: 6,
-                  border: 'none',
                   background: theme.accent,
                   color: theme.accentText,
-                  fontSize: 12,
                   cursor: submittingReply ? 'wait' : 'pointer',
                   opacity: submittingReply || !replyContent.trim() ? 0.5 : 1,
                 }}
@@ -338,14 +310,10 @@ function CommentItem({
               </button>
               <button
                 onClick={() => { setReplyingTo(null); setReplyContent('') }}
+                className="px-2.5 py-1 rounded-md bg-transparent text-xs cursor-pointer"
                 style={{
-                  padding: '4px 10px',
-                  borderRadius: 6,
                   border: `1px solid ${theme.border}`,
-                  background: 'transparent',
                   color: theme.textMuted,
-                  fontSize: 12,
-                  cursor: 'pointer',
                 }}
               >
                 Cancel
@@ -520,22 +488,16 @@ export function CommentsSection({
   const commentCount = comments.filter(c => !c.deleted_at).length
 
   return (
-    <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${theme.border}` }}>
+    <div className="mt-4 pt-4" style={{ borderTop: `1px solid ${theme.border}` }}>
       {/* Header */}
       <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: 12,
-          cursor: 'pointer',
-        }}
+        className="flex items-center justify-between mb-3 cursor-pointer"
         onClick={() => setExpanded(!expanded)}
       >
-        <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: theme.text }}>
+        <h3 className="m-0 text-base font-semibold" style={{ color: theme.text }}>
           Replies {commentCount > 0 && `(${commentCount})`}
         </h3>
-        <span style={{ color: theme.textMuted, fontSize: 12 }}>
+        <span className="text-xs" style={{ color: theme.textMuted }}>
           {expanded ? '▼' : '▶'}
         </span>
       </div>
@@ -544,7 +506,7 @@ export function CommentsSection({
         <>
           {/* New reply form - only if commentable */}
           {commentable && currentUserId && (
-            <div style={{ marginBottom: 12 }}>
+            <div className="mb-3">
               <textarea
                 value={newComment}
                 onChange={(e) => setNewComment((e.target as HTMLTextAreaElement).value)}
@@ -555,30 +517,22 @@ export function CommentsSection({
                   }
                 }}
                 placeholder="Write a reply..."
+                className="w-full px-2.5 py-2 rounded-md text-xs resize-y"
                 style={{
-                  width: '100%',
                   minHeight: 44,
-                  padding: '8px 10px',
-                  borderRadius: 6,
                   border: `1px solid ${theme.border}`,
                   background: theme.bgCard,
                   color: theme.text,
-                  fontSize: 13,
-                  resize: 'vertical',
                   fontFamily: 'inherit',
                 }}
               />
               <button
                 onClick={() => submitComment(newComment)}
                 disabled={submitting || !newComment.trim()}
+                className="mt-1.5 px-3 py-1.5 rounded-md border-0 text-xs"
                 style={{
-                  marginTop: 6,
-                  padding: '6px 12px',
-                  borderRadius: 6,
-                  border: 'none',
                   background: theme.accent,
                   color: theme.accentText,
-                  fontSize: 12,
                   cursor: submitting ? 'wait' : 'pointer',
                   opacity: submitting || !newComment.trim() ? 0.5 : 1,
                 }}
@@ -589,19 +543,19 @@ export function CommentsSection({
           )}
 
           {commentable && !currentUserId && (
-            <p style={{ color: theme.textMuted, fontSize: 13, marginBottom: 16 }}>
+            <p className="text-xs mb-4" style={{ color: theme.textMuted }}>
               <a href={routeHref('/login')} style={{ color: theme.accent }}>Log in</a> to reply.
             </p>
           )}
 
           {/* Comments list */}
           {loading ? (
-            <p style={{ color: theme.textMuted, fontSize: 13 }}>Loading replies...</p>
+            <p className="text-xs" style={{ color: theme.textMuted }}>Loading replies...</p>
           ) : error ? (
-            <p style={{ color: theme.error, fontSize: 13 }}>{error}</p>
+            <p className="text-xs" style={{ color: theme.error }}>{error}</p>
           ) : tree.length === 0 ? (
             commentable ? (
-              <p style={{ color: theme.textMuted, fontSize: 13 }}>No replies yet. Be the first!</p>
+              <p className="text-xs" style={{ color: theme.textMuted }}>No replies yet. Be the first!</p>
             ) : null
           ) : (
             <div>

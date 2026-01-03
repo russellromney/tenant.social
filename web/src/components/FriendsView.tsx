@@ -218,43 +218,32 @@ export function FriendsView({
 
   return (
     <div>
-      <h2 style={{ fontSize: 20, margin: '0 0 16px', color: theme.text }}>Friends</h2>
+      <h2 className="text-xl mb-4" style={{ color: theme.text }}>Friends</h2>
 
       {/* Mutuals Section - Real Friends */}
       {mutuals.length > 0 && (
-        <div style={{
-          padding: 20,
-          background: theme.bgCard,
-          borderRadius: 12,
-          border: `1px solid ${theme.accent}`,
-          marginBottom: 24,
-        }}>
-          <h3 style={{ fontSize: 16, margin: '0 0 16px', color: theme.accent }}>
+        <div className="p-5 rounded-xl mb-6" style={{ background: theme.bgCard, border: `1px solid ${theme.accent}` }}>
+          <h3 className="text-base mb-4" style={{ color: theme.accent }}>
             Mutuals ({mutuals.length})
           </h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div className="flex flex-col gap-3">
             {mutuals.map(follow => (
               <div
                 key={follow.id}
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  padding: '12px 16px',
-                  background: theme.bgHover,
-                  borderRadius: 8,
-                }}
+                className="flex justify-between items-center px-4 py-3 rounded-lg"
+                style={{ background: theme.bgHover }}
               >
                 <div>
                   <a
                     href={getFullUrl(follow.remote_endpoint)}
                     target="_blank"
                     rel="noopener noreferrer"
-                    style={{ fontWeight: 500, color: theme.link, textDecoration: 'none' }}
+                    className="font-medium no-underline"
+                    style={{ color: theme.link }}
                   >
                     {getFullUrl(follow.remote_endpoint)}
                   </a>
-                  <div style={{ fontSize: 12, color: theme.textMuted }}>
+                  <div className="text-xs" style={{ color: theme.textMuted }}>
                     Friends since {new Date(follow.created_at).toLocaleDateString()}
                   </div>
                 </div>
@@ -265,30 +254,21 @@ export function FriendsView({
       )}
 
       {/* Add Friend Section */}
-      <div style={{
-        padding: 20,
-        background: theme.bgCard,
-        borderRadius: 12,
-        border: `1px solid ${theme.border}`,
-        marginBottom: 24,
-      }}>
-        <h3 style={{ fontSize: 16, margin: '0 0 8px', color: theme.text }}>Add Friend</h3>
-        <p style={{ fontSize: 14, color: theme.textMuted, margin: '0 0 16px' }}>
+      <div className="p-5 rounded-xl mb-6" style={{ background: theme.bgCard, border: `1px solid ${theme.border}` }}>
+        <h3 className="text-base mb-2" style={{ color: theme.text }}>Add Friend</h3>
+        <p className="text-sm mb-4" style={{ color: theme.textMuted }}>
           Enter a username or URL to follow someone.
         </p>
 
-        <form onSubmit={addFriend} style={{ display: 'flex', gap: 8, flexDirection: isMobile ? 'column' : 'row' }}>
+        <form onSubmit={addFriend} className={`flex gap-2 ${isMobile ? 'flex-col' : 'flex-row'}`}>
           <input
             type="text"
             value={friendUrl}
             onInput={e => setFriendUrl((e.target as HTMLInputElement).value)}
             placeholder="bob or /bob or http://tenant.social/alice"
+            className="flex-1 px-3.5 py-2.5 rounded-md text-sm"
             style={{
-              flex: 1,
-              padding: '10px 14px',
               border: `1px solid ${theme.borderInput}`,
-              borderRadius: 6,
-              fontSize: 14,
               background: theme.bgInput,
               color: theme.text,
             }}
@@ -296,15 +276,11 @@ export function FriendsView({
           <button
             type="submit"
             disabled={adding || !friendUrl.trim()}
+            className="px-5 py-2.5 rounded-md text-sm font-medium border-0"
             style={{
-              padding: '10px 20px',
               background: adding ? theme.textDisabled : theme.accent,
               color: adding ? theme.textSubtle : theme.accentText,
-              border: 'none',
-              borderRadius: 6,
               cursor: adding ? 'not-allowed' : 'pointer',
-              fontSize: 14,
-              fontWeight: 500,
             }}
           >
             {adding ? 'Adding...' : 'Add Friend'}
@@ -312,68 +288,54 @@ export function FriendsView({
         </form>
 
         {error && (
-          <p style={{ color: '#ef4444', fontSize: 14, margin: '12px 0 0' }}>{error}</p>
+          <p className="text-sm mt-3" style={{ color: '#ef4444' }}>{error}</p>
         )}
         {success && (
-          <p style={{ color: '#22c55e', fontSize: 14, margin: '12px 0 0' }}>{success}</p>
+          <p className="text-sm mt-3" style={{ color: '#22c55e' }}>{success}</p>
         )}
       </div>
 
       {/* Following Section */}
-      <div style={{
-        padding: 20,
-        background: theme.bgCard,
-        borderRadius: 12,
-        border: `1px solid ${theme.border}`,
-        marginBottom: 16,
-      }}>
-        <h3 style={{ fontSize: 16, margin: '0 0 16px', color: theme.text }}>
+      <div className="p-5 rounded-xl mb-4" style={{ background: theme.bgCard, border: `1px solid ${theme.border}` }}>
+        <h3 className="text-base mb-4" style={{ color: theme.text }}>
           Following ({following.length})
         </h3>
 
         {loading ? (
-          <p style={{ color: theme.textMuted, fontSize: 14 }}>Loading...</p>
+          <p className="text-sm" style={{ color: theme.textMuted }}>Loading...</p>
         ) : following.length === 0 ? (
-          <p style={{ color: theme.textMuted, fontSize: 14 }}>
+          <p className="text-sm" style={{ color: theme.textMuted }}>
             You're not following anyone yet. Add a friend above!
           </p>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div className="flex flex-col gap-3">
             {following.map(follow => (
               <div
                 key={follow.id}
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  padding: '12px 16px',
-                  background: theme.bgHover,
-                  borderRadius: 8,
-                }}
+                className="flex justify-between items-center px-4 py-3 rounded-lg"
+                style={{ background: theme.bgHover }}
               >
                 <div>
                   <a
                     href={getFullUrl(follow.remote_endpoint)}
                     target="_blank"
                     rel="noopener noreferrer"
-                    style={{ fontWeight: 500, color: theme.link, textDecoration: 'none' }}
+                    className="font-medium no-underline"
+                    style={{ color: theme.link }}
                   >
                     {getFullUrl(follow.remote_endpoint)}
                   </a>
-                  <div style={{ fontSize: 12, color: theme.textMuted }}>
+                  <div className="text-xs" style={{ color: theme.textMuted }}>
                     Since {new Date(follow.created_at).toLocaleDateString()}
                   </div>
                 </div>
                 <button
                   onClick={() => unfollowUser(follow.following_id)}
+                  className="px-3 py-1.5 rounded-md text-xs cursor-pointer"
                   style={{
-                    padding: '6px 12px',
                     background: 'transparent',
                     color: theme.textMuted,
                     border: `1px solid ${theme.border}`,
-                    borderRadius: 6,
-                    cursor: 'pointer',
-                    fontSize: 13,
                   }}
                 >
                   Unfollow
@@ -385,20 +347,15 @@ export function FriendsView({
       </div>
 
       {/* Followers Section */}
-      <div style={{
-        padding: 20,
-        background: theme.bgCard,
-        borderRadius: 12,
-        border: `1px solid ${theme.border}`,
-      }}>
-        <h3 style={{ fontSize: 16, margin: '0 0 16px', color: theme.text }}>
+      <div className="p-5 rounded-xl" style={{ background: theme.bgCard, border: `1px solid ${theme.border}` }}>
+        <h3 className="text-base mb-4" style={{ color: theme.text }}>
           Followers ({followers.length})
         </h3>
 
         {loading ? (
-          <p style={{ color: theme.textMuted, fontSize: 14 }}>Loading...</p>
+          <p className="text-sm" style={{ color: theme.textMuted }}>Loading...</p>
         ) : followers.length === 0 ? (
-          <p style={{ color: theme.textMuted, fontSize: 14 }}>
+          <p className="text-sm" style={{ color: theme.textMuted }}>
             No one is following you yet.
           </p>
         ) : (() => {
@@ -419,24 +376,20 @@ export function FriendsView({
           })
 
           return (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div className="flex flex-col gap-4">
               {/* Active Followers */}
               {activeFollowers.length > 0 && (
                 <div>
-                  <div style={{ fontSize: 13, fontWeight: 500, color: theme.accent, marginBottom: 8 }}>
+                  <div className="text-xs font-medium mb-2" style={{ color: theme.accent }}>
                     Active ({activeFollowers.length})
                   </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div className="flex flex-col gap-2">
                     {activeFollowers.map(follow => (
                       <div
                         key={follow.id}
+                        className="flex justify-between items-center px-4 py-3 rounded-lg"
                         style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          padding: '12px 16px',
                           background: theme.bgHover,
-                          borderRadius: 8,
                           borderLeft: `3px solid ${theme.accent}`,
                         }}
                       >
@@ -445,11 +398,12 @@ export function FriendsView({
                             href={getFullUrl(follow.remote_endpoint)}
                             target="_blank"
                             rel="noopener noreferrer"
-                            style={{ fontWeight: 500, color: theme.link, textDecoration: 'none' }}
+                            className="font-medium no-underline"
+                            style={{ color: theme.link }}
                           >
                             {getFullUrl(follow.remote_endpoint)}
                           </a>
-                          <div style={{ fontSize: 12, color: theme.textMuted }}>
+                          <div className="text-xs" style={{ color: theme.textMuted }}>
                             Following since {new Date(follow.created_at).toLocaleDateString()} · Confirmed {new Date(follow.last_confirmed_at!).toLocaleDateString()}
                           </div>
                         </div>
@@ -462,33 +416,27 @@ export function FriendsView({
               {/* Lapsed Followers */}
               {lapsedFollowers.length > 0 && (
                 <div>
-                  <div style={{ fontSize: 13, fontWeight: 500, color: theme.textMuted, marginBottom: 8 }}>
+                  <div className="text-xs font-medium mb-2" style={{ color: theme.textMuted }}>
                     Lapsed ({lapsedFollowers.length})
                   </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div className="flex flex-col gap-2">
                     {lapsedFollowers.map(follow => (
                       <div
                         key={follow.id}
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          padding: '12px 16px',
-                          background: theme.bgHover,
-                          borderRadius: 8,
-                          opacity: 0.7,
-                        }}
+                        className="flex justify-between items-center px-4 py-3 rounded-lg opacity-70"
+                        style={{ background: theme.bgHover }}
                       >
                         <div>
                           <a
                             href={getFullUrl(follow.remote_endpoint)}
                             target="_blank"
                             rel="noopener noreferrer"
-                            style={{ fontWeight: 500, color: theme.link, textDecoration: 'none' }}
+                            className="font-medium no-underline"
+                            style={{ color: theme.link }}
                           >
                             {getFullUrl(follow.remote_endpoint)}
                           </a>
-                          <div style={{ fontSize: 12, color: theme.textMuted }}>
+                          <div className="text-xs" style={{ color: theme.textMuted }}>
                             Following since {new Date(follow.created_at).toLocaleDateString()}
                             {follow.last_confirmed_at ? ` · Last confirmed ${new Date(follow.last_confirmed_at).toLocaleDateString()}` : ' · Never confirmed'}
                           </div>

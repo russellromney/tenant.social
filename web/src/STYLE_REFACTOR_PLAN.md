@@ -1,12 +1,37 @@
-# Style Refactoring Plan - Hybrid CSS Approach
+# Style Refactoring Plan - Tailwind CSS + CSS Variables Hybrid
+
+**Status:** ✅ **COMPLETE** (Completed 2025-12-31)
 
 ## Executive Summary
 
-**Goal:** Reduce inline style bloat by 60-70% through strategic extraction of repeated patterns into CSS classes while maintaining theme integration and TypeScript safety.
+**Goal:** Reduce inline style bloat by 60-70% using Tailwind CSS utility classes while preserving the existing theme system through CSS variable integration.
 
 **Current State:** 748 inline style blocks consuming ~4,900 lines across 16 files
 
-**Target State:** ~150 inline style blocks + ~200 lines of reusable CSS
+**Target State:** ~150 inline style blocks + Tailwind utilities with CSS variable theming
+
+**Approach:** Hybrid - Tailwind utilities reference existing CSS variables for automatic theme switching
+
+---
+
+## Why Tailwind + CSS Variables (Hybrid)?
+
+### Advantages Over Custom Utilities
+- ✅ **Industry standard** - 100+ utility classes out of box vs writing ~50 custom ones
+- ✅ **Battle-tested** - Used by GitHub, Shopify, Netflix
+- ✅ **Better DX** - IntelliSense, autocomplete, extensive documentation
+- ✅ **JIT compiler** - Tree-shaking ensures minimal bundle size
+- ✅ **Responsive utilities** - `md:flex`, `lg:grid` built-in
+- ✅ **State variants** - `hover:`, `focus:`, `disabled:` modifiers
+- ✅ **Maintenance** - Framework updates vs maintaining custom CSS
+
+### Advantages Over Pure Tailwind
+- ✅ **Cleaner HTML** - `bg-card` vs `bg-white dark:bg-slate-900`
+- ✅ **Semantic naming** - `text-muted` vs `text-gray-600 dark:text-gray-400`
+- ✅ **Automatic theming** - CSS variables handle light/dark mode
+- ✅ **Multi-theme ready** - Can support 3+ themes easily
+- ✅ **Zero breaking changes** - Keep existing theme system
+- ✅ **Plugin-friendly** - Authors use semantic tokens, themes provide values
 
 ---
 
@@ -26,367 +51,160 @@
 | components/EditThingModal.tsx | 379 | 30 | 240 | 63% |
 | components/FeedView.tsx | 288 | 25 | 200 | 69% |
 | components/ReactionComponents.tsx | 429 | 20 | 160 | 37% |
-| components/AttributeInputs.tsx | 248 | 14 | 112 | 45% |
-| components/EmojiPicker.tsx | 167 | 9 | 72 | 43% |
-| components/Footer.tsx | 30 | 8 | 64 | 213% |
-| components/BookmarksView.tsx | 102 | 7 | 56 | 54% |
-| components/KindSelector.tsx | 87 | 3 | 24 | 27% |
-| components/SettingsPage.tsx | 91 | 1 | 8 | 8% |
 
 **Total:** 748 style blocks ≈ 4,920 estimated lines of inline styles
 
----
+### Top Repeated Patterns
 
-## Top Repeated Patterns (200+ occurrences)
-
-From analysis, these 10 patterns account for ~300 style blocks:
-
-1. **Flex Row Center** (36 occurrences)
-   ```tsx
-   { display: 'flex', alignItems: 'center', gap: 8 }
-   ```
-
-2. **Flex Column** (26 occurrences)
-   ```tsx
-   { display: 'flex', flexDirection: 'column', gap: 8 }
-   ```
-
-3. **Card Container** (24 occurrences)
-   ```tsx
-   { padding: 16, background: theme.bgCard, borderRadius: 8, border: `1px solid ${theme.border}` }
-   ```
-
-4. **Form Label** (53+ occurrences via textMuted)
-   ```tsx
-   { display: 'block', fontSize: 13, color: theme.textMuted, marginBottom: 4 }
-   ```
-
-5. **Input Field** (20+ form inputs)
-   ```tsx
-   { width: '100%', padding: '8px 12px', border: `1px solid ${theme.borderInput}`, borderRadius: 6 }
-   ```
-
-6. **Button Primary** (30+ buttons)
-   ```tsx
-   { padding: '10px 20px', background: theme.accent, color: theme.accentText, border: 'none', borderRadius: 6 }
-   ```
-
-7. **Text Sizes** (122+ text colors)
-   - fontSize: 12, 13, 14, 16, 18, 20
-   - color: theme.text, theme.textMuted, theme.textSecondary
-
-8. **Spacing** (80+ margin/padding)
-   - gap: 4, 6, 8, 12, 16, 20, 24
-   - marginBottom: 4, 8, 12, 16, 24, 32
+1. **Flex layouts** - `display: flex`, `alignItems: center`, `gap: 8` (36+ occurrences)
+2. **Cards** - `padding: 16`, `background: theme.bgCard`, `borderRadius: 8` (24+ occurrences)
+3. **Form inputs** - Width, padding, border, background (20+ occurrences)
+4. **Buttons** - Padding, colors, border radius (30+ occurrences)
+5. **Text styles** - Font sizes, colors, weights (122+ occurrences)
+6. **Spacing** - Gaps, margins, padding values (80+ occurrences)
 
 ---
 
-## Proposed Hybrid Architecture
+## Tailwind Integration Architecture
 
-### 1. CSS Variables (Extend existing in index.html)
+### 1. Install Tailwind CSS
 
-Already have theme variables. Add design tokens:
+```bash
+npm install -D tailwindcss postcss autoprefixer
+npx tailwindcss init -p
+```
+
+### 2. Configure Tailwind with CSS Variables
+
+**tailwind.config.js:**
+```js
+/** @type {import('tailwindcss').Config} */
+export default {
+  content: [
+    './index.html',
+    './src/**/*.{js,ts,jsx,tsx}',
+  ],
+  theme: {
+    extend: {
+      colors: {
+        // Background colors
+        bg: {
+          DEFAULT: 'var(--bg)',
+          card: 'var(--bg-card)',
+          hover: 'var(--bg-hover)',
+          muted: 'var(--bg-muted)',
+          input: 'var(--bg-input)',
+        },
+
+        // Text colors
+        text: {
+          DEFAULT: 'var(--text)',
+          muted: 'var(--text-muted)',
+          secondary: 'var(--text-secondary)',
+          subtle: 'var(--text-subtle)',
+          disabled: 'var(--text-disabled)',
+        },
+
+        // Accent colors
+        accent: {
+          DEFAULT: 'var(--accent)',
+          text: 'var(--accent-text)',
+        },
+
+        // Border colors
+        border: {
+          DEFAULT: 'var(--border)',
+          input: 'var(--border-input)',
+        },
+
+        // Status colors
+        error: {
+          DEFAULT: 'var(--error-bg)',
+          text: 'var(--error-text)',
+        },
+        success: {
+          DEFAULT: 'var(--success)',
+          text: 'var(--success-text)',
+        },
+      },
+    },
+  },
+  plugins: [],
+}
+```
+
+### 3. Import Tailwind Directives
+
+**src/index.css:**
+```css
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Existing CSS variables remain unchanged */
+```
+
+### 4. CSS Variables (Already Exist in index.html)
+
+No changes needed to existing CSS variables - Tailwind will reference them:
 
 ```css
 :root {
-  /* Spacing Scale */
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 20px;
-  --space-6: 24px;
-  --space-8: 32px;
+  --bg: #ffffff;
+  --bg-card: #f9fafb;
+  --bg-hover: #f3f4f6;
+  --bg-muted: #e5e7eb;
+  --bg-input: #ffffff;
 
-  /* Border Radius */
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
-  --radius-xl: 12px;
+  --text: #111827;
+  --text-muted: #6b7280;
+  --text-secondary: #4b5563;
+  --text-subtle: #9ca3af;
+  --text-disabled: #d1d5db;
 
-  /* Font Sizes */
-  --text-xs: 11px;
-  --text-sm: 12px;
-  --text-base: 13px;
-  --text-md: 14px;
-  --text-lg: 16px;
-  --text-xl: 18px;
-  --text-2xl: 20px;
+  --accent: #3b82f6;
+  --accent-text: #ffffff;
+
+  --border: #e5e7eb;
+  --border-input: #d1d5db;
+
+  --error-bg: #fef2f2;
+  --error-text: #991b1b;
+  --success: #dcfce7;
+  --success-text: #166534;
+}
+
+[data-theme="dark"] {
+  --bg: #0f172a;
+  --bg-card: #1e293b;
+  --bg-hover: #334155;
+  --bg-muted: #475569;
+  --bg-input: #1e293b;
+
+  --text: #f1f5f9;
+  --text-muted: #94a3b8;
+  --text-secondary: #cbd5e1;
+  --text-subtle: #64748b;
+  --text-disabled: #475569;
+
+  --accent: #3b82f6;
+  --accent-text: #ffffff;
+
+  --border: #334155;
+  --border-input: #475569;
+
+  --error-bg: #7f1d1d;
+  --error-text: #fecaca;
+  --success: #14532d;
+  --success-text: #86efac;
 }
 ```
-
-### 2. Utility Classes (New: web/src/styles.css)
-
-Create ~50 utility classes:
-
-```css
-/* Layout */
-.flex { display: flex; }
-.flex-col { flex-direction: column; }
-.items-center { align-items: center; }
-.items-start { align-items: flex-start; }
-.justify-between { justify-content: space-between; }
-.justify-center { justify-content: center; }
-.flex-1 { flex: 1; }
-.flex-wrap { flex-wrap: wrap; }
-
-/* Spacing */
-.gap-1 { gap: var(--space-1); }
-.gap-2 { gap: var(--space-2); }
-.gap-3 { gap: var(--space-3); }
-.gap-4 { gap: var(--space-4); }
-.gap-6 { gap: var(--space-6); }
-
-.p-2 { padding: var(--space-2); }
-.p-4 { padding: var(--space-4); }
-.p-6 { padding: var(--space-6); }
-
-.mb-1 { margin-bottom: var(--space-1); }
-.mb-2 { margin-bottom: var(--space-2); }
-.mb-3 { margin-bottom: var(--space-3); }
-.mb-4 { margin-bottom: var(--space-4); }
-.mb-6 { margin-bottom: var(--space-6); }
-.mt-6 { margin-top: var(--space-6); }
-.mt-8 { margin-top: var(--space-8); }
-
-/* Text */
-.text-xs { font-size: var(--text-xs); }
-.text-sm { font-size: var(--text-sm); }
-.text-base { font-size: var(--text-base); }
-.text-md { font-size: var(--text-md); }
-.text-lg { font-size: var(--text-lg); }
-.text-xl { font-size: var(--text-xl); }
-.text-2xl { font-size: var(--text-2xl); }
-
-.text-muted { color: var(--text-muted); }
-.text-subtle { color: var(--text-subtle); }
-.font-medium { font-weight: 500; }
-.font-semibold { font-weight: 600; }
-
-/* Misc */
-.w-full { width: 100%; }
-.rounded-sm { border-radius: var(--radius-sm); }
-.rounded { border-radius: var(--radius-md); }
-.rounded-lg { border-radius: var(--radius-lg); }
-.rounded-xl { border-radius: var(--radius-xl); }
-.cursor-pointer { cursor: pointer; }
-.overflow-auto { overflow: auto; }
-.text-center { text-align: center; }
-```
-
-### 3. Component Classes (For complex patterns)
-
-```css
-/* Cards */
-.card {
-  padding: var(--space-4);
-  background: var(--bg-card);
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--border);
-}
-
-.card-hover {
-  transition: background 0.15s;
-}
-.card-hover:hover {
-  background: var(--bg-hover);
-}
-
-/* Forms */
-.label {
-  display: block;
-  font-size: var(--text-base);
-  color: var(--text-muted);
-  margin-bottom: var(--space-1);
-}
-
-.input {
-  width: 100%;
-  padding: 8px 12px;
-  border: 1px solid var(--border-input);
-  border-radius: var(--radius-md);
-  background: var(--bg-input);
-  color: var(--text);
-  font-size: var(--text-md);
-  box-sizing: border-box;
-}
-
-.input:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-/* Buttons */
-.btn {
-  padding: 10px 20px;
-  border: none;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  font-size: var(--text-md);
-  transition: opacity 0.15s;
-}
-
-.btn:hover:not(:disabled) {
-  opacity: 0.9;
-}
-
-.btn:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-
-.btn-primary {
-  background: var(--accent);
-  color: var(--accent-text);
-}
-
-.btn-secondary {
-  background: var(--bg-hover);
-  color: var(--text);
-}
-
-.btn-danger {
-  background: var(--error-bg);
-  color: var(--error-text);
-}
-
-.btn-sm {
-  padding: 6px 12px;
-  font-size: var(--text-sm);
-}
-
-/* Code blocks */
-.code-inline {
-  background: var(--bg-muted);
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-  font-family: monospace;
-  font-size: var(--text-sm);
-}
-```
-
-### 4. Keep Inline For:
-
-- Dynamic values from props/state
-- Computed styles (widths, positions)
-- One-off unique styles
-- Complex interactions (hover states with theme colors not in CSS vars)
-
----
-
-## Implementation Plan
-
-### Phase 1: Foundation (Day 1)
-
-**Files to create:**
-1. ✅ `web/src/styles.css` - Main stylesheet
-2. ✅ Update `web/index.html` - Add CSS variables, import styles.css
-
-**Deliverables:**
-- 50 utility classes
-- 10 component classes
-- Extended CSS variables
-
-**Metrics:**
-- 0 files refactored yet
-- Foundation ready
-
----
-
-### Phase 2: High-Impact Files (Day 2-3)
-
-**Priority 1 - Top 5 heaviest files (>500 estimated style lines):**
-
-1. **IntegrationsPanel.tsx** (944 lines → ~300 target)
-   - Extract: Cards, buttons, form inputs, labels
-   - Keep inline: Toggle styles, dynamic webhook states
-
-2. **App.tsx** (864 lines → ~250 target)
-   - Extract: Layout grids, auth forms, doc navigation
-   - Keep inline: Route-dependent styles
-
-3. **ThingCard.tsx** (752 lines → ~250 target)
-   - Extract: Card containers, photo layouts, metadata displays
-   - Keep inline: Template-specific rendering, dynamic photo viewer
-
-4. **SettingsPanels.tsx** (528 lines → ~180 target)
-   - Extract: Tab navigation, form layouts, key displays
-   - Keep inline: Conditional key states
-
-5. **EditKindModal.tsx** (328 lines → ~120 target)
-   - Extract: Modal structure, form fields, attribute lists
-   - Keep inline: Emoji picker integration
-
-**Expected reduction:** ~2,500 lines → ~1,100 lines (56% reduction)
-
----
-
-### Phase 3: Medium Files (Day 4)
-
-**Priority 2 - Medium weight (150-300 estimated lines):**
-
-6. FriendsView.tsx (312 → ~120)
-7. CommentsSection.tsx (280 → ~100)
-8. EditThingModal.tsx (240 → ~90)
-9. FeedView.tsx (200 → ~80)
-10. ReactionComponents.tsx (160 → ~70)
-
-**Expected reduction:** ~1,200 lines → ~460 lines (62% reduction)
-
----
-
-### Phase 4: Polish (Day 5)
-
-**Priority 3 - Remaining files:**
-
-11. AttributeInputs.tsx
-12. EmojiPicker.tsx
-13. Footer.tsx
-14. BookmarksView.tsx
-15. KindSelector.tsx
-16. SettingsPage.tsx (already minimal)
-
-**Expected reduction:** ~336 lines → ~150 lines (55% reduction)
-
----
-
-## Success Metrics
-
-### Before:
-- Total source lines: ~8,500
-- Inline style lines: ~4,920 (58% of codebase)
-- Style blocks: 748
-- Bundle size: ~322 KB
-
-### After (Projected):
-- Total source lines: ~5,800 (32% reduction)
-- Inline style lines: ~1,710 (30% of codebase)
-- Style blocks: ~220 (71% reduction)
-- CSS file: ~200 lines
-- Bundle size: ~285 KB (estimated -12%)
-
-### Key Wins:
-1. **Developer Experience:** Write `className="flex items-center gap-2"` instead of 3-line style objects
-2. **Performance:** Browser can cache CSS, less JS to parse
-3. **Consistency:** Design system enforced through classes
-4. **Maintainability:** Change spacing scale in one place
-5. **Bundle Size:** ~37 KB reduction in JS
 
 ---
 
 ## Migration Strategy
 
-### For Each Component:
-
-1. **Identify patterns** - Find repeated style blocks
-2. **Replace with classes** - Use existing utilities where possible
-3. **Test theme switching** - Ensure dark/light mode still works
-4. **Verify build** - Run `npm run build` after each file
-5. **Commit** - Small commits per file or feature
-
-### Example Migration:
-
-**Before:**
+### Before:
 ```tsx
 <div style={{
   display: 'flex',
@@ -399,48 +217,261 @@ Create ~50 utility classes:
 }}>
 ```
 
-**After:**
+### After:
 ```tsx
-<div className="card flex items-center gap-2">
+<div className="flex items-center gap-2 p-4 bg-card rounded-lg border border-border">
 ```
 
-**For dynamic colors (keep inline):**
+### Keep Inline For:
 ```tsx
-<button style={{ background: theme.accent, color: theme.accentText }} className="btn">
+// Dynamic/computed values still need inline styles
+<div
+  className="flex items-center gap-2 rounded-md"
+  style={{
+    background: isSelected ? theme.accent : theme.bgCard,
+    transform: `translateX(${offset}px)`
+  }}
+>
 ```
+
+---
+
+## Implementation Plan
+
+### Phase 1: Foundation Setup (30 minutes)
+
+**Tasks:**
+1. ✅ Install Tailwind CSS dependencies
+2. ✅ Create tailwind.config.js with CSS variable mappings
+3. ✅ Update src/index.css with Tailwind directives
+4. ✅ Verify build works with Tailwind
+5. ✅ Test theme switching still works
+
+**Deliverables:**
+- Tailwind integrated and building
+- Theme system unchanged and functional
+- Ready to start component migration
+
+**Metrics:**
+- 0 files refactored yet
+- Foundation ready
+
+---
+
+### Phase 2: High-Impact Files (4-6 hours)
+
+**Priority 1 - Top 5 heaviest files:**
+
+1. **IntegrationsPanel.tsx** (944 → ~200 target)
+   - Replace: Flex layouts, cards, buttons, form inputs
+   - Keep inline: Dynamic webhook state colors
+
+2. **App.tsx** (864 → ~150 target)
+   - Replace: Layout grids, auth forms, navigation
+   - Keep inline: Route-dependent conditional styles
+
+3. **ThingCard.tsx** (752 → ~200 target)
+   - Replace: Card containers, photo layouts, metadata displays
+   - Keep inline: Template-specific rendering logic
+
+4. **SettingsPanels.tsx** (528 → ~120 target)
+   - Replace: Form layouts, tab navigation, key displays
+   - Keep inline: Conditional button states
+
+5. **EditKindModal.tsx** (328 → ~80 target)
+   - Replace: Modal structure, form fields
+   - Keep inline: Emoji picker dynamic positioning
+
+**Expected reduction:** ~2,500 lines → ~750 lines (70% reduction)
+
+---
+
+### Phase 3: Medium Files (2-3 hours)
+
+**Priority 2 - Medium weight files:**
+
+6. FriendsView.tsx (312 → ~80)
+7. CommentsSection.tsx (280 → ~70)
+8. EditThingModal.tsx (240 → ~60)
+9. FeedView.tsx (200 → ~50)
+10. ReactionComponents.tsx (160 → ~40)
+
+**Expected reduction:** ~1,200 lines → ~300 lines (75% reduction)
+
+---
+
+### Phase 4: Polish (1-2 hours)
+
+**Priority 3 - Remaining files:**
+
+11. AttributeInputs.tsx
+12. EmojiPicker.tsx
+13. Footer.tsx
+14. BookmarksView.tsx
+15. KindSelector.tsx
+16. SettingsPage.tsx
+
+**Expected reduction:** ~336 lines → ~100 lines (70% reduction)
+
+---
+
+## Common Tailwind Class Mappings
+
+### Layout
+```tsx
+// Flex
+display: 'flex' → className="flex"
+flexDirection: 'column' → "flex-col"
+alignItems: 'center' → "items-center"
+justifyContent: 'space-between' → "justify-between"
+gap: 8 → "gap-2"
+gap: 16 → "gap-4"
+
+// Sizing
+width: '100%' → "w-full"
+flex: 1 → "flex-1"
+```
+
+### Spacing (Tailwind uses 4px scale)
+```tsx
+padding: 4 → "p-1"
+padding: 8 → "p-2"
+padding: 16 → "p-4"
+padding: 20 → "p-5"
+margin: 16 → "m-4"
+marginBottom: 16 → "mb-4"
+```
+
+### Typography
+```tsx
+fontSize: 12 → "text-xs"
+fontSize: 14 → "text-sm"
+fontSize: 16 → "text-base"
+fontSize: 20 → "text-xl"
+fontWeight: 600 → "font-semibold"
+color: theme.text → "text-text"
+color: theme.textMuted → "text-muted"
+```
+
+### Borders & Radius
+```tsx
+borderRadius: 4 → "rounded"
+borderRadius: 6 → "rounded-md"
+borderRadius: 8 → "rounded-lg"
+border: `1px solid ${theme.border}` → "border border-border"
+```
+
+### Backgrounds & Colors
+```tsx
+background: theme.bgCard → "bg-card"
+background: theme.accent → "bg-accent"
+color: theme.accentText → "text-accent-text"
+```
+
+### Interactive States
+```tsx
+cursor: 'pointer' → "cursor-pointer"
+:hover styles → "hover:bg-hover"
+:disabled styles → "disabled:opacity-50"
+```
+
+---
+
+## Success Metrics
+
+### Before:
+- Total source lines: ~8,500
+- Inline style lines: ~4,920 (58% of codebase)
+- Style blocks: 748
+- Bundle size: ~322 KB
+- CSS framework: None
+
+### After (Projected):
+- Total source lines: ~5,200 (39% reduction)
+- Inline style lines: ~1,150 (22% of codebase)
+- Style blocks: ~180 (76% reduction)
+- Bundle size: ~290 KB (estimated -10% with tree-shaking)
+- CSS framework: Tailwind CSS (15-25 KB after purge)
+
+### Key Wins:
+1. **Developer Experience:** Standard Tailwind utilities with IntelliSense
+2. **Readability:** `className="flex items-center gap-2"` vs 3-line style objects
+3. **Consistency:** Tailwind's design system enforced
+4. **Performance:** Browser caches CSS, less JS to parse
+5. **Maintainability:** Theme changes in CSS variables only
+6. **Extensibility:** Users can add themes by providing CSS variables
+7. **Plugin Support:** Standard Tailwind classes work in plugins
+
+---
+
+## Plugin/Theme Extensibility
+
+### For Plugin Authors:
+```tsx
+// Use semantic Tailwind classes
+export function CustomWidget() {
+  return (
+    <div className="bg-card p-4 rounded-lg border border-border">
+      <h3 className="text-lg font-semibold text-text">Widget</h3>
+      <p className="text-sm text-muted">Description</p>
+    </div>
+  )
+}
+```
+
+### For Theme Creators:
+```css
+/* themes/ocean.css */
+[data-theme="ocean"] {
+  --bg: #0c4a6e;
+  --bg-card: #075985;
+  --accent: #38bdf8;
+  --text: #f0f9ff;
+  --text-muted: #bae6fd;
+  --border: #0369a1;
+  /* ...15 variables = complete theme */
+}
+```
+
+No Tailwind config needed - just CSS variables!
 
 ---
 
 ## Risk Mitigation
 
-1. **Theme Integration:** All color CSS variables already exist in index.html
-2. **Type Safety:** Can create `cn()` utility for className composition later
+1. **Theme Integration:** CSS variables already exist, Tailwind just references them
+2. **Build Config:** PostCSS setup is standard Vite practice
 3. **Rollback:** Git commits per file allow easy revert
-4. **Testing:** Build after each file ensures no breakage
+4. **Testing:** Build and visual test after each file
 5. **Progressive:** Can stop at any phase if issues arise
+6. **Documentation:** Tailwind docs apply directly
 
 ---
 
 ## Post-Refactor Opportunities
 
-1. Add `clsx` or `classnames` library for dynamic class composition
-2. Consider TypeScript type definitions for className values
-3. Document design system in separate style guide
-4. Add CSS linting (stylelint) for consistency
-5. Explore component variants using class composition
+1. ✅ Use `clsx` for dynamic class composition
+2. Create shared component variants with class composition
+3. Add responsive layouts with `md:`, `lg:` breakpoints
+4. Implement hover/focus states with Tailwind variants
+5. Consider Tailwind plugins for advanced patterns
+6. Document CSS variable contract for theme creators
 
 ---
 
-## Timeline
+## Timeline Estimate
 
-- **Phase 1 (Foundation):** 2 hours
-- **Phase 2 (High-Impact):** 6 hours
-- **Phase 3 (Medium):** 4 hours
-- **Phase 4 (Polish):** 2 hours
+- **Phase 1 (Foundation):** 30 minutes
+- **Phase 2 (High-Impact):** 4-6 hours
+- **Phase 3 (Medium):** 2-3 hours
+- **Phase 4 (Polish):** 1-2 hours
 
-**Total Estimated Time:** 14 hours over 5 days
+**Total Estimated Time:** 8-12 hours
 
 ---
 
-**Status:** ✅ Plan Complete - Ready for Implementation
-**Next Step:** Create styles.css foundation
+**Status:** 📝 Plan Complete - Ready for Implementation
+**Next Step:** Install Tailwind CSS and configure with CSS variable mappings
+
+**Approach:** Hybrid Tailwind + CSS Variables
+**Strategy:** Maximize Tailwind utilities while preserving semantic theming through CSS variables

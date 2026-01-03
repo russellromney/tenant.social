@@ -45,35 +45,21 @@ export function LinkAttributeInput({
 
   const linkedThings = availableThings.filter((t: Thing) => linkedThingIds.includes(t.id))
 
-  const labelStyle = { fontSize: 13, color: theme.textMuted, marginBottom: 4, display: 'block' }
-  const inputStyle = {
-    width: '100%',
-    padding: '8px 12px',
-    border: `1px solid ${theme.borderInput}`,
-    borderRadius: 6,
-    fontSize: 14,
-    boxSizing: 'border-box' as const,
-    background: theme.bgInput,
-    color: theme.text,
-  }
-
   return (
     <div>
-      <label style={labelStyle}>
+      <label className="block text-[13px] mb-1" style={{ color: theme.textMuted }}>
         {attribute.name} {attribute.required && <span style={{ color: theme.errorText }}>*</span>}
       </label>
 
       {/* Selected Things */}
       {linkedThings.length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+        <div className="flex flex-wrap gap-2 mb-2">
           {linkedThings.map((thing: Thing) => (
             <div
               key={thing.id}
+              className="px-2.5 py-1.5 rounded-md text-[13px]"
               style={{
-                padding: '6px 10px',
                 background: theme.bgMuted,
-                borderRadius: 6,
-                fontSize: 13,
                 color: theme.text,
               }}
             >
@@ -84,7 +70,7 @@ export function LinkAttributeInput({
       )}
 
       {/* Search and Dropdown */}
-      <div style={{ position: 'relative' }}>
+      <div className="relative">
         <input
           type="text"
           placeholder={loading ? 'Loading...' : 'Search to add...'}
@@ -92,24 +78,22 @@ export function LinkAttributeInput({
           onChange={e => setSearchFilter((e.target as HTMLInputElement).value)}
           onFocus={() => setShowDropdown(true)}
           disabled={loading}
-          style={inputStyle}
+          className="w-full px-3 py-2 rounded-md text-sm border"
+          style={{
+            background: theme.bgInput,
+            color: theme.text,
+            borderColor: theme.borderInput,
+          }}
         />
 
         {/* Dropdown */}
         {showDropdown && filteredThings.length > 0 && (
           <div
+            data-testid="link-dropdown"
+            className="absolute top-full left-0 right-0 border-t-0 rounded-b-md max-h-[200px] overflow-y-auto z-[1000]"
             style={{
-              position: 'absolute',
-              top: '100%',
-              left: 0,
-              right: 0,
               background: theme.bgCard,
-              border: `1px solid ${theme.borderInput}`,
-              borderTop: 'none',
-              borderRadius: '0 0 6px 6px',
-              maxHeight: 200,
-              overflowY: 'auto',
-              zIndex: 1000,
+              borderColor: theme.borderInput,
             }}
           >
             {filteredThings.map((thing: Thing) => (
@@ -120,11 +104,9 @@ export function LinkAttributeInput({
                   setSearchFilter('')
                   setShowDropdown(false)
                 }}
+                className="px-3 py-2.5 cursor-pointer text-sm"
                 style={{
-                  padding: '10px 12px',
-                  cursor: 'pointer',
                   borderBottom: `1px solid ${theme.border}`,
-                  fontSize: 14,
                   color: theme.text,
                 }}
                 onMouseEnter={e => (e.currentTarget.style.background = theme.bgHover)}
@@ -152,22 +134,10 @@ export function AttributeInput({
   onChange: (val: unknown) => void
   theme: Theme
 }) {
-  const labelStyle = { fontSize: 13, color: theme.textMuted, marginBottom: 4, display: 'block' }
-  const inputStyle = {
-    width: '100%',
-    padding: '8px 12px',
-    border: `1px solid ${theme.borderInput}`,
-    borderRadius: 6,
-    fontSize: 14,
-    boxSizing: 'border-box' as const,
-    background: theme.bgInput,
-    color: theme.text,
-  }
-
   switch (attribute.type) {
     case 'checkbox':
       return (
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: theme.text }}>
+        <label className="flex items-center gap-2 text-sm" style={{ color: theme.text }}>
           <input
             type="checkbox"
             checked={Boolean(value)}
@@ -180,11 +150,18 @@ export function AttributeInput({
       const options = attribute.options.split(',').map(o => o.trim()).filter(Boolean)
       return (
         <div>
-          <label style={labelStyle}>{attribute.name} {attribute.required && <span style={{ color: theme.errorText }}>*</span>}</label>
+          <label className="block text-[13px] mb-1" style={{ color: theme.textMuted }}>
+            {attribute.name} {attribute.required && <span style={{ color: theme.errorText }}>*</span>}
+          </label>
           <select
             value={String(value || '')}
             onChange={e => onChange((e.target as HTMLSelectElement).value)}
-            style={{ ...inputStyle, background: theme.bgInput }}
+            className="w-full px-3 py-2 rounded-md text-sm border"
+            style={{
+              background: theme.bgInput,
+              color: theme.text,
+              borderColor: theme.borderInput,
+            }}
           >
             <option value="">Select...</option>
             {options.map(opt => (
@@ -196,37 +173,58 @@ export function AttributeInput({
     case 'number':
       return (
         <div>
-          <label style={labelStyle}>{attribute.name} {attribute.required && <span style={{ color: theme.errorText }}>*</span>}</label>
+          <label className="block text-[13px] mb-1" style={{ color: theme.textMuted }}>
+            {attribute.name} {attribute.required && <span style={{ color: theme.errorText }}>*</span>}
+          </label>
           <input
             type="number"
             value={value as number || ''}
             onInput={e => onChange(Number((e.target as HTMLInputElement).value))}
-            style={inputStyle}
+            className="w-full px-3 py-2 rounded-md text-sm border"
+            style={{
+              background: theme.bgInput,
+              color: theme.text,
+              borderColor: theme.borderInput,
+            }}
           />
         </div>
       )
     case 'date':
       return (
         <div>
-          <label style={labelStyle}>{attribute.name} {attribute.required && <span style={{ color: theme.errorText }}>*</span>}</label>
+          <label className="block text-[13px] mb-1" style={{ color: theme.textMuted }}>
+            {attribute.name} {attribute.required && <span style={{ color: theme.errorText }}>*</span>}
+          </label>
           <input
             type="date"
             value={String(value || '')}
             onInput={e => onChange((e.target as HTMLInputElement).value)}
-            style={inputStyle}
+            className="w-full px-3 py-2 rounded-md text-sm border"
+            style={{
+              background: theme.bgInput,
+              color: theme.text,
+              borderColor: theme.borderInput,
+            }}
           />
         </div>
       )
     case 'url':
       return (
         <div>
-          <label style={labelStyle}>{attribute.name} {attribute.required && <span style={{ color: theme.errorText }}>*</span>}</label>
+          <label className="block text-[13px] mb-1" style={{ color: theme.textMuted }}>
+            {attribute.name} {attribute.required && <span style={{ color: theme.errorText }}>*</span>}
+          </label>
           <input
             type="url"
             value={String(value || '')}
             onInput={e => onChange((e.target as HTMLInputElement).value)}
             placeholder="https://..."
-            style={inputStyle}
+            className="w-full px-3 py-2 rounded-md text-sm border"
+            style={{
+              background: theme.bgInput,
+              color: theme.text,
+              borderColor: theme.borderInput,
+            }}
           />
         </div>
       )
@@ -235,12 +233,19 @@ export function AttributeInput({
     default:
       return (
         <div>
-          <label style={labelStyle}>{attribute.name} {attribute.required && <span style={{ color: theme.errorText }}>*</span>}</label>
+          <label className="block text-[13px] mb-1" style={{ color: theme.textMuted }}>
+            {attribute.name} {attribute.required && <span style={{ color: theme.errorText }}>*</span>}
+          </label>
           <input
             type="text"
             value={String(value || '')}
             onInput={e => onChange((e.target as HTMLInputElement).value)}
-            style={inputStyle}
+            className="w-full px-3 py-2 rounded-md text-sm border"
+            style={{
+              background: theme.bgInput,
+              color: theme.text,
+              borderColor: theme.borderInput,
+            }}
           />
         </div>
       )
