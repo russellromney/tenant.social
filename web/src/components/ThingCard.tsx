@@ -4,6 +4,7 @@ import { Kind, Thing, ReactionSummary } from '../types'
 import { apiUrl, navigateTo } from '../api'
 import { Markdown } from '../Markdown'
 import { ReactionBar, BookmarkButton, EditedIndicator, EditHistoryModal } from './index'
+import { useIsMobile } from '../hooks'
 
 // ThingCard Component - renders a Thing based on its Kind's template
 export function ThingCard({
@@ -25,6 +26,7 @@ export function ThingCard({
 }) {
   const template = kind?.template || 'default'
   const icon = kind?.icon || '•'
+  const isMobile = useIsMobile()
 
   // Photo template hooks - MUST be at top level, always called regardless of template
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0)
@@ -76,14 +78,14 @@ export function ThingCard({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [viewerOpen, thing.photos, template])
 
-  // Delete button (shared across templates)
+  // Delete button (shared across templates) - 44px minimum touch target on mobile
   const DeleteButton = () => (
     <button
       onClick={(e) => {
         e.stopPropagation()
         onDelete()
       }}
-      className="bg-transparent border-none cursor-pointer text-lg px-2 py-1 flex-shrink-0"
+      className={`bg-transparent border-none cursor-pointer flex-shrink-0 flex items-center justify-center ${isMobile ? 'w-11 h-11 text-xl' : 'text-lg px-2 py-1'}`}
       style={{ color: theme.textDisabled }}
       onMouseEnter={e => (e.currentTarget.style.color = theme.error)}
       onMouseLeave={e => (e.currentTarget.style.color = theme.textDisabled)}
@@ -92,14 +94,14 @@ export function ThingCard({
     </button>
   )
 
-  // Edit button (shared across templates)
+  // Edit button (shared across templates) - 44px minimum touch target on mobile
   const EditButton = () => (
     <button
       onClick={(e) => {
         e.stopPropagation()
         onEdit()
       }}
-      className="bg-transparent border-none cursor-pointer text-sm px-2 py-1 flex-shrink-0"
+      className={`bg-transparent border-none cursor-pointer flex-shrink-0 flex items-center justify-center ${isMobile ? 'w-11 h-11 text-lg' : 'text-sm px-2 py-1'}`}
       style={{ color: theme.textDisabled }}
       onMouseEnter={e => (e.currentTarget.style.color = theme.accent)}
       onMouseLeave={e => (e.currentTarget.style.color = theme.textDisabled)}

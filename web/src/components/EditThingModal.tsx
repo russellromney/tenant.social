@@ -2,6 +2,7 @@ import { useState } from 'preact/hooks'
 import { Theme } from '../theme'
 import { Thing, Kind, Attribute } from '../types'
 import { apiUrl } from '../api'
+import { useIsMobile } from '../hooks'
 
 // Attribute input component for editing metadata
 function AttributeInput({
@@ -141,6 +142,7 @@ export function EditThingModal({
   )
   const [deletedPhotoIds, setDeletedPhotoIds] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
+  const isMobile = useIsMobile()
 
   const currentKind = kinds.find(k => k.name === type)
   const isGallery = thing.type === 'gallery' && thing.photos && thing.photos.length > 0
@@ -195,16 +197,34 @@ export function EditThingModal({
 
   return (
     <div
-      className="fixed inset-0 flex items-center justify-center z-[1000]"
+      className={`fixed inset-0 z-[1000] ${isMobile ? '' : 'flex items-center justify-center'}`}
       style={{ background: theme.overlay }}
       onClick={onClose}
     >
       <div
-        className="rounded-xl p-6 w-full max-w-[500px] max-h-[80vh] overflow-auto"
-        style={{ background: theme.bgCard }}
+        className={isMobile
+          ? "w-full h-full overflow-auto flex flex-col"
+          : "rounded-xl p-6 w-full max-w-[500px] max-h-[80vh] overflow-auto"
+        }
+        style={{ background: theme.bgCard, padding: isMobile ? '16px' : undefined }}
         onClick={e => e.stopPropagation()}
       >
-        <h2 className="m-0 mb-5 text-xl" style={{ color: theme.text }}>Edit Thing</h2>
+        {/* Mobile header with close button */}
+        {isMobile && (
+          <div className="flex items-center justify-between py-3 border-b mb-4" style={{ borderColor: theme.border }}>
+            <h2 className="m-0 text-lg font-semibold" style={{ color: theme.text }}>Edit Thing</h2>
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-2 -mr-2 bg-transparent border-0 cursor-pointer text-2xl leading-none"
+              style={{ color: theme.textMuted }}
+              aria-label="Close"
+            >
+              ×
+            </button>
+          </div>
+        )}
+        {!isMobile && <h2 className="m-0 mb-5 text-xl" style={{ color: theme.text }}>Edit Thing</h2>}
         <form onSubmit={handleSave}>
           <div className="mb-4">
             <label className="block mb-1.5 text-sm font-medium" style={{ color: theme.text }}>Kind</label>
@@ -303,22 +323,24 @@ export function EditThingModal({
             </div>
           )}
 
-          <div className="flex gap-2 justify-end">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-5 py-2.5 rounded-md border-0 cursor-pointer"
-              style={{
-                background: theme.bgHover,
-                color: theme.text,
-              }}
-            >
-              Cancel
-            </button>
+          <div className={`flex gap-3 ${isMobile ? 'flex-col mt-auto pt-4' : 'justify-end'}`}>
+            {!isMobile && (
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-5 py-2.5 rounded-md border-0 cursor-pointer"
+                style={{
+                  background: theme.bgHover,
+                  color: theme.text,
+                }}
+              >
+                Cancel
+              </button>
+            )}
             <button
               type="submit"
               disabled={saving}
-              className="px-5 py-2.5 rounded-md border-0"
+              className={`rounded-lg border-0 font-medium ${isMobile ? 'w-full py-4 text-base' : 'px-5 py-2.5'}`}
               style={{
                 background: saving ? theme.textMuted : theme.accent,
                 color: theme.accentText,

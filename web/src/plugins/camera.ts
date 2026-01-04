@@ -109,12 +109,14 @@ export async function captureOrPick(options?: {
   }
 }
 
+export type PermissionState = 'granted' | 'denied' | 'prompt' | 'prompt-with-rationale' | 'limited';
+
 /**
  * Check camera permissions
  */
 export async function checkCameraPermissions(): Promise<{
-  camera: 'granted' | 'denied' | 'prompt';
-  photos: 'granted' | 'denied' | 'prompt';
+  camera: PermissionState;
+  photos: PermissionState;
 }> {
   const result = await Camera.checkPermissions();
   return {
@@ -127,8 +129,8 @@ export async function checkCameraPermissions(): Promise<{
  * Request camera permissions
  */
 export async function requestCameraPermissions(): Promise<{
-  camera: 'granted' | 'denied' | 'prompt';
-  photos: 'granted' | 'denied' | 'prompt';
+  camera: PermissionState;
+  photos: PermissionState;
 }> {
   const result = await Camera.requestPermissions();
   return {

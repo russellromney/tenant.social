@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'preact/hooks'
+import { useState, useEffect, useMemo } from 'preact/hooks'
 import { useTheme, Theme } from './theme.tsx'
 import { PublicHomePage } from './PublicHomePage.tsx'
 import { apiUrl, getRoute, navigateTo, routeHref, setupClientSideNavigation } from './api'
@@ -6,8 +6,11 @@ import { AboutContent, APIDocsContent, DeploymentContent, AIAgentsContent } from
 import {
   Kind, Thing, DEFAULT_KINDS, AuthStatus
 } from './types'
-import { useRoute, useIsMobile } from './hooks'
-import { KindSelector, Footer, EditThingModal, EditKindModal, AttributeInput, SettingsPage, ThingCard, CommentsSection, BookmarksView, FeedView } from './components'
+import { useRoute, useIsMobile, useKeyboardShortcuts } from './hooks'
+import { KindSelector, Footer, EditThingModal, EditKindModal, AttributeInput, SettingsPage, ThingCard, CommentsSection, BookmarksView, FeedView, BottomNav } from './components'
+import { QuickCaptureModal } from './components/QuickCaptureModal'
+import { JournalView } from './components/JournalView'
+import { captureOrPick, isCameraAvailable, webPathToFile } from './plugins/camera'
 
 // Setup client-side navigation for SPA routing
 setupClientSideNavigation()
@@ -480,10 +483,18 @@ function App() {
   const [defaultKindId, setDefaultKindId] = useState<string | null>(() => {
     try { return localStorage.getItem('defaultKindId') } catch { return null }
   })
+  const [quickCaptureOpen, setQuickCaptureOpen] = useState(false)
+
+  // Keyboard shortcuts - Cmd+Shift+N opens Quick Capture
+  const shortcuts = useMemo(() => ({
+    'cmd+shift+n': () => setQuickCaptureOpen(true),
+  }), [])
+  useKeyboardShortcuts(shortcuts)
 
   const isSettingsPage = route === '/settings' || route === '/data' || route === '/keys' || route === '/kinds' || route === '/friends' || route === '/integrations' // aliases
   const isFeedPage = route === '/feed'
   const isBookmarksPage = route === '/bookmarks'
+  const isJournalPage = route === '/journal'
   const isProfilePage = route === '/' || route === '' || route === '/profile'
   const isSubPage = isSettingsPage
 
@@ -764,6 +775,32 @@ function App() {
     setShowPhotoModal(true)
   }
 
+  // Handle native camera capture (Capacitor)
+  async function handleNativeCameraCapture() {
+    if (!isCameraAvailable()) {
+      // Fall back to file input on web
+      setShowPhotoModal(true)
+      return
+    }
+
+    try {
+      const result = await captureOrPick({ quality: 90 })
+      if (result && result.webPath) {
+        // Convert to File for upload
+        const filename = `photo_${Date.now()}.${result.format || 'jpg'}`
+        const file = await webPathToFile(result.webPath, filename)
+        const preview = result.webPath
+
+        setSelectedPhotos(prev => [...prev, { file, caption: '', preview }])
+        setShowPhotoModal(true)
+      }
+    } catch (error) {
+      console.error('Camera capture failed:', error)
+      // Fall back to file modal
+      setShowPhotoModal(true)
+    }
+  }
+
   async function handlePhotoInputChange(e: Event) {
     const input = e.target as HTMLInputElement
     if (input.files) {
@@ -982,21 +1019,23 @@ function App() {
   // Navigation items for sidebar
   const navItems = [
     { href: '/', icon: '👤', label: 'Profile', active: isProfilePage },
+    { href: '/journal', icon: '📅', label: 'Journal', active: isJournalPage },
     { href: '/feed', icon: '📰', label: 'Feed', active: isFeedPage },
     { href: '/bookmarks', icon: '🔖', label: 'Bookmarks', active: isBookmarksPage },
     { href: '/settings', icon: '⚙️', label: 'Settings', active: isSettingsPage },
   ]
 
   return (
-    <div className="flex min-h-screen font-sans" style={{ background: theme.bg, color: theme.text }}>
-      {/* Side Menu */}
+    <div className="flex min-h-screen font-sans" style={{ background: theme.bg, color: theme.text, paddingBottom: isMobile ? 70 : 0 }}>
+      {/* Side Menu - hidden on mobile, replaced by bottom nav */}
+      {!isMobile && (
       <div
         className="flex-shrink-0 flex flex-col fixed top-0 bottom-0 z-[100] border-r"
         style={{
           width: sidebarWidth,
           background: theme.bgCard,
           borderRightColor: theme.border,
-          left: isMobile ? 0 : `calc(50% - ${350 + sidebarWidth}px)`,
+          left: `calc(50% - ${350 + sidebarWidth}px)`,
         }}
       >
         {/* Logo */}
@@ -1075,31 +1114,40 @@ function App() {
         </div>
 
         {/* Footer Links */}
-        {!isMobile && (
-          <div className="px-4 py-3 border-t text-[11px]" style={{
-            borderTopColor: theme.border,
-            color: theme.textSubtle
-          }}>
-            <div className="mb-2" style={{ color: theme.textMuted }}>
-              Your personal social data platform
-            </div>
-            <div className="flex flex-col gap-1 mb-2">
-              <a href={routeHref('/docs')} className="no-underline" style={{ color: theme.textMuted }}>About</a>
-              <a href={routeHref('/docs/api')} className="no-underline" style={{ color: theme.textMuted }}>API</a>
-              <a href={routeHref('/docs/deployment')} className="no-underline" style={{ color: theme.textMuted }}>Deploy</a>
-              <a href="https://github.com/russellromney/tenant.social" target="_blank" rel="noopener noreferrer" className="no-underline" style={{ color: theme.textMuted }}>GitHub</a>
-            </div>
-            <div>Made with ❤️ in NYC by <a href="https://russellromney.com" target="_blank" rel="noopener noreferrer" className="no-underline" style={{ color: theme.link }}>me</a></div>
+        <div className="px-4 py-3 border-t text-[11px]" style={{
+          borderTopColor: theme.border,
+          color: theme.textSubtle
+        }}>
+          <div className="mb-2" style={{ color: theme.textMuted }}>
+            Your personal social data platform
           </div>
-        )}
+          <div className="flex flex-col gap-1 mb-2">
+            <a href={routeHref('/docs')} className="no-underline" style={{ color: theme.textMuted }}>About</a>
+            <a href={routeHref('/docs/api')} className="no-underline" style={{ color: theme.textMuted }}>API</a>
+            <a href={routeHref('/docs/deployment')} className="no-underline" style={{ color: theme.textMuted }}>Deploy</a>
+            <a href="https://github.com/russellromney/tenant.social" target="_blank" rel="noopener noreferrer" className="no-underline" style={{ color: theme.textMuted }}>GitHub</a>
+          </div>
+          <div>Made with ❤️ in NYC by <a href="https://russellromney.com" target="_blank" rel="noopener noreferrer" className="no-underline" style={{ color: theme.link }}>me</a></div>
+        </div>
       </div>
+      )}
+
+      {/* Mobile Bottom Navigation */}
+      {isMobile && (
+        <BottomNav
+          items={navItems}
+          theme={theme}
+          onThemeToggle={toggleTheme}
+          isDark={isDark}
+        />
+      )}
 
       {/* Main Content */}
       <div
         className="flex-1 flex"
         style={{
-          marginLeft: isMobile ? sidebarWidth : `calc(50% - ${350}px)`,
-          justifyContent: isMobile ? 'center' : 'flex-start',
+          marginLeft: isMobile ? 0 : `calc(50% - ${350}px)`,
+          justifyContent: 'center',
         }}
       >
       <div className="w-full max-w-[700px]" style={{ padding: isMobile ? 12 : 20 }}>
@@ -1140,6 +1188,19 @@ function App() {
         <FeedView theme={theme} kinds={kinds} />
       ) : isBookmarksPage ? (
         <BookmarksView theme={theme} kinds={kinds} />
+      ) : isJournalPage ? (
+        <JournalView
+          theme={theme}
+          kinds={kinds}
+          things={things}
+          onThingUpdated={(thing: Thing) => {
+            setThings(prev => prev.map(t => t.id === thing.id ? thing : t))
+          }}
+          onThingDeleted={(id: string) => {
+            setThings(prev => prev.filter(t => t.id !== id))
+          }}
+          isMobile={isMobile}
+        />
       ) : (
         <>
           {/* Search & Filter */}
@@ -1242,7 +1303,7 @@ function App() {
                       cursor: uploading ? 'wait' : 'pointer',
                       color: theme.textMuted,
                     }}
-                    onClick={() => setShowPhotoModal(true)}
+                    onClick={handleNativeCameraCapture}
                     disabled={uploading}
                   >
                     <span className="text-lg">📷</span>
@@ -1333,6 +1394,25 @@ function App() {
           theme={theme}
         />
       )}
+
+      {/* Quick Capture Modal */}
+      <QuickCaptureModal
+        isOpen={quickCaptureOpen}
+        onClose={() => setQuickCaptureOpen(false)}
+        onThingCreated={(thing) => {
+          // Add to feed or update existing
+          setThings(prev => {
+            const existing = prev.findIndex(t => t.id === thing.id)
+            if (existing >= 0) {
+              const updated = [...prev]
+              updated[existing] = thing
+              return updated
+            }
+            return [thing, ...prev]
+          })
+        }}
+        theme={theme}
+      />
 
       {/* Photo Upload Modal */}
       {showPhotoModal && (
